@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, LogicalPosition, LogicalSize } from "@tauri-apps/api/window";
-import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import {
   isPermissionGranted,
   onAction,
@@ -923,9 +922,10 @@ function App() {
     const raw = window.location.hash.replace("#", "");
     const path = raw.startsWith("/") ? raw.slice(1) : raw;
     const view = path.split("/")[0];
-    if (view === "main") return "main";
-    if (view === "reminder") return "reminder";
-    return "quick";
+    const label = getCurrentWindow().label;
+    if (label === "main" || label === "quick" || label === "reminder") return label;
+    if (view === "main" || view === "quick" || view === "reminder") return view;
+    return "main";
   };
 
   const [view, setView] = useState<"quick" | "main" | "reminder">(getViewFromHash());
@@ -1093,6 +1093,10 @@ function App() {
     if (!settings) return;
     document.documentElement.dataset.theme = settings.theme;
   }, [settings]);
+
+  useEffect(() => {
+    document.documentElement.dataset.view = view;
+  }, [view]);
 
   useEffect(() => {
     (async () => {
@@ -1331,13 +1335,6 @@ function App() {
     const next = { ...settings, quick_always_on_top: !settings.quick_always_on_top };
     await handleUpdateSettings(next);
     await getCurrentWindow().setAlwaysOnTop(next.quick_always_on_top);
-  }
-
-  async function handleOpenMainWindow() {
-    const window = await WebviewWindow.getByLabel("main");
-    if (!window) return;
-    await window.show();
-    await window.setFocus();
   }
 
   async function requestNotificationPermission() {
@@ -1591,22 +1588,22 @@ function App() {
     <div className="app-container">
       {view === "quick" && (
         <div className="quick-window">
-          <div className="quick-header">
-            <div className="quick-header-left">
-              <span className="quick-title">Todo 快捷窗口</span>
-            </div>
-            <div className="quick-header-actions">
-              <button className="quick-header-btn" onClick={handleOpenMainWindow}>
-                打开主界面
-              </button>
+          <div className="quick-header" data-tauri-drag-region>
+            <div className="quick-header-actions" data-tauri-drag-region="false">
               <button
-                className={`quick-header-btn ${settings?.quick_always_on_top ? "active" : ""}`}
+                className={`quick-header-btn icon-only ${settings?.quick_always_on_top ? "active" : ""}`}
                 onClick={handleToggleAlwaysOnTop}
+                title="置顶"
+                aria-label="置顶"
               >
                 <Icons.Pin />
-                置顶
               </button>
-              <button className="quick-header-btn" onClick={() => getCurrentWindow().hide()}>
+              <button
+                className="quick-header-btn icon-only"
+                onClick={() => getCurrentWindow().hide()}
+                title="关闭"
+                aria-label="关闭"
+              >
                 <Icons.X />
               </button>
             </div>

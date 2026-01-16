@@ -50,6 +50,43 @@
   --main-bg: linear-gradient(180deg, rgba(248, 250, 252, 0.95), rgba(226, 232, 240, 0.95));
 }
 
+:root[data-view="quick"] {
+  color: #0f172a;
+  background-color: transparent;
+  --text: #0f172a;
+  --muted: rgba(51, 65, 85, 0.7);
+  --muted-strong: rgba(51, 65, 85, 0.82);
+  --panel: rgba(255, 255, 255, 0.62);
+  --panel-strong: rgba(255, 255, 255, 0.78);
+  --border: rgba(148, 163, 184, 0.35);
+  --accent: rgba(14, 165, 233, 0.85);
+  --accent-soft: rgba(14, 165, 233, 0.18);
+  --quick-bg: radial-gradient(900px 700px at 10% 0%, rgba(56, 189, 248, 0.28), rgba(0, 0, 0, 0) 60%),
+    radial-gradient(900px 700px at 90% 10%, rgba(45, 212, 191, 0.22), rgba(0, 0, 0, 0) 60%),
+    linear-gradient(160deg, rgba(255, 255, 255, 0.65), rgba(226, 232, 240, 0.6));
+}
+
+:root[data-view="quick"][data-theme="dark"] {
+  color: #e2e8f0;
+  --text: #e2e8f0;
+  --muted: rgba(226, 232, 240, 0.75);
+  --muted-strong: rgba(226, 232, 240, 0.86);
+  --panel: rgba(15, 23, 42, 0.55);
+  --panel-strong: rgba(15, 23, 42, 0.75);
+  --border: rgba(148, 163, 184, 0.28);
+  --accent: rgba(56, 189, 248, 0.9);
+  --accent-soft: rgba(56, 189, 248, 0.2);
+  --quick-bg: radial-gradient(900px 700px at 10% 0%, rgba(56, 189, 248, 0.24), rgba(0, 0, 0, 0) 60%),
+    radial-gradient(900px 700px at 90% 10%, rgba(45, 212, 191, 0.2), rgba(0, 0, 0, 0) 60%),
+    linear-gradient(160deg, rgba(15, 23, 42, 0.7), rgba(2, 6, 23, 0.65));
+}
+
+:root[data-view="quick"] body,
+:root[data-view="quick"] #root,
+:root[data-view="quick"] .app-container {
+  background-color: transparent;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -89,14 +126,20 @@ textarea {
   flex-direction: column;
   background: var(--quick-bg);
   border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.25);
 }
 
 .quick-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
+  justify-content: flex-end;
+  padding: 8px 10px;
   border-bottom: 1px solid var(--border);
+  -webkit-app-region: drag;
 }
 
 .quick-title {
@@ -105,14 +148,15 @@ textarea {
 
 .quick-header-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
+  -webkit-app-region: no-drag;
 }
 
 .quick-header-btn {
   border: 1px solid var(--border);
   background: var(--panel);
   color: var(--text);
-  padding: 6px 10px;
+  padding: 6px 8px;
   border-radius: 8px;
   cursor: pointer;
   display: inline-flex;
@@ -120,9 +164,16 @@ textarea {
   gap: 6px;
 }
 
+.quick-header-btn.icon-only {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  justify-content: center;
+}
+
 .quick-header-btn.active {
   background: var(--accent-soft);
-  border-color: rgba(59, 130, 246, 0.5);
+  border-color: var(--accent);
 }
 
 .quick-filter-tabs {
@@ -145,7 +196,7 @@ textarea {
 
 .quick-filter-tab.active {
   background: var(--accent-soft);
-  border-color: rgba(59, 130, 246, 0.5);
+  border-color: var(--accent);
 }
 
 .quick-sort {
@@ -537,7 +588,7 @@ textarea {
 
 .quick-input-btn.active {
   background: var(--accent-soft);
-  border-color: rgba(59, 130, 246, 0.5);
+  border-color: var(--accent);
 }
 
 .quick-due-preview {
@@ -594,9 +645,9 @@ textarea {
 .notification-banner {
   margin: 10px;
   padding: 10px;
-  border: 1px solid rgba(59, 130, 246, 0.35);
+  border: 1px solid var(--accent);
   border-radius: 12px;
-  background: rgba(59, 130, 246, 0.12);
+  background: var(--accent-soft);
   display: grid;
   gap: 8px;
 }

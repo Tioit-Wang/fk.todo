@@ -60,6 +60,8 @@ pub fn run() {
             .inner_size(420.0, 520.0)
             .min_inner_size(300.0, 200.0)
             .resizable(true)
+            .decorations(false)
+            .transparent(true)
             .visible(false)
             .build()?;
 
