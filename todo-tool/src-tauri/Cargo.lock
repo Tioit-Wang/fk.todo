@@ -3955,6 +3955,7 @@ dependencies = [
 name = "todo-tool"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "serde",
  "serde_json",
  "tauri",
@@ -3962,6 +3963,7 @@ dependencies = [
  "tauri-plugin-global-shortcut",
  "tauri-plugin-notification",
  "tauri-plugin-opener",
+ "tokio",
 ]
 
 [[package]]

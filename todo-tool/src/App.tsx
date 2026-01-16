@@ -1,23 +1,50 @@
+import { useEffect, useMemo, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
+
 import "./App.css";
 
-// ============================================================================
-// PLACEHOLDER DATA - Replace with actual data from state/props
-// ============================================================================
-const PLACEHOLDER_TASKS = [
-  { id: 1, title: "Review quarterly report", dueTime: "10:30 AM", isImportant: true, isUrgent: true, hasSteps: true, stepCount: 3, completedSteps: 1 },
-  { id: 2, title: "Team standup meeting", dueTime: "11:00 AM", isImportant: true, isUrgent: false, hasSteps: false, stepCount: 0, completedSteps: 0 },
-  { id: 3, title: "Update documentation", dueTime: "2:00 PM", isImportant: false, isUrgent: true, hasSteps: true, stepCount: 5, completedSteps: 3 },
-  { id: 4, title: "Code review for PR #142", dueTime: "4:00 PM", isImportant: false, isUrgent: false, hasSteps: false, stepCount: 0, completedSteps: 0 },
-  { id: 5, title: "Prepare presentation slides", dueTime: "Tomorrow", isImportant: true, isUrgent: false, hasSteps: true, stepCount: 4, completedSteps: 0 },
+import { completeTask, createTask, deleteTask, dismissForced, loadState, snoozeTask, updateTask } from "./api";
+import { formatDue } from "./date";
+import { newTask, setReminder, setRepeat, toggleImportant, visibleQuickTasks } from "./logic";
+import type { RepeatRule, Task } from "./types";
+
+const QUICK_TABS = [
+  { id: "todo", label: "待完成" },
+  { id: "done", label: "已完成" },
+  { id: "all", label: "全部" },
+] as const;
+
+
+const REMINDER_KIND_OPTIONS = [
+  { id: "none", label: "不提醒" },
+  { id: "normal", label: "普通" },
+  { id: "forced", label: "强制" },
+] as const;
+
+const REPEAT_OPTIONS: RepeatRule[] = [
+  { type: "none" },
+  { type: "daily", workday_only: false },
+  { type: "daily", workday_only: true },
+  { type: "weekly", days: [1, 2, 3, 4, 5] },
+  { type: "weekly", days: [6, 7] },
+  { type: "monthly", day: 1 },
+  { type: "yearly", month: 1, day: 1 },
 ];
 
-const PLACEHOLDER_STEPS = [
-  { id: 1, title: "Gather data from analytics", completed: true },
-  { id: 2, title: "Create summary charts", completed: false },
-  { id: 3, title: "Write executive summary", completed: false },
-];
-
-const FILTER_TABS = ["All", "Today", "Important", "Planned"];
+function formatRepeat(rule: RepeatRule) {
+  switch (rule.type) {
+    case "none":
+      return "不循环";
+    case "daily":
+      return rule.workday_only ? "每日(仅工作日)" : "每日";
+    case "weekly":
+      return `每周(${rule.days.join(",")})`;
+    case "monthly":
+      return `每月(${rule.day}号)`;
+    case "yearly":
+      return `每年(${rule.month}-${rule.day})`;
+  }
+}
 
 // ============================================================================
 // ICON COMPONENTS (SVG placeholders - inline for no dependencies)
@@ -150,150 +177,179 @@ const Icons = {
 // QUICK WINDOW VIEW
 // ============================================================================
 function QuickWindow({
-  onTaskClick,
+  tab,
+  tasks,
+  expandedTaskId,
+  inputValue,
+  dueTimePreview,
+  onTabChange,
+  onInputChange,
   onAddTask,
   onToggleComplete,
   onToggleImportant,
+  onDeleteTask,
   onExpandSteps,
+  onSetReminderKind,
+  onSetRepeat,
 }: {
-  onTaskClick?: (taskId: number) => void;
-  onAddTask?: (title: string) => void;
-  onToggleComplete?: (taskId: number) => void;
-  onToggleImportant?: (taskId: number) => void;
-  onExpandSteps?: (taskId: number) => void;
+  tab: (typeof QUICK_TABS)[number]["id"];
+  tasks: Task[];
+  expandedTaskId: string | null;
+  inputValue: string;
+  dueTimePreview: string;
+  onTabChange: (tab: (typeof QUICK_TABS)[number]["id"]) => void;
+  onInputChange: (value: string) => void;
+  onAddTask: () => void;
+  onToggleComplete: (task: Task) => void;
+  onToggleImportant: (task: Task) => void;
+  onDeleteTask: (task: Task) => void;
+  onExpandSteps: (task: Task) => void;
+  onSetReminderKind: (task: Task, kind: "none" | "normal" | "forced") => void;
+  onSetRepeat: (task: Task, rule: RepeatRule) => void;
 }) {
-  // Placeholder: expanded task ID would come from state
-  const expandedTaskId = 1;
-  // Placeholder: active filter would come from state
-  const activeFilter = "All";
-  // Placeholder: input value would come from state
-  const inputValue = "";
-  // Placeholder: due time preview
-  const dueTimePreview = "Today, 5:00 PM";
-
   return (
     <div className="quick-window">
-      {/* Filter Tabs */}
       <div className="quick-filter-tabs">
-        {FILTER_TABS.map((tab) => (
+        {QUICK_TABS.map((t) => (
           <button
-            key={tab}
-            className={`quick-filter-tab ${activeFilter === tab ? "active" : ""}`}
-            /* onClick={() => onFilterChange?.(tab)} */
+            key={t.id}
+            className={`quick-filter-tab ${tab === t.id ? "active" : ""}`}
+            onClick={() => onTabChange(t.id)}
           >
-            {tab}
+            {t.label}
           </button>
         ))}
       </div>
 
-      {/* Task List */}
       <div className="quick-task-list">
-        {PLACEHOLDER_TASKS.map((task) => (
-          <div key={task.id} className="quick-task-item">
-            <div className="quick-task-row" onClick={() => onTaskClick?.(task.id)}>
-              {/* Checkbox */}
-              <button
-                className="task-checkbox"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onToggleComplete?.(task.id);
-                }}
-              >
-                <Icons.Check />
-              </button>
+        {tasks.map((task) => {
+          const expanded = expandedTaskId === task.id;
+          return (
+            <div key={task.id} className={`quick-task-item ${task.completed ? "completed" : ""}`}>
+              <div className="quick-task-row">
+                <button className="task-checkbox" onClick={() => onToggleComplete(task)}>
+                  {task.completed && <Icons.Check />}
+                </button>
 
-              {/* Task Content */}
-              <div className="task-content">
-                <span className="task-title">{task.title}</span>
-                <div className="task-meta">
-                  <span className="task-due-time">
-                    <Icons.Clock />
-                    {task.dueTime}
-                  </span>
-                  {task.hasSteps && (
-                    <span className="task-steps-count">
-                      {task.completedSteps}/{task.stepCount}
+                <div className="task-content">
+                  <span className="task-title">{task.title}</span>
+                  <div className="task-meta">
+                    <span className="task-due-time">
+                      <Icons.Clock />
+                      {formatDue(task.due_at)}
                     </span>
-                  )}
+                    {task.repeat.type !== "none" && (
+                      <span className="task-chip" title={formatRepeat(task.repeat)}>
+                        <Icons.Repeat />
+                      </span>
+                    )}
+                    {task.reminder.kind !== "none" && (
+                      <span className={`task-chip ${task.reminder.kind === "forced" ? "danger" : ""}`}>
+                        <Icons.Bell />
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </div>
 
-              {/* Task Icons */}
-              <div className="task-icons">
-                {task.isImportant && (
+                <div className="task-icons">
                   <button
-                    className="task-icon-btn important active"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onToggleImportant?.(task.id);
-                    }}
+                    className={`task-icon-btn important ${task.important ? "active" : ""}`}
+                    onClick={() => onToggleImportant(task)}
+                    title="重要"
                   >
                     <Icons.Star />
                   </button>
-                )}
-                {task.hasSteps && (
-                  <button
-                    className="task-icon-btn expand"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onExpandSteps?.(task.id);
-                    }}
-                  >
-                    {expandedTaskId === task.id ? <Icons.ChevronDown /> : <Icons.ChevronRight />}
+                  <button className="task-icon-btn" onClick={() => onDeleteTask(task)} title="删除">
+                    <Icons.Trash />
                   </button>
-                )}
+                  <button className="task-icon-btn expand" onClick={() => onExpandSteps(task)} title="展开">
+                    {expanded ? <Icons.ChevronDown /> : <Icons.ChevronRight />}
+                  </button>
+                </div>
               </div>
-            </div>
 
-            {/* Expanded Steps */}
-            {expandedTaskId === task.id && task.hasSteps && (
-              <div className="quick-task-steps">
-                {PLACEHOLDER_STEPS.map((step) => (
-                  <div key={step.id} className={`step-item ${step.completed ? "completed" : ""}`}>
-                    <button className="step-checkbox">
-                      {step.completed && <Icons.Check />}
-                    </button>
-                    <span className="step-title">{step.title}</span>
+              {expanded && (
+                <div className="quick-task-steps">
+                  <div className="inline-config">
+                    <div className="inline-config-group">
+                      <span className="inline-config-label">提醒</span>
+                      <div className="inline-config-buttons">
+                        {REMINDER_KIND_OPTIONS.map((opt) => (
+                          <button
+                            key={opt.id}
+                            className={`pill ${task.reminder.kind === opt.id ? "active" : ""}`}
+                            onClick={() => onSetReminderKind(task, opt.id)}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="inline-config-group">
+                      <span className="inline-config-label">循环</span>
+                      <div className="inline-config-buttons">
+                        {REPEAT_OPTIONS.map((rule) => (
+                          <button
+                            key={formatRepeat(rule)}
+                            className={`pill ${formatRepeat(task.repeat) === formatRepeat(rule) ? "active" : ""}`}
+                            onClick={() => onSetRepeat(task, rule)}
+                          >
+                            {formatRepeat(rule)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
+
+                  {task.steps.length === 0 ? (
+                    <div className="steps-empty">无步骤</div>
+                  ) : (
+                    task.steps.map((s) => (
+                      <div key={s.id} className={`step-item ${s.completed ? "completed" : ""}`}>
+                        <button className="step-checkbox">{s.completed && <Icons.Check />}</button>
+                        <span className="step-title">{s.title}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
-      {/* Input Bar */}
       <div className="quick-input-bar">
         <div className="quick-input-wrapper">
           <input
             type="text"
             className="quick-input"
-            placeholder="Add a task..."
+            placeholder="输入任务内容，回车添加"
             value={inputValue}
-            /* onChange={(e) => setInputValue(e.target.value)} */
-            /* onKeyDown={(e) => e.key === 'Enter' && onAddTask?.(inputValue)} */
+            onChange={(e) => onInputChange(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") onAddTask();
+            }}
           />
           <div className="quick-input-actions">
-            <button className="quick-input-btn" title="Set due date">
+            <button className="quick-input-btn" title="到期时间（默认 18:00）" disabled>
               <Icons.Calendar />
             </button>
-            <button className="quick-input-btn" title="Set reminder">
+            <button className="quick-input-btn" title="提醒（在展开里设置）" disabled>
               <Icons.Bell />
             </button>
-            <button className="quick-input-btn" title="Set repeat">
+            <button className="quick-input-btn" title="循环（在展开里设置）" disabled>
               <Icons.Repeat />
             </button>
-            <button className="quick-input-btn" title="Mark important">
+            <button className="quick-input-btn" title="重要（创建后可切换）" disabled>
               <Icons.Star />
             </button>
           </div>
         </div>
-        {dueTimePreview && (
-          <div className="quick-due-preview">
-            <Icons.Clock />
-            <span>{dueTimePreview}</span>
-          </div>
-        )}
+        <div className="quick-due-preview">
+          <Icons.Clock />
+          <span>{dueTimePreview}</span>
+        </div>
       </div>
     </div>
   );
@@ -302,268 +358,106 @@ function QuickWindow({
 // ============================================================================
 // MAIN WINDOW VIEW
 // ============================================================================
-function MainWindow({
-  onTaskClick,
-  onViewModeChange,
-  onBatchDelete,
-  onBatchMove,
-  onBatchComplete,
-}: {
-  onTaskClick?: (taskId: number) => void;
-  onViewModeChange?: (mode: "grid" | "list") => void;
-  onBatchDelete?: (taskIds: number[]) => void;
-  onBatchMove?: (taskIds: number[], quadrant: string) => void;
-  onBatchComplete?: (taskIds: number[]) => void;
-}) {
-  // Placeholder: view mode would come from state
-  const viewMode: "grid" | "list" = "grid";
-  // Placeholder: selected tasks would come from state
-  const selectedTasks: number[] = [1, 3];
-  // Placeholder: active filter
-  const activeFilter = "All";
-
-  // Quadrant definitions
-  const quadrants = [
-    { id: "urgent-important", label: "Do First", sublabel: "Urgent & Important", color: "red" },
-    { id: "not-urgent-important", label: "Schedule", sublabel: "Important, Not Urgent", color: "amber" },
-    { id: "urgent-not-important", label: "Delegate", sublabel: "Urgent, Not Important", color: "blue" },
-    { id: "not-urgent-not-important", label: "Eliminate", sublabel: "Neither", color: "gray" },
-  ];
-
-  // Filter tasks by quadrant (placeholder logic)
-  const getTasksForQuadrant = (quadrantId: string) => {
-    return PLACEHOLDER_TASKS.filter((task) => {
-      if (quadrantId === "urgent-important") return task.isUrgent && task.isImportant;
-      if (quadrantId === "not-urgent-important") return !task.isUrgent && task.isImportant;
-      if (quadrantId === "urgent-not-important") return task.isUrgent && !task.isImportant;
-      return !task.isUrgent && !task.isImportant;
-    });
-  };
-
+function MainWindow() {
   return (
     <div className="main-window">
-      {/* Header */}
       <header className="main-header">
         <div className="main-header-left">
-          <h1 className="main-title">Tasks</h1>
-          <div className="main-filters">
-            {FILTER_TABS.map((tab) => (
-              <button
-                key={tab}
-                className={`main-filter-btn ${activeFilter === tab ? "active" : ""}`}
-              >
-                {tab}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="main-header-right">
-          <button className="main-action-btn">
-            <Icons.Filter />
-            <span>Filter</span>
-          </button>
-          <button className="main-action-btn">
-            <Icons.Sort />
-            <span>Sort</span>
-          </button>
-          <div className="view-toggle">
-            <button
-              className={`view-toggle-btn ${viewMode === "grid" ? "active" : ""}`}
-              onClick={() => onViewModeChange?.("grid")}
-            >
-              <Icons.Grid />
-            </button>
-            <button
-              className={`view-toggle-btn ${viewMode === "list" ? "active" : ""}`}
-              onClick={() => onViewModeChange?.("list")}
-            >
-              <Icons.List />
-            </button>
-          </div>
+          <h1 className="main-title">主界面（四象限）</h1>
+          <div className="main-hint">该部分逻辑在 t6 完成</div>
         </div>
       </header>
-
-      {/* Batch Actions Bar */}
-      {selectedTasks.length > 0 && (
-        <div className="batch-actions-bar">
-          <span className="batch-count">{selectedTasks.length} selected</span>
-          <div className="batch-actions">
-            <button className="batch-btn" onClick={() => onBatchComplete?.(selectedTasks)}>
-              <Icons.Check />
-              <span>Complete</span>
-            </button>
-            <button className="batch-btn" onClick={() => onBatchMove?.(selectedTasks, "")}>
-              <Icons.Move />
-              <span>Move</span>
-            </button>
-            <button className="batch-btn danger" onClick={() => onBatchDelete?.(selectedTasks)}>
-              <Icons.Trash />
-              <span>Delete</span>
-            </button>
-          </div>
-          <button className="batch-close">
-            <Icons.X />
-          </button>
-        </div>
-      )}
-
-      {/* Content Area */}
       <div className="main-content">
-        {viewMode === "grid" ? (
-          /* 4 Quadrant Grid View */
-          <div className="quadrant-grid">
-            {quadrants.map((quadrant) => (
-              <div key={quadrant.id} className={`quadrant quadrant-${quadrant.color}`}>
-                <div className="quadrant-header">
-                  <h2 className="quadrant-title">{quadrant.label}</h2>
-                  <span className="quadrant-sublabel">{quadrant.sublabel}</span>
-                </div>
-                <div className="quadrant-tasks">
-                  {getTasksForQuadrant(quadrant.id).map((task) => (
-                    <div
-                      key={task.id}
-                      className={`quadrant-task-card ${selectedTasks.includes(task.id) ? "selected" : ""}`}
-                      onClick={() => onTaskClick?.(task.id)}
-                    >
-                      <div className="card-checkbox">
-                        <input type="checkbox" checked={selectedTasks.includes(task.id)} readOnly />
-                      </div>
-                      <div className="card-content">
-                        <span className="card-title">{task.title}</span>
-                        <div className="card-meta">
-                          <span className="card-due">
-                            <Icons.Clock />
-                            {task.dueTime}
-                          </span>
-                          {task.hasSteps && (
-                            <span className="card-steps">
-                              {task.completedSteps}/{task.stepCount}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      {task.isImportant && (
-                        <div className="card-important">
-                          <Icons.Star />
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                  {getTasksForQuadrant(quadrant.id).length === 0 && (
-                    <div className="quadrant-empty">No tasks</div>
-                  )}
-                </div>
-                <button className="quadrant-add-btn">
-                  <Icons.Plus />
-                  <span>Add task</span>
-                </button>
-              </div>
-            ))}
-          </div>
-        ) : (
-          /* List View */
-          <div className="list-view">
-            <div className="list-header">
-              <div className="list-col-checkbox"></div>
-              <div className="list-col-title">Task</div>
-              <div className="list-col-due">Due</div>
-              <div className="list-col-quadrant">Quadrant</div>
-              <div className="list-col-actions"></div>
+        <div className="quadrant-grid">
+          <div className="quadrant quadrant-red">
+            <div className="quadrant-header">
+              <h2 className="quadrant-title">重要且紧急</h2>
+              <span className="quadrant-sublabel">Do First</span>
             </div>
-            <div className="list-body">
-              {PLACEHOLDER_TASKS.map((task) => (
-                <div
-                  key={task.id}
-                  className={`list-row ${selectedTasks.includes(task.id) ? "selected" : ""}`}
-                  onClick={() => onTaskClick?.(task.id)}
-                >
-                  <div className="list-col-checkbox">
-                    <input type="checkbox" checked={selectedTasks.includes(task.id)} readOnly />
-                  </div>
-                  <div className="list-col-title">
-                    <span className="list-task-title">{task.title}</span>
-                    {task.hasSteps && (
-                      <span className="list-steps-badge">
-                        {task.completedSteps}/{task.stepCount}
-                      </span>
-                    )}
-                  </div>
-                  <div className="list-col-due">
-                    <Icons.Clock />
-                    {task.dueTime}
-                  </div>
-                  <div className="list-col-quadrant">
-                    <span className={`quadrant-badge ${task.isUrgent && task.isImportant ? "red" : task.isImportant ? "amber" : task.isUrgent ? "blue" : "gray"}`}>
-                      {task.isUrgent && task.isImportant
-                        ? "Do First"
-                        : task.isImportant
-                        ? "Schedule"
-                        : task.isUrgent
-                        ? "Delegate"
-                        : "Eliminate"}
-                    </span>
-                  </div>
-                  <div className="list-col-actions">
-                    {task.isImportant && (
-                      <span className="list-important">
-                        <Icons.Star />
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
+            <div className="quadrant-empty">待实现</div>
           </div>
-        )}
+          <div className="quadrant quadrant-amber">
+            <div className="quadrant-header">
+              <h2 className="quadrant-title">重要不紧急</h2>
+              <span className="quadrant-sublabel">Schedule</span>
+            </div>
+            <div className="quadrant-empty">待实现</div>
+          </div>
+          <div className="quadrant quadrant-blue">
+            <div className="quadrant-header">
+              <h2 className="quadrant-title">紧急不重要</h2>
+              <span className="quadrant-sublabel">Delegate</span>
+            </div>
+            <div className="quadrant-empty">待实现</div>
+          </div>
+          <div className="quadrant quadrant-gray">
+            <div className="quadrant-header">
+              <h2 className="quadrant-title">不重要不紧急</h2>
+              <span className="quadrant-sublabel">Eliminate</span>
+            </div>
+            <div className="quadrant-empty">待实现</div>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
+
 // ============================================================================
 // REMINDER OVERLAY VIEW
 // ============================================================================
 function ReminderOverlay({
+  task,
   onDismiss,
-  onSnooze,
+  onSnooze5,
   onComplete,
 }: {
-  onDismiss?: () => void;
-  onSnooze?: (minutes: number) => void;
-  onComplete?: () => void;
+  task: Task | null;
+  onDismiss: () => void;
+  onSnooze5: () => void;
+  onComplete: () => void;
 }) {
-  // Placeholder: reminder data would come from props/state
-  const reminder = {
-    taskTitle: "Review quarterly report",
-    dueTime: "10:30 AM",
-    isImportant: true,
-    isOverdue: true,
-  };
+  if (!task) {
+    return (
+      <div className="reminder-overlay">
+        <div className="reminder-banner">
+          <div className="reminder-content">
+            <div className="reminder-header">
+              <Icons.AlertCircle />
+              <span className="reminder-label">No reminder</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const isOverdue = !task.completed && task.due_at < now;
 
   return (
     <div className="reminder-overlay">
       <div className="reminder-banner">
         <div className="reminder-indicator"></div>
-        
+
         <div className="reminder-content">
           <div className="reminder-header">
             <Icons.AlertCircle />
-            <span className="reminder-label">
-              {reminder.isOverdue ? "Overdue" : "Reminder"}
-            </span>
+            <span className="reminder-label">{isOverdue ? "逾期" : "提醒"}</span>
           </div>
-          
-          <h2 className="reminder-title">{reminder.taskTitle}</h2>
-          
+
+          <h2 className="reminder-title">{task.title}</h2>
+
           <div className="reminder-meta">
             <span className="reminder-time">
               <Icons.Clock />
-              {reminder.dueTime}
+              {formatDue(task.due_at)}
             </span>
-            {reminder.isImportant && (
+            {task.important && (
               <span className="reminder-important">
                 <Icons.Star />
-                Important
+                重要
               </span>
             )}
           </div>
@@ -572,15 +466,15 @@ function ReminderOverlay({
         <div className="reminder-actions">
           <button className="reminder-btn secondary" onClick={onDismiss}>
             <Icons.X />
-            <span>Dismiss</span>
+            <span>关闭提醒</span>
           </button>
-          <button className="reminder-btn secondary" onClick={() => onSnooze?.(15)}>
+          <button className="reminder-btn secondary" onClick={onSnooze5}>
             <Icons.Snooze />
-            <span>Snooze 15m</span>
+            <span>稍后 5 分钟</span>
           </button>
           <button className="reminder-btn primary" onClick={onComplete}>
             <Icons.Check />
-            <span>Complete</span>
+            <span>立即完成</span>
           </button>
         </div>
       </div>
@@ -592,93 +486,172 @@ function ReminderOverlay({
 // MAIN APP COMPONENT
 // ============================================================================
 function App() {
-  // Placeholder: view would be determined by window.location.hash or props
-  // Possible values: "quick", "main", "reminder"
   const getViewFromHash = (): "quick" | "main" | "reminder" => {
-    const hash = window.location.hash.replace("#", "");
-    if (hash === "main") return "main";
-    if (hash === "reminder") return "reminder";
-    return "quick"; // default
+    const raw = window.location.hash.replace("#", "");
+    const path = raw.startsWith("/") ? raw.slice(1) : raw;
+    const view = path.split("/")[0];
+    if (view === "main") return "main";
+    if (view === "reminder") return "reminder";
+    return "quick";
   };
 
-  const view = getViewFromHash();
+  const [view, setView] = useState<"quick" | "main" | "reminder">(getViewFromHash());
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [tab, setTab] = useState<(typeof QUICK_TABS)[number]["id"]>("todo");
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  const [inputValue, setInputValue] = useState<string>("");
 
-  // Placeholder event handlers - to be implemented with actual logic
-  const handleTaskClick = (taskId: number) => {
-    console.log("Task clicked:", taskId);
-  };
+  const dueTimePreview = useMemo(() => {
+    const d = new Date();
+    const due = new Date(d);
+    due.setHours(18, 0, 0, 0);
+    if (d.getTime() > due.getTime()) {
+      due.setDate(due.getDate() + 1);
+    }
+    const weekday = due.toLocaleDateString(undefined, { weekday: "short" });
+    const date = due.toLocaleDateString(undefined, { month: "2-digit", day: "2-digit" });
+    return `${weekday} ${date} 18:00`;
+  }, []);
 
-  const handleAddTask = (title: string) => {
-    console.log("Add task:", title);
-  };
+  useEffect(() => {
+    const onHash = () => setView(getViewFromHash());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
 
-  const handleToggleComplete = (taskId: number) => {
-    console.log("Toggle complete:", taskId);
-  };
+  useEffect(() => {
+    let unlistenState: (() => void) | null = null;
+    let unlistenReminder: (() => void) | null = null;
 
-  const handleToggleImportant = (taskId: number) => {
-    console.log("Toggle important:", taskId);
-  };
+    (async () => {
+      const res = await loadState();
+      if (res.ok && res.data) {
+        setTasks(res.data[0]);
+      }
 
-  const handleExpandSteps = (taskId: number) => {
-    console.log("Expand steps:", taskId);
-  };
+      unlistenState = await listen("state_updated", (event) => {
+        const payload = event.payload as { tasks?: Task[] } | any;
+        if (payload && Array.isArray(payload.tasks)) {
+          setTasks(payload.tasks);
+        }
+      });
 
-  const handleViewModeChange = (mode: "grid" | "list") => {
-    console.log("View mode:", mode);
-  };
+      unlistenReminder = await listen("reminder_fired", (event) => {
+        const payload = event.payload as Task[];
+        if (Array.isArray(payload) && payload.length > 0) {
+          // Open reminder view; pick the first task for MVP.
+          (window.location.hash as any) = "#/reminder";
+        }
+      });
+    })();
 
-  const handleBatchDelete = (taskIds: number[]) => {
-    console.log("Batch delete:", taskIds);
-  };
+    return () => {
+      if (unlistenState) unlistenState();
+      if (unlistenReminder) unlistenReminder();
+    };
+  }, []);
 
-  const handleBatchMove = (taskIds: number[], quadrant: string) => {
-    console.log("Batch move:", taskIds, quadrant);
-  };
+  const quickTasks = useMemo(() => visibleQuickTasks(tasks, tab, new Date()), [tasks, tab]);
 
-  const handleBatchComplete = (taskIds: number[]) => {
-    console.log("Batch complete:", taskIds);
-  };
+  async function handleAddTask() {
+    const title = inputValue.trim();
+    if (!title) return;
+    const task = newTask(title, new Date());
+    setInputValue("");
+    await createTask(task);
+  }
 
-  const handleDismissReminder = () => {
-    console.log("Dismiss reminder");
-  };
+  async function handleToggleComplete(task: Task) {
+    if (task.completed) {
+      // MVP: don't support un-complete (keeps backend simple); can be added later.
+      return;
+    }
+    await completeTask(task.id);
+  }
 
-  const handleSnoozeReminder = (minutes: number) => {
-    console.log("Snooze reminder:", minutes);
-  };
+  async function handleToggleImportant(task: Task) {
+    await updateTask(toggleImportant(task));
+  }
 
-  const handleCompleteReminder = () => {
-    console.log("Complete reminder task");
-  };
+  async function handleDeleteTask(task: Task) {
+    if (!confirm("确认删除该任务？")) return;
+    await deleteTask(task.id);
+  }
+
+  function handleExpand(task: Task) {
+    setExpandedTaskId((prev) => (prev === task.id ? null : task.id));
+  }
+
+  async function handleSetReminderKind(task: Task, kind: "none" | "normal" | "forced") {
+    await updateTask(setReminder(task, kind));
+  }
+
+  async function handleSetRepeat(task: Task, rule: RepeatRule) {
+    await updateTask(setRepeat(task, rule));
+  }
+
+  const reminderTask = useMemo(() => {
+    const now = Math.floor(Date.now() / 1000);
+    const due = tasks
+      .filter((t) => !t.completed && t.reminder.kind !== "none" && !t.reminder.forced_dismissed)
+      .filter((t) => {
+        const target = t.reminder.snoozed_until ?? t.reminder.remind_at;
+        if (!target) return false;
+        const last = t.reminder.last_fired_at ?? 0;
+        return now >= target && last < target;
+      })
+      .sort((a, b) => {
+        if (a.important !== b.important) return a.important ? -1 : 1;
+        return a.due_at - b.due_at;
+      });
+    return due[0] ?? null;
+  }, [tasks]);
+
+  async function handleReminderSnooze5() {
+    if (!reminderTask) return;
+    const until = Math.floor(Date.now() / 1000) + 5 * 60;
+    await snoozeTask(reminderTask.id, until);
+  }
+
+  async function handleReminderDismiss() {
+    if (!reminderTask) return;
+    await dismissForced(reminderTask.id);
+  }
+
+  async function handleReminderComplete() {
+    if (!reminderTask) return;
+    await completeTask(reminderTask.id);
+  }
 
   return (
     <div className="app-container">
       {view === "quick" && (
         <QuickWindow
-          onTaskClick={handleTaskClick}
+          tab={tab}
+          tasks={quickTasks}
+          expandedTaskId={expandedTaskId}
+          inputValue={inputValue}
+          dueTimePreview={dueTimePreview}
+          onTabChange={setTab}
+          onInputChange={setInputValue}
           onAddTask={handleAddTask}
           onToggleComplete={handleToggleComplete}
           onToggleImportant={handleToggleImportant}
-          onExpandSteps={handleExpandSteps}
+          onDeleteTask={handleDeleteTask}
+          onExpandSteps={handleExpand}
+          onSetReminderKind={handleSetReminderKind}
+          onSetRepeat={handleSetRepeat}
         />
       )}
 
-      {view === "main" && (
-        <MainWindow
-          onTaskClick={handleTaskClick}
-          onViewModeChange={handleViewModeChange}
-          onBatchDelete={handleBatchDelete}
-          onBatchMove={handleBatchMove}
-          onBatchComplete={handleBatchComplete}
-        />
-      )}
+      {view === "main" && <MainWindow />}
 
       {view === "reminder" && (
         <ReminderOverlay
-          onDismiss={handleDismissReminder}
-          onSnooze={handleSnoozeReminder}
-          onComplete={handleCompleteReminder}
+          task={reminderTask}
+          onDismiss={handleReminderDismiss}
+          onSnooze5={handleReminderSnooze5}
+          onComplete={handleReminderComplete}
         />
       )}
     </div>

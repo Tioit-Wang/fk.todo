@@ -18,6 +18,17 @@ pub enum StorageError {
     Json(serde_json::Error),
 }
 
+impl std::fmt::Display for StorageError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StorageError::Io(err) => write!(f, "io error: {err}"),
+            StorageError::Json(err) => write!(f, "json error: {err}"),
+        }
+    }
+}
+
+impl std::error::Error for StorageError {}
+
 impl From<std::io::Error> for StorageError {
     fn from(value: std::io::Error) -> Self {
         StorageError::Io(value)

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 pub type Timestamp = i64;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ReminderKind {
     None,
@@ -11,6 +11,7 @@ pub enum ReminderKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct ReminderConfig {
     pub kind: ReminderKind,
     pub remind_at: Option<Timestamp>,
@@ -32,7 +33,7 @@ impl Default for ReminderConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum RepeatRule {
     None,
     Daily { workday_only: bool },
@@ -42,6 +43,7 @@ pub enum RepeatRule {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct Step {
     pub id: String,
     pub title: String,
@@ -51,6 +53,7 @@ pub struct Step {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct Task {
     pub id: String,
     pub title: String,
@@ -75,6 +78,7 @@ pub enum CloseBehavior {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct Settings {
     pub shortcut: String,
     pub theme: String,
@@ -94,12 +98,14 @@ impl Default for Settings {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct TasksFile {
     pub schema_version: u32,
     pub tasks: Vec<Task>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct SettingsFile {
     pub schema_version: u32,
     pub settings: Settings,
