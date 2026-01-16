@@ -1,0 +1,110 @@
+use std::fs::{self, File};
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
+
+use serde::de::DeserializeOwned;
+use serde::Serialize;
+
+use crate::models::{SettingsFile, TasksFile};
+
+const DATA_FILE: &str = "data.json";
+const SETTINGS_FILE: &str = "settings.json";
+const BACKUP_DIR: &str = "backups";
+const BACKUP_LIMIT: usize = 5;
+
+#[derive(Debug)]
+pub enum StorageError {
+    Io(std::io::Error),
+    Json(serde_json::Error),
+}
+
+impl From<std::io::Error> for StorageError {
+    fn from(value: std::io::Error) -> Self {
+        StorageError::Io(value)
+    }
+}
+
+impl From<serde_json::Error> for StorageError {
+    fn from(value: serde_json::Error) -> Self {
+        StorageError::Json(value)
+    }
+}
+
+pub struct Storage {
+    root: PathBuf,
+}
+
+impl Storage {
+    pub fn new(root: PathBuf) -> Self {
+        Self { root }
+    }
+
+    pub fn ensure_dirs(&self) -> Result<(), StorageError> {
+        fs::create_dir_all(self.root.join(BACKUP_DIR))?;
+        Ok(())
+    }
+
+    pub fn load_tasks(&self) -> Result<TasksFile, StorageError> {
+        self.load_json(self.root.join(DATA_FILE))
+    }
+
+    pub fn load_settings(&self) -> Result<SettingsFile, StorageError> {
+        self.load_json(self.root.join(SETTINGS_FILE))
+    }
+
+    pub fn save_tasks(&self, data: &TasksFile) -> Result<(), StorageError> {
+        self.write_with_backup(DATA_FILE, data)
+    }
+
+    pub fn save_settings(&self, data: &SettingsFile) -> Result<(), StorageError> {
+        self.write_atomic(self.root.join(SETTINGS_FILE), data)
+    }
+
+    fn load_json<T: DeserializeOwned>(&self, path: PathBuf) -> Result<T, StorageError> {
+        let mut file = File::open(path)?;
+        let mut buf = String::new();
+        file.read_to_string(&mut buf)?;
+        Ok(serde_json::from_str(&buf)?)
+    }
+
+    fn write_with_backup<T: Serialize>(&self, filename: &str, data: &T) -> Result<(), StorageError> {
+        let path = self.root.join(filename);
+        if path.exists() {
+            self.create_backup(&path)?;
+        }
+        self.write_atomic(path, data)
+    }
+
+    fn write_atomic<T: Serialize>(&self, path: PathBuf, data: &T) -> Result<(), StorageError> {
+        let temp_path = path.with_extension("tmp");
+        let json = serde_json::to_vec_pretty(data)?;
+        {
+            let mut file = File::create(&temp_path)?;
+            file.write_all(&json)?;
+            file.sync_all()?;
+        }
+        fs::rename(temp_path, path)?;
+        Ok(())
+    }
+
+    fn create_backup(&self, path: &Path) -> Result<(), StorageError> {
+        let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+        let backup_name = format!("data-{timestamp}.json");
+        let backup_path = self.root.join(BACKUP_DIR).join(backup_name);
+        fs::copy(path, backup_path)?;
+        self.trim_backups()?;
+        Ok(())
+    }
+
+    fn trim_backups(&self) -> Result<(), StorageError> {
+        let mut entries: Vec<_> = fs::read_dir(self.root.join(BACKUP_DIR))?
+            .filter_map(|entry| entry.ok())
+            .collect();
+        entries.sort_by_key(|entry| entry.metadata().and_then(|m| m.modified()).ok());
+        let to_remove = entries.len().saturating_sub(BACKUP_LIMIT);
+        for entry in entries.into_iter().take(to_remove) {
+            let _ = fs::remove_file(entry.path());
+        }
+        Ok(())
+    }
+}
