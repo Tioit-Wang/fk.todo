@@ -17,6 +17,7 @@ use crate::scheduler::start_scheduler;
 use crate::state::AppState;
 use crate::storage::Storage;
 use crate::tray::init_tray;
+use crate::tray::update_tray_count;
 use crate::windows::hide_quick_window;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -57,6 +58,7 @@ pub fn run() {
             )
             .title("Todo Quick")
             .inner_size(420.0, 520.0)
+            .min_inner_size(300.0, 200.0)
             .resizable(true)
             .visible(false)
             .build()?;
@@ -75,6 +77,7 @@ pub fn run() {
             .build()?;
 
             init_tray(app)?;
+            update_tray_count(&app.handle(), &state.tasks());
             app.handle().global_shortcut().register(shortcut)?;
             start_scheduler(app.handle().clone(), state.clone());
 
@@ -107,12 +110,17 @@ pub fn run() {
             load_state,
             create_task,
             update_task,
+            swap_sort_order,
             complete_task,
             update_settings,
             snooze_task,
             dismiss_forced,
             delete_task,
             delete_tasks,
+            list_backups,
+            create_backup,
+            restore_backup,
+            import_backup,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

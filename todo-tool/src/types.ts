@@ -16,6 +16,14 @@ export interface ReminderConfig {
 }
 
 export type CloseBehavior = "hide_to_tray" | "exit";
+export type BackupSchedule = "none" | "daily" | "weekly" | "monthly";
+
+export interface WindowBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 
 export interface Step {
   id: string;
@@ -34,6 +42,7 @@ export interface Task {
   completed_at?: number;
   created_at: number;
   updated_at: number;
+  sort_order: number;
   quadrant: number;
   notes?: string;
   steps: Step[];
@@ -46,6 +55,13 @@ export interface Settings {
   theme: string;
   sound_enabled: boolean;
   close_behavior: CloseBehavior;
+  quick_always_on_top: boolean;
+  quick_bounds?: WindowBounds;
+  quick_tab: string;
+  quick_sort: string;
+  forced_reminder_color: string;
+  backup_schedule: BackupSchedule;
+  last_backup_at?: number;
 }
 
 export interface CommandResult<T> {

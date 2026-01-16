@@ -63,8 +63,11 @@ impl Storage {
         self.load_json(self.root.join(SETTINGS_FILE))
     }
 
-    pub fn save_tasks(&self, data: &TasksFile) -> Result<(), StorageError> {
-        self.write_with_backup(DATA_FILE, data)
+    pub fn save_tasks(&self, data: &TasksFile, with_backup: bool) -> Result<(), StorageError> {
+        if with_backup {
+            return self.write_with_backup(DATA_FILE, data);
+        }
+        self.write_atomic(self.root.join(DATA_FILE), data)
     }
 
     pub fn save_settings(&self, data: &SettingsFile) -> Result<(), StorageError> {
@@ -98,13 +101,47 @@ impl Storage {
         Ok(())
     }
 
-    fn create_backup(&self, path: &Path) -> Result<(), StorageError> {
+    pub fn create_backup(&self, path: &Path) -> Result<(), StorageError> {
         let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
         let backup_name = format!("data-{timestamp}.json");
         let backup_path = self.root.join(BACKUP_DIR).join(backup_name);
         fs::copy(path, backup_path)?;
         self.trim_backups()?;
         Ok(())
+    }
+
+    pub fn list_backups(&self) -> Result<Vec<(String, i64)>, StorageError> {
+        let mut entries: Vec<_> = fs::read_dir(self.root.join(BACKUP_DIR))?
+            .filter_map(|entry| entry.ok())
+            .collect();
+        entries.sort_by_key(|entry| entry.metadata().and_then(|m| m.modified()).ok());
+        let mut results = Vec::new();
+        for entry in entries {
+            if let Some(name) = entry.file_name().to_str() {
+                let modified = entry
+                    .metadata()
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|dur| dur.as_secs() as i64)
+                    .unwrap_or(0);
+                results.push((name.to_string(), modified));
+            }
+        }
+        Ok(results)
+    }
+
+    pub fn restore_backup(&self, filename: &str) -> Result<TasksFile, StorageError> {
+        let path = self.root.join(BACKUP_DIR).join(filename);
+        let data: TasksFile = self.load_json(path)?;
+        self.write_atomic(self.root.join(DATA_FILE), &data)?;
+        Ok(data)
+    }
+
+    pub fn restore_from_path(&self, source: &Path) -> Result<TasksFile, StorageError> {
+        let data: TasksFile = self.load_json(source.to_path_buf())?;
+        self.write_atomic(self.root.join(DATA_FILE), &data)?;
+        Ok(data)
     }
 
     fn trim_backups(&self) -> Result<(), StorageError> {

@@ -1,12 +1,13 @@
-use chrono::Utc;
+use chrono::{Datelike, Local, TimeZone, Utc};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
-use crate::models::{RepeatRule, Settings, Task};
+use crate::models::{BackupSchedule, RepeatRule, Settings, Task};
 use crate::repeat::next_due_timestamp;
-use crate::events::EVENT_STATE_UPDATED;
+use crate::events::{StatePayload, EVENT_STATE_UPDATED};
 use crate::state::AppState;
 use crate::storage::{Storage, StorageError};
+use crate::tray::update_tray_count;
 
 #[derive(Debug, serde::Serialize)]
 pub struct CommandResult<T> {
@@ -38,10 +39,70 @@ fn persist(app: &AppHandle, state: &AppState) -> Result<(), StorageError> {
         .map_err(|err| StorageError::Io(std::io::Error::new(std::io::ErrorKind::Other, err.to_string())))?;
     let storage = Storage::new(root);
     storage.ensure_dirs()?;
-    storage.save_tasks(&state.tasks_file())?;
+    let now = Utc::now().timestamp();
+    let mut settings = state.settings();
+    let should_backup = should_auto_backup(&settings, now);
+    if should_backup {
+        settings.last_backup_at = Some(now);
+        state.update_settings(settings.clone());
+    }
+    storage.save_tasks(&state.tasks_file(), should_backup)?;
     storage.save_settings(&state.settings_file())?;
-    let _ = app.emit(EVENT_STATE_UPDATED, state.tasks_file());
+    update_tray_count(app, &state.tasks());
+    let payload = StatePayload {
+        tasks: state.tasks(),
+        settings: state.settings(),
+    };
+    let _ = app.emit(EVENT_STATE_UPDATED, payload);
     Ok(())
+}
+
+fn should_auto_backup(settings: &Settings, now: i64) -> bool {
+    match settings.backup_schedule {
+        BackupSchedule::None => false,
+        BackupSchedule::Daily => is_new_day(settings.last_backup_at, now),
+        BackupSchedule::Weekly => is_new_week(settings.last_backup_at, now),
+        BackupSchedule::Monthly => is_new_month(settings.last_backup_at, now),
+    }
+}
+
+fn is_new_day(last: Option<i64>, now: i64) -> bool {
+    match last {
+        None => true,
+        Some(ts) => {
+            let last_date = Local.timestamp_opt(ts, 0).single().map(|dt| dt.date_naive());
+            let now_date = Local.timestamp_opt(now, 0).single().map(|dt| dt.date_naive());
+            last_date != now_date
+        }
+    }
+}
+
+fn is_new_week(last: Option<i64>, now: i64) -> bool {
+    match last {
+        None => true,
+        Some(ts) => {
+            let last_date = Local.timestamp_opt(ts, 0).single().map(|dt| dt.iso_week());
+            let now_date = Local.timestamp_opt(now, 0).single().map(|dt| dt.iso_week());
+            last_date != now_date
+        }
+    }
+}
+
+fn is_new_month(last: Option<i64>, now: i64) -> bool {
+    match last {
+        None => true,
+        Some(ts) => {
+            let last_date = Local
+                .timestamp_opt(ts, 0)
+                .single()
+                .map(|dt| (dt.year(), dt.month()));
+            let now_date = Local
+                .timestamp_opt(now, 0)
+                .single()
+                .map(|dt| (dt.year(), dt.month()));
+            last_date != now_date
+        }
+    }
 }
 
 #[tauri::command]
@@ -65,6 +126,10 @@ pub fn load_state(app: AppHandle, state: State<AppState>) -> CommandResult<(Vec<
 
 #[tauri::command]
 pub fn create_task(app: AppHandle, state: State<AppState>, task: Task) -> CommandResult<Task> {
+    let mut task = task;
+    if task.sort_order == 0 {
+        task.sort_order = task.created_at * 1000;
+    }
     state.add_task(task.clone());
     if let Err(error) = persist(&app, &state) {
         return err(&format!("storage error: {error:?}"));
@@ -74,11 +139,32 @@ pub fn create_task(app: AppHandle, state: State<AppState>, task: Task) -> Comman
 
 #[tauri::command]
 pub fn update_task(app: AppHandle, state: State<AppState>, task: Task) -> CommandResult<Task> {
+    let mut task = task;
+    if task.sort_order == 0 {
+        task.sort_order = task.created_at * 1000;
+    }
     state.update_task(task.clone());
     if let Err(error) = persist(&app, &state) {
         return err(&format!("storage error: {error:?}"));
     }
     ok(task)
+}
+
+#[tauri::command]
+pub fn swap_sort_order(
+    app: AppHandle,
+    state: State<AppState>,
+    first_id: String,
+    second_id: String,
+) -> CommandResult<bool> {
+    let now = Utc::now().timestamp();
+    if !state.swap_sort_order(&first_id, &second_id, now) {
+        return err("task not found");
+    }
+    if let Err(error) = persist(&app, &state) {
+        return err(&format!("storage error: {error:?}"));
+    }
+    ok(true)
 }
 
 #[tauri::command]
@@ -103,6 +189,7 @@ pub fn complete_task(app: AppHandle, state: State<AppState>, task_id: String) ->
     next.completed_at = None;
     next.created_at = Utc::now().timestamp();
     next.updated_at = Utc::now().timestamp();
+    next.sort_order = Utc::now().timestamp_millis();
     next.due_at = next_due;
     next.reminder.last_fired_at = None;
     next.reminder.forced_dismissed = false;
@@ -174,4 +261,101 @@ pub fn delete_tasks(app: AppHandle, state: State<AppState>, task_ids: Vec<String
         return err(&format!("storage error: {error:?}"));
     }
     ok(true)
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct BackupEntry {
+    pub name: String,
+    pub modified_at: i64,
+}
+
+#[tauri::command]
+pub fn list_backups(app: AppHandle) -> CommandResult<Vec<BackupEntry>> {
+    let root = match app.path().app_data_dir() {
+        Ok(path) => path,
+        Err(e) => return err(&format!("app_data_dir error: {e}")),
+    };
+    let storage = Storage::new(root);
+    if let Err(error) = storage.ensure_dirs() {
+        return err(&format!("storage error: {error:?}"));
+    }
+    let entries = match storage.list_backups() {
+        Ok(list) => list
+            .into_iter()
+            .map(|(name, modified_at)| BackupEntry { name, modified_at })
+            .collect(),
+        Err(error) => return err(&format!("storage error: {error:?}")),
+    };
+    ok(entries)
+}
+
+#[tauri::command]
+pub fn create_backup(app: AppHandle, state: State<AppState>) -> CommandResult<bool> {
+    let root = match app.path().app_data_dir() {
+        Ok(path) => path,
+        Err(e) => return err(&format!("app_data_dir error: {e}")),
+    };
+    let storage = Storage::new(root);
+    if let Err(error) = storage.ensure_dirs() {
+        return err(&format!("storage error: {error:?}"));
+    }
+    if let Err(error) = storage.save_tasks(&state.tasks_file(), true) {
+        return err(&format!("storage error: {error:?}"));
+    }
+    let now = Utc::now().timestamp();
+    let mut settings = state.settings();
+    settings.last_backup_at = Some(now);
+    state.update_settings(settings.clone());
+    if let Err(error) = storage.save_settings(&state.settings_file()) {
+        return err(&format!("storage error: {error:?}"));
+    }
+    ok(true)
+}
+
+#[tauri::command]
+pub fn restore_backup(app: AppHandle, state: State<AppState>, filename: String) -> CommandResult<Vec<Task>> {
+    let root = match app.path().app_data_dir() {
+        Ok(path) => path,
+        Err(e) => return err(&format!("app_data_dir error: {e}")),
+    };
+    let storage = Storage::new(root);
+    if let Err(error) = storage.ensure_dirs() {
+        return err(&format!("storage error: {error:?}"));
+    }
+    let data = match storage.restore_backup(&filename) {
+        Ok(data) => data,
+        Err(error) => return err(&format!("storage error: {error:?}")),
+    };
+    state.replace_tasks(data.tasks.clone());
+    update_tray_count(&app, &state.tasks());
+    let payload = StatePayload {
+        tasks: state.tasks(),
+        settings: state.settings(),
+    };
+    let _ = app.emit(EVENT_STATE_UPDATED, payload);
+    ok(data.tasks)
+}
+
+#[tauri::command]
+pub fn import_backup(app: AppHandle, state: State<AppState>, path: String) -> CommandResult<Vec<Task>> {
+    let root = match app.path().app_data_dir() {
+        Ok(path) => path,
+        Err(e) => return err(&format!("app_data_dir error: {e}")),
+    };
+    let storage = Storage::new(root);
+    if let Err(error) = storage.ensure_dirs() {
+        return err(&format!("storage error: {error:?}"));
+    }
+    let data = match storage.restore_from_path(std::path::Path::new(&path)) {
+        Ok(data) => data,
+        Err(error) => return err(&format!("storage error: {error:?}")),
+    };
+    state.replace_tasks(data.tasks.clone());
+    update_tray_count(&app, &state.tasks());
+    let payload = StatePayload {
+        tasks: state.tasks(),
+        settings: state.settings(),
+    };
+    let _ = app.emit(EVENT_STATE_UPDATED, payload);
+    ok(data.tasks)
 }

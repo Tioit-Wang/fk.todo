@@ -2,6 +2,7 @@ import { defaultDueAt, isDueToday, isOverdue, sortByDue } from "./scheduler";
 import type { ReminderConfig, RepeatRule, Task } from "./types";
 
 export type QuickTab = "todo" | "done" | "all";
+export type QuickSortMode = "default" | "created";
 
 export type SortMode = "due" | "created";
 
@@ -16,6 +17,7 @@ export function newTask(title: string, now: Date): Task {
     completed_at: undefined,
     created_at: ts,
     updated_at: ts,
+    sort_order: Date.now(),
     quadrant: 1,
     notes: undefined,
     steps: [],
@@ -70,7 +72,7 @@ export function toggleCompleted(task: Task, now: Date): Task {
   return { ...task, completed: true, completed_at: ts, updated_at: ts };
 }
 
-export function visibleQuickTasks(tasks: Task[], tab: QuickTab, now: Date): Task[] {
+export function visibleQuickTasks(tasks: Task[], tab: QuickTab, now: Date, sortMode: QuickSortMode): Task[] {
   const ts = Math.floor(now.getTime() / 1000);
   let list = tasks;
   if (tab === "todo") list = tasks.filter((t) => !t.completed);
@@ -81,17 +83,19 @@ export function visibleQuickTasks(tasks: Task[], tab: QuickTab, now: Date): Task
     list = list.filter((t) => isOverdue(t, ts) || isDueToday(t, now));
   }
 
-  // sort: overdue first, then due asc, important first, created asc
-  return list
-    .slice()
-    .sort((a, b) => {
-      const ao = isOverdue(a, ts) ? 1 : 0;
-      const bo = isOverdue(b, ts) ? 1 : 0;
-      if (ao !== bo) return bo - ao;
-      if (a.due_at !== b.due_at) return a.due_at - b.due_at;
-      if (a.important !== b.important) return a.important ? -1 : 1;
-      return a.created_at - b.created_at;
-    });
+  const sorted = list.slice();
+  if (sortMode === "created") {
+    return sorted.sort((a, b) => a.created_at - b.created_at);
+  }
+  // default: overdue first, then due asc, important first, created asc
+  return sorted.sort((a, b) => {
+    const ao = isOverdue(a, ts) ? 1 : 0;
+    const bo = isOverdue(b, ts) ? 1 : 0;
+    if (ao !== bo) return bo - ao;
+    if (a.due_at !== b.due_at) return a.due_at - b.due_at;
+    if (a.important !== b.important) return a.important ? -1 : 1;
+    return a.created_at - b.created_at;
+  });
 }
 
 export function sortTasks(tasks: Task[], mode: SortMode): Task[] {

@@ -63,6 +63,8 @@ pub struct Task {
     pub completed_at: Option<Timestamp>,
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
+    #[serde(default)]
+    pub sort_order: Timestamp,
     pub quadrant: u8,
     pub notes: Option<String>,
     pub steps: Vec<Step>,
@@ -84,6 +86,20 @@ pub struct Settings {
     pub theme: String,
     pub sound_enabled: bool,
     pub close_behavior: CloseBehavior,
+    #[serde(default)]
+    pub quick_always_on_top: bool,
+    #[serde(default)]
+    pub quick_bounds: Option<WindowBounds>,
+    #[serde(default = "default_quick_tab")]
+    pub quick_tab: String,
+    #[serde(default = "default_quick_sort")]
+    pub quick_sort: String,
+    #[serde(default = "default_forced_color")]
+    pub forced_reminder_color: String,
+    #[serde(default)]
+    pub backup_schedule: BackupSchedule,
+    #[serde(default)]
+    pub last_backup_at: Option<Timestamp>,
 }
 
 impl Default for Settings {
@@ -93,8 +109,51 @@ impl Default for Settings {
             theme: "light".to_string(),
             sound_enabled: true,
             close_behavior: CloseBehavior::HideToTray,
+            quick_always_on_top: false,
+            quick_bounds: None,
+            quick_tab: default_quick_tab(),
+            quick_sort: default_quick_sort(),
+            forced_reminder_color: default_forced_color(),
+            backup_schedule: BackupSchedule::Daily,
+            last_backup_at: None,
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BackupSchedule {
+    None,
+    Daily,
+    Weekly,
+    Monthly,
+}
+
+impl Default for BackupSchedule {
+    fn default() -> Self {
+        BackupSchedule::Daily
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct WindowBounds {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+fn default_quick_tab() -> String {
+    "todo".to_string()
+}
+
+fn default_quick_sort() -> String {
+    "default".to_string()
+}
+
+fn default_forced_color() -> String {
+    "#111827".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -13,6 +13,12 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(tasks: Vec<Task>, settings: Settings) -> Self {
+        let mut tasks = tasks;
+        for task in &mut tasks {
+            if task.sort_order == 0 {
+                task.sort_order = task.created_at * 1000;
+            }
+        }
         Self {
             inner: Arc::new(Mutex::new(AppData { tasks, settings })),
         }
@@ -44,11 +50,50 @@ impl AppState {
         guard.tasks.push(task);
     }
 
+    pub fn replace_tasks(&self, tasks: Vec<Task>) {
+        let mut guard = self.inner.lock().expect("state poisoned");
+        guard.tasks = tasks
+            .into_iter()
+            .map(|mut task| {
+                if task.sort_order == 0 {
+                    task.sort_order = task.created_at * 1000;
+                }
+                task
+            })
+            .collect();
+    }
+
     pub fn update_task(&self, task: Task) {
         let mut guard = self.inner.lock().expect("state poisoned");
         if let Some(existing) = guard.tasks.iter_mut().find(|t| t.id == task.id) {
             *existing = task;
         }
+    }
+
+    pub fn swap_sort_order(&self, first_id: &str, second_id: &str, updated_at: i64) -> bool {
+        let mut guard = self.inner.lock().expect("state poisoned");
+        let mut first_index = None;
+        let mut second_index = None;
+        for (index, task) in guard.tasks.iter().enumerate() {
+            if task.id == first_id {
+                first_index = Some(index);
+            } else if task.id == second_id {
+                second_index = Some(index);
+            }
+            if first_index.is_some() && second_index.is_some() {
+                break;
+            }
+        }
+        let (first_index, second_index) = match (first_index, second_index) {
+            (Some(first), Some(second)) => (first, second),
+            _ => return false,
+        };
+        let first_order = guard.tasks[first_index].sort_order;
+        guard.tasks[first_index].sort_order = guard.tasks[second_index].sort_order;
+        guard.tasks[second_index].sort_order = first_order;
+        guard.tasks[first_index].updated_at = updated_at;
+        guard.tasks[second_index].updated_at = updated_at;
+        true
     }
 
     pub fn complete_task(&self, task_id: &str) -> Option<Task> {

@@ -17,6 +17,25 @@ export function isDueToday(task: Task, now: Date) {
   );
 }
 
+export function isDueTomorrow(task: Task, now: Date) {
+  const due = new Date(task.due_at * 1000);
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  return (
+    due.getFullYear() === tomorrow.getFullYear() &&
+    due.getMonth() === tomorrow.getMonth() &&
+    due.getDate() === tomorrow.getDate()
+  );
+}
+
+export function isDueInFuture(task: Task, now: Date) {
+  const due = new Date(task.due_at * 1000);
+  const endTomorrow = new Date(now);
+  endTomorrow.setDate(endTomorrow.getDate() + 1);
+  endTomorrow.setHours(23, 59, 59, 999);
+  return due.getTime() > endTomorrow.getTime();
+}
+
 export function defaultDueAt(now: Date) {
   const target = new Date(now);
   target.setHours(18, 0, 0, 0);

@@ -1,23 +1,40 @@
-use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, Weekday};
+use chrono::{Datelike, Duration, Local, LocalResult, NaiveDate, Timelike, TimeZone, Weekday};
 
 use crate::models::RepeatRule;
 
 pub fn next_due_timestamp(due_at: i64, repeat: &RepeatRule) -> i64 {
-    let base = NaiveDateTime::from_timestamp_opt(due_at, 0).unwrap_or_else(|| {
-        let now = chrono::Utc::now();
-        NaiveDateTime::from_timestamp_opt(now.timestamp(), 0).unwrap_or_else(|| now.naive_utc())
-    });
+    let base = Local
+        .timestamp_opt(due_at, 0)
+        .single()
+        .unwrap_or_else(Local::now);
 
+    let base_date = base.date_naive();
     let next_date = match repeat {
-        RepeatRule::None => base.date(),
-        RepeatRule::Daily { workday_only } => next_workday(base.date(), *workday_only),
-        RepeatRule::Weekly { days } => next_weekday(base.date(), days),
-        RepeatRule::Monthly { day } => next_month_day(base.date(), *day),
-        RepeatRule::Yearly { month, day } => next_year_day(base.date(), *month, *day),
+        RepeatRule::None => base_date,
+        RepeatRule::Daily { workday_only } => next_workday(base_date, *workday_only),
+        RepeatRule::Weekly { days } => next_weekday(base_date, days),
+        RepeatRule::Monthly { day } => next_month_day(base_date, *day),
+        RepeatRule::Yearly { month, day } => next_year_day(base_date, *month, *day),
     };
 
-    let next = next_date.and_hms_opt(18, 0, 0).unwrap_or(base);
-    chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(next, chrono::Utc).timestamp()
+    let time = base.time();
+    let next_naive = match next_date.and_hms_opt(time.hour(), time.minute(), time.second()) {
+        Some(value) => value,
+        None => base.naive_local(),
+    };
+    let next_local = match Local.from_local_datetime(&next_naive) {
+        LocalResult::Single(value) => value,
+        LocalResult::Ambiguous(value, _) => value,
+        LocalResult::None => {
+            let shifted = next_naive + Duration::hours(1);
+            match Local.from_local_datetime(&shifted) {
+                LocalResult::Single(value) => value,
+                LocalResult::Ambiguous(value, _) => value,
+                LocalResult::None => base,
+            }
+        }
+    };
+    next_local.timestamp()
 }
 
 fn next_workday(date: NaiveDate, workday_only: bool) -> NaiveDate {
@@ -34,6 +51,9 @@ fn next_workday(date: NaiveDate, workday_only: bool) -> NaiveDate {
 }
 
 fn next_weekday(date: NaiveDate, days: &[u8]) -> NaiveDate {
+    if days.is_empty() {
+        return date + Duration::days(7);
+    }
     let mut offset = 1;
     loop {
         let candidate = date + Duration::days(offset);
@@ -54,15 +74,18 @@ fn next_month_day(date: NaiveDate, day: u8) -> NaiveDate {
         year += 1;
     }
     let last_day = last_day_of_month(year, month);
-    let use_day = std::cmp::min(day as u32, last_day);
+    let safe_day = std::cmp::max(1, day as u32);
+    let use_day = std::cmp::min(safe_day, last_day);
     NaiveDate::from_ymd_opt(year, month, use_day).unwrap_or(date)
 }
 
 fn next_year_day(date: NaiveDate, month: u8, day: u8) -> NaiveDate {
     let year = date.year() + 1;
-    let month = month as u32;
-    let day = day as u32;
-    NaiveDate::from_ymd_opt(year, month, day).unwrap_or(date)
+    let month = std::cmp::min(12, std::cmp::max(1, month as u32));
+    let last_day = last_day_of_month(year, month);
+    let safe_day = std::cmp::max(1, day as u32);
+    let use_day = std::cmp::min(safe_day, last_day);
+    NaiveDate::from_ymd_opt(year, month, use_day).unwrap_or(date)
 }
 
 fn last_day_of_month(year: i32, month: u32) -> u32 {
