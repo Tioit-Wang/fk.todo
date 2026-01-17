@@ -153,7 +153,8 @@ fn default_quick_sort() -> String {
 }
 
 fn default_forced_color() -> String {
-    "#111827".to_string()
+    // Retro warm red; used as the default reminder banner background.
+    "#C94D37".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

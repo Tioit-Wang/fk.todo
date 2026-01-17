@@ -523,16 +523,27 @@ function TaskCard({
       <div className={`task-row ${selectable ? "selectable" : ""}`}>
         {selectable && (
           <button
+            type="button"
             className={`task-select ${selected ? "selected" : ""}`}
             onClick={(event) => {
               event.stopPropagation();
               onToggleSelect?.();
             }}
+            title={selected ? "取消选择" : "选择"}
+            aria-label={selected ? "取消选择任务" : "选择任务"}
+            aria-pressed={selected}
           >
             {selected && <Icons.Check />}
           </button>
         )}
-        <button className="task-checkbox" onClick={onToggleComplete}>
+        <button
+          type="button"
+          className="task-checkbox"
+          onClick={onToggleComplete}
+          title={task.completed ? "标记为未完成" : "标记为完成"}
+          aria-label={task.completed ? "标记为未完成" : "标记为完成"}
+          aria-pressed={task.completed}
+        >
           {task.completed && <Icons.Check />}
         </button>
 
@@ -564,25 +575,34 @@ function TaskCard({
         <div className="task-icons">
           {showMove && (
             <>
-              <button className="task-icon-btn" onClick={onMoveUp} title="上移">
+              <button type="button" className="task-icon-btn" onClick={onMoveUp} title="上移" aria-label="上移">
                 <Icons.ArrowUp />
               </button>
-              <button className="task-icon-btn" onClick={onMoveDown} title="下移">
+              <button type="button" className="task-icon-btn" onClick={onMoveDown} title="下移" aria-label="下移">
                 <Icons.ArrowDown />
               </button>
             </>
           )}
           <button
+            type="button"
             className={`task-icon-btn important ${task.important ? "active" : ""}`}
             onClick={onToggleImportant}
-            title="重要"
+            title={task.important ? "取消重要" : "标记重要"}
+            aria-label={task.important ? "取消标记重要" : "标记为重要"}
+            aria-pressed={task.important}
           >
             <Icons.Star />
           </button>
-          <button className="task-icon-btn" onClick={onDelete} title="删除">
+          <button type="button" className="task-icon-btn" onClick={onDelete} title="删除" aria-label="删除任务">
             <Icons.Trash />
           </button>
-          <button className="task-icon-btn" onClick={onExpand} title="编辑/展开">
+          <button
+            type="button"
+            className="task-icon-btn"
+            onClick={onExpand}
+            title={expanded ? "收起" : "编辑"}
+            aria-label={expanded ? "收起编辑" : "展开编辑"}
+          >
             {expanded ? <Icons.ChevronDown /> : <Icons.Edit />}
           </button>
         </div>
@@ -605,10 +625,16 @@ function TaskCard({
                 if (next) setDraftDueAt(next);
               }}
             />
-            <button className="task-edit-btn" onClick={handleSave}>
+            <button
+              type="button"
+              className="task-edit-btn"
+              onClick={handleSave}
+              disabled={!draftTitle.trim()}
+              title={!draftTitle.trim() ? "标题不能为空" : "保存"}
+            >
               保存
             </button>
-            <button className="task-edit-btn ghost" onClick={handleReset}>
+            <button type="button" className="task-edit-btn ghost" onClick={handleReset} title="重置">
               重置
             </button>
           </div>
@@ -620,11 +646,13 @@ function TaskCard({
                 {REMINDER_KIND_OPTIONS.map((opt) => (
                   <button
                     key={opt.id}
+                    type="button"
                     className={`pill ${draftReminderKind === opt.id ? "active" : ""}`}
                     onClick={() => {
                       setDraftReminderKind(opt.id);
                       setDraftReminderOffset(opt.id === "normal" ? 10 : 0);
                     }}
+                    aria-pressed={draftReminderKind === opt.id}
                   >
                     {opt.label}
                   </button>
@@ -651,8 +679,10 @@ function TaskCard({
                 {REPEAT_TYPE_OPTIONS.map((opt) => (
                   <button
                     key={opt.id}
+                    type="button"
                     className={`pill ${draftRepeat.type === opt.id ? "active" : ""}`}
                     onClick={() => setDraftRepeat(defaultRepeatRule(opt.id))}
+                    aria-pressed={draftRepeat.type === opt.id}
                   >
                     {opt.label}
                   </button>
@@ -661,6 +691,7 @@ function TaskCard({
               {draftRepeat.type === "daily" && (
                 <div className="inline-config-extra">
                   <button
+                    type="button"
                     className={`pill ${draftRepeat.workday_only ? "active" : ""}`}
                     onClick={() =>
                       setDraftRepeat({
@@ -668,6 +699,7 @@ function TaskCard({
                         workday_only: !draftRepeat.workday_only,
                       })
                     }
+                    aria-pressed={draftRepeat.workday_only}
                   >
                     仅工作日
                   </button>
@@ -680,6 +712,7 @@ function TaskCard({
                     return (
                       <button
                         key={day.id}
+                        type="button"
                         className={`pill ${selected ? "active" : ""}`}
                         onClick={() => {
                           const nextDays = selected
@@ -688,6 +721,7 @@ function TaskCard({
                           if (nextDays.length === 0) return;
                           setDraftRepeat({ type: "weekly", days: nextDays.sort() });
                         }}
+                        aria-pressed={selected}
                       >
                         周{day.label}
                       </button>
@@ -765,7 +799,14 @@ function TaskCard({
                     if (event.key === "Enter") handleAddStep();
                   }}
                 />
-                <button className="step-add-btn" onClick={handleAddStep}>
+                <button
+                  type="button"
+                  className="step-add-btn"
+                  onClick={handleAddStep}
+                  disabled={!newStepTitle.trim()}
+                  title={!newStepTitle.trim() ? "请输入步骤内容" : "添加步骤"}
+                  aria-label="添加步骤"
+                >
                   <Icons.Plus />
                 </button>
               </div>
@@ -775,11 +816,23 @@ function TaskCard({
             ) : (
               task.steps.map((step) => (
                 <div key={step.id} className={`step-item ${step.completed ? "completed" : ""}`}>
-                  <button className="step-checkbox" onClick={() => toggleStep(step.id)}>
+                  <button
+                    type="button"
+                    className="step-checkbox"
+                    onClick={() => toggleStep(step.id)}
+                    aria-label={step.completed ? "标记步骤为未完成" : "标记步骤为完成"}
+                    aria-pressed={step.completed}
+                  >
                     {step.completed && <Icons.Check />}
                   </button>
                   <span className="step-title">{step.title}</span>
-                  <button className="step-delete" onClick={() => removeStep(step.id)}>
+                  <button
+                    type="button"
+                    className="step-delete"
+                    onClick={() => removeStep(step.id)}
+                    title="删除步骤"
+                    aria-label="删除步骤"
+                  >
                     <Icons.X />
                   </button>
                 </div>
@@ -866,15 +919,15 @@ function ReminderOverlay({
         </div>
 
         <div className="reminder-actions">
-          <button className="reminder-btn secondary" onClick={onDismiss}>
+          <button type="button" className="reminder-btn secondary" onClick={onDismiss}>
             <Icons.X />
             <span>关闭提醒</span>
           </button>
-          <button className="reminder-btn secondary" onClick={onSnooze5}>
+          <button type="button" className="reminder-btn secondary" onClick={onSnooze5}>
             <Icons.Snooze />
             <span>稍后 5 分钟</span>
           </button>
-          <button className="reminder-btn primary" onClick={onComplete}>
+          <button type="button" className="reminder-btn primary" onClick={onComplete}>
             <Icons.Check />
             <span>立即完成</span>
           </button>
@@ -901,10 +954,10 @@ function NotificationBanner({
         <div key={task.id} className="notification-item">
           <span className="notification-text">{task.title}</span>
           <div className="notification-actions">
-            <button className="pill" onClick={() => onSnooze(task)}>
+            <button type="button" className="pill" onClick={() => onSnooze(task)}>
               稍后 5 分钟
             </button>
-            <button className="pill" onClick={() => onComplete(task)}>
+            <button type="button" className="pill" onClick={() => onComplete(task)}>
               完成
             </button>
           </div>
@@ -1591,6 +1644,7 @@ function App() {
           <div className="quick-header" data-tauri-drag-region>
             <div className="quick-header-actions" data-tauri-drag-region="false">
               <button
+                type="button"
                 className={`quick-header-btn icon-only ${settings?.quick_always_on_top ? "active" : ""}`}
                 onClick={handleToggleAlwaysOnTop}
                 title="置顶"
@@ -1599,6 +1653,7 @@ function App() {
                 <Icons.Pin />
               </button>
               <button
+                type="button"
                 className="quick-header-btn icon-only"
                 onClick={() => getCurrentWindow().hide()}
                 title="关闭"
@@ -1615,8 +1670,10 @@ function App() {
             {QUICK_TABS.map((t) => (
               <button
                 key={t.id}
+                type="button"
                 className={`quick-filter-tab ${tab === t.id ? "active" : ""}`}
                 onClick={() => setTab(t.id)}
+                aria-pressed={tab === t.id}
               >
                 {t.label}
               </button>
@@ -1666,30 +1723,42 @@ function App() {
               />
               <div className="quick-input-actions">
                 <button
+                  type="button"
                   className={`quick-input-btn ${quickConfigOpen ? "active" : ""}`}
                   onClick={() => setQuickConfigOpen((prev) => !prev)}
                   title="到期时间"
+                  aria-label="设置到期时间"
+                  aria-pressed={quickConfigOpen}
                 >
                   <Icons.Calendar />
                 </button>
                 <button
+                  type="button"
                   className={`quick-input-btn ${draftReminderKind !== "none" ? "active" : ""}`}
                   onClick={() => setQuickConfigOpen(true)}
                   title="提醒"
+                  aria-label="提醒设置"
+                  aria-pressed={draftReminderKind !== "none"}
                 >
                   <Icons.Bell />
                 </button>
                 <button
+                  type="button"
                   className={`quick-input-btn ${draftRepeat.type !== "none" ? "active" : ""}`}
                   onClick={() => setQuickConfigOpen(true)}
                   title="循环"
+                  aria-label="循环设置"
+                  aria-pressed={draftRepeat.type !== "none"}
                 >
                   <Icons.Repeat />
                 </button>
                 <button
+                  type="button"
                   className={`quick-input-btn ${draftImportant ? "active" : ""}`}
                   onClick={() => setDraftImportant((prev) => !prev)}
                   title="重要"
+                  aria-label={draftImportant ? "取消标记重要" : "标记为重要"}
+                  aria-pressed={draftImportant}
                 >
                   <Icons.Star />
                 </button>
@@ -1707,6 +1776,7 @@ function App() {
                     {QUICK_DUE_PRESETS.map((preset) => (
                       <button
                         key={preset.id}
+                        type="button"
                         className="pill"
                         onClick={() => {
                           const base = new Date();
@@ -1719,7 +1789,7 @@ function App() {
                         {preset.label}
                       </button>
                     ))}
-                    <button className="pill" onClick={() => setDraftDueAt(quickDueSunday)}>
+                    <button type="button" className="pill" onClick={() => setDraftDueAt(quickDueSunday)}>
                       本周日 18:00
                     </button>
                   </div>
@@ -1740,11 +1810,13 @@ function App() {
                     {REMINDER_KIND_OPTIONS.map((opt) => (
                       <button
                         key={opt.id}
+                        type="button"
                         className={`pill ${draftReminderKind === opt.id ? "active" : ""}`}
                         onClick={() => {
                           setDraftReminderKind(opt.id);
                           setDraftReminderOffset(opt.id === "normal" ? 10 : 0);
                         }}
+                        aria-pressed={draftReminderKind === opt.id}
                       >
                         {opt.label}
                       </button>
@@ -1771,8 +1843,10 @@ function App() {
                     {REPEAT_TYPE_OPTIONS.map((opt) => (
                       <button
                         key={opt.id}
+                        type="button"
                         className={`pill ${draftRepeat.type === opt.id ? "active" : ""}`}
                         onClick={() => setDraftRepeat(defaultRepeatRule(opt.id))}
+                        aria-pressed={draftRepeat.type === opt.id}
                       >
                         {opt.label}
                       </button>
@@ -1781,6 +1855,7 @@ function App() {
                   {draftRepeat.type === "daily" && (
                     <div className="quick-config-inline">
                       <button
+                        type="button"
                         className={`pill ${draftRepeat.workday_only ? "active" : ""}`}
                         onClick={() =>
                           setDraftRepeat({
@@ -1788,6 +1863,7 @@ function App() {
                             workday_only: !draftRepeat.workday_only,
                           })
                         }
+                        aria-pressed={draftRepeat.workday_only}
                       >
                         仅工作日
                       </button>
@@ -1800,6 +1876,7 @@ function App() {
                         return (
                           <button
                             key={day.id}
+                            type="button"
                             className={`pill ${selected ? "active" : ""}`}
                             onClick={() => {
                               const nextDays = selected
@@ -1808,6 +1885,7 @@ function App() {
                               if (nextDays.length === 0) return;
                               setDraftRepeat({ type: "weekly", days: nextDays.sort() });
                             }}
+                            aria-pressed={selected}
                           >
                             周{day.label}
                           </button>
@@ -1874,8 +1952,10 @@ function App() {
                 <div className="quick-config-row">
                   <span className="quick-config-label">重要</span>
                   <button
+                    type="button"
                     className={`pill ${draftImportant ? "active" : ""}`}
                     onClick={() => setDraftImportant((prev) => !prev)}
+                    aria-pressed={draftImportant}
                   >
                     <Icons.Star />
                     {draftImportant ? "重要" : "未标记"}
@@ -1896,20 +1976,24 @@ function App() {
             </div>
             <div className="main-header-actions">
               <button
+                type="button"
                 className={`main-toggle ${mainView === "quadrant" ? "active" : ""}`}
                 onClick={() => setMainView("quadrant")}
+                aria-pressed={mainView === "quadrant"}
               >
                 <Icons.Grid />
                 四象限
               </button>
               <button
+                type="button"
                 className={`main-toggle ${mainView === "list" ? "active" : ""}`}
                 onClick={() => setMainView("list")}
+                aria-pressed={mainView === "list"}
               >
                 <Icons.List />
                 列表
               </button>
-              <button className="main-toggle" onClick={() => setShowSettings(true)}>
+              <button type="button" className="main-toggle" onClick={() => setShowSettings(true)}>
                 <Icons.Settings />
                 设置
               </button>
@@ -1971,10 +2055,10 @@ function App() {
           {selectedIds.size > 0 && (
             <div className="batch-bar">
               <span>已选择 {selectedIds.size} 项</span>
-              <button className="batch-btn" onClick={handleBatchComplete}>
+              <button type="button" className="batch-btn" onClick={handleBatchComplete}>
                 批量完成
               </button>
-              <button className="batch-btn danger" onClick={handleBatchDelete}>
+              <button type="button" className="batch-btn danger" onClick={handleBatchDelete}>
                 批量删除
               </button>
             </div>
@@ -2000,6 +2084,7 @@ function App() {
                       </span>
                     </div>
                     <button
+                      type="button"
                       className="quadrant-toggle"
                       onClick={() =>
                         setCollapsedQuadrants((prev) => ({
@@ -2007,6 +2092,8 @@ function App() {
                           [quad.id]: !prev[quad.id],
                         }))
                       }
+                      aria-expanded={!collapsedQuadrants[quad.id]}
+                      aria-controls={`quadrant-list-${quad.id}`}
                     >
                       {collapsedQuadrants[quad.id] ? "展开" : "收起"}
                     </button>
@@ -2029,7 +2116,7 @@ function App() {
                   </div>
 
                   {!collapsedQuadrants[quad.id] && (
-                    <div className="quadrant-list">
+                    <div className="quadrant-list" id={`quadrant-list-${quad.id}`}>
                       {tasksByQuadrant[quad.id].length === 0 ? (
                         <div className="quadrant-empty">暂无任务</div>
                       ) : (
@@ -2104,7 +2191,13 @@ function App() {
               <div className="settings-panel" onClick={(event) => event.stopPropagation()}>
                 <div className="settings-header">
                   <h2>设置</h2>
-                  <button className="task-icon-btn" onClick={() => setShowSettings(false)}>
+                  <button
+                    type="button"
+                    className="task-icon-btn"
+                    onClick={() => setShowSettings(false)}
+                    aria-label="关闭设置"
+                    title="关闭"
+                  >
                     <Icons.X />
                   </button>
                 </div>
@@ -2140,6 +2233,7 @@ function App() {
                   <div className="settings-row">
                     <label>提示音</label>
                     <button
+                      type="button"
                       className={`pill ${settings.sound_enabled ? "active" : ""}`}
                       onClick={() =>
                         handleUpdateSettings({
@@ -2147,6 +2241,7 @@ function App() {
                           sound_enabled: !settings.sound_enabled,
                         })
                       }
+                      aria-pressed={settings.sound_enabled}
                     >
                       {settings.sound_enabled ? "开启" : "关闭"}
                     </button>
@@ -2185,11 +2280,11 @@ function App() {
                   <div className="settings-row">
                     <label>通知权限</label>
                     <span className="settings-status">{permissionStatus === "granted" ? "已授权" : "未授权"}</span>
-                    <button className="pill" onClick={requestNotificationPermission}>
+                    <button type="button" className="pill" onClick={requestNotificationPermission}>
                       请求权限
                     </button>
                     {permissionStatus !== "granted" && (
-                      <button className="pill" onClick={openNotificationSettings}>
+                      <button type="button" className="pill" onClick={openNotificationSettings}>
                         <Icons.ExternalLink />
                         系统设置
                       </button>
@@ -2214,13 +2309,13 @@ function App() {
                       <option value="weekly">每周</option>
                       <option value="monthly">每月</option>
                     </select>
-                    <button className="pill" onClick={handleCreateBackup}>
+                    <button type="button" className="pill" onClick={handleCreateBackup}>
                       手动备份
                     </button>
                   </div>
                   <div className="settings-row">
                     <label>备份列表</label>
-                    <button className="pill" onClick={refreshBackups}>
+                    <button type="button" className="pill" onClick={refreshBackups}>
                       刷新
                     </button>
                   </div>
@@ -2231,7 +2326,7 @@ function App() {
                       backups.map((backup) => (
                         <div key={backup.name} className="backup-item">
                           <span>{backup.name}</span>
-                          <button className="pill" onClick={() => handleRestoreBackup(backup.name)}>
+                          <button type="button" className="pill" onClick={() => handleRestoreBackup(backup.name)}>
                             恢复
                           </button>
                         </div>
@@ -2245,7 +2340,13 @@ function App() {
                       value={importPath}
                       onChange={(event) => setImportPath(event.currentTarget.value)}
                     />
-                    <button className="pill" onClick={handleImportBackup}>
+                    <button
+                      type="button"
+                      className="pill"
+                      onClick={handleImportBackup}
+                      disabled={!importPath.trim()}
+                      title={!importPath.trim() ? "请输入备份文件路径" : "导入恢复"}
+                    >
                       导入恢复
                     </button>
                   </div>
