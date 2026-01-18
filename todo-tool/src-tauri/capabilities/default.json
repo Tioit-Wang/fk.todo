@@ -5,6 +5,11 @@
   "windows": ["main", "quick", "reminder"],
   "permissions": [
     "core:default",
+    "core:window:default",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-start-dragging",
+    "global-shortcut:default",
+    "notification:default",
     "opener:default"
   ]
 }

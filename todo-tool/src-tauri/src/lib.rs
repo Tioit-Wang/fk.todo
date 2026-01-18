@@ -2,12 +2,12 @@
 mod commands;
 mod events;
 mod models;
+mod repeat;
 mod scheduler;
 mod state;
 mod storage;
 mod tray;
 mod windows;
-mod repeat;
 
 use tauri::{Manager, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
@@ -41,7 +41,10 @@ pub fn run() {
             let storage = Storage::new(app.path().app_data_dir()?);
             storage.ensure_dirs()?;
 
-            let tasks = storage.load_tasks().map(|data| data.tasks).unwrap_or_default();
+            let tasks = storage
+                .load_tasks()
+                .map(|data| data.tasks)
+                .unwrap_or_default();
             let settings = storage
                 .load_settings()
                 .map(|data| data.settings)
@@ -51,19 +54,15 @@ pub fn run() {
             let state = AppState::new(tasks, settings);
             app.manage(state.clone());
 
-            WebviewWindowBuilder::new(
-                app,
-                "quick",
-                tauri::WebviewUrl::App("/#/quick".into()),
-            )
-            .title("Todo Quick")
-            .inner_size(420.0, 520.0)
-            .min_inner_size(300.0, 200.0)
-            .resizable(true)
-            .decorations(false)
-            .transparent(true)
-            .visible(false)
-            .build()?;
+            WebviewWindowBuilder::new(app, "quick", tauri::WebviewUrl::App("/#/quick".into()))
+                .title("Todo Quick")
+                .inner_size(420.0, 520.0)
+                .min_inner_size(300.0, 200.0)
+                .resizable(true)
+                .decorations(false)
+                .transparent(true)
+                .visible(false)
+                .build()?;
 
             WebviewWindowBuilder::new(
                 app,
@@ -79,7 +78,7 @@ pub fn run() {
             .build()?;
 
             init_tray(app)?;
-            update_tray_count(&app.handle(), &state.tasks());
+            update_tray_count(app.handle(), &state.tasks());
             app.handle().global_shortcut().register(shortcut)?;
             start_scheduler(app.handle().clone(), state.clone());
 
@@ -89,7 +88,7 @@ pub fn run() {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let label = window.label().to_string();
                 if label == "quick" {
-                    hide_quick_window(&window.app_handle());
+                    hide_quick_window(window.app_handle());
                     api.prevent_close();
                     return;
                 }

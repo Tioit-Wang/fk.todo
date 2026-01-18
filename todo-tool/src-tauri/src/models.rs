@@ -120,19 +120,14 @@ impl Default for Settings {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum BackupSchedule {
     None,
+    #[default]
     Daily,
     Weekly,
     Monthly,
-}
-
-impl Default for BackupSchedule {
-    fn default() -> Self {
-        BackupSchedule::Daily
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -2,9 +2,9 @@ use chrono::{Datelike, Local, TimeZone, Utc};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
+use crate::events::{StatePayload, EVENT_STATE_UPDATED};
 use crate::models::{BackupSchedule, RepeatRule, Settings, Task};
 use crate::repeat::next_due_timestamp;
-use crate::events::{StatePayload, EVENT_STATE_UPDATED};
 use crate::state::AppState;
 use crate::storage::{Storage, StorageError};
 use crate::tray::update_tray_count;
@@ -36,7 +36,7 @@ fn persist(app: &AppHandle, state: &AppState) -> Result<(), StorageError> {
     let root = app
         .path()
         .app_data_dir()
-        .map_err(|err| StorageError::Io(std::io::Error::new(std::io::ErrorKind::Other, err.to_string())))?;
+        .map_err(|err| StorageError::Io(std::io::Error::other(err.to_string())))?;
     let storage = Storage::new(root);
     storage.ensure_dirs()?;
     let now = Utc::now().timestamp();
@@ -70,8 +70,14 @@ fn is_new_day(last: Option<i64>, now: i64) -> bool {
     match last {
         None => true,
         Some(ts) => {
-            let last_date = Local.timestamp_opt(ts, 0).single().map(|dt| dt.date_naive());
-            let now_date = Local.timestamp_opt(now, 0).single().map(|dt| dt.date_naive());
+            let last_date = Local
+                .timestamp_opt(ts, 0)
+                .single()
+                .map(|dt| dt.date_naive());
+            let now_date = Local
+                .timestamp_opt(now, 0)
+                .single()
+                .map(|dt| dt.date_naive());
             last_date != now_date
         }
     }
@@ -115,7 +121,10 @@ pub fn load_state(app: AppHandle, state: State<AppState>) -> CommandResult<(Vec<
     if let Err(error) = storage.ensure_dirs() {
         return err(&format!("storage error: {error:?}"));
     }
-    let tasks = storage.load_tasks().map(|data| data.tasks).unwrap_or_default();
+    let tasks = storage
+        .load_tasks()
+        .map(|data| data.tasks)
+        .unwrap_or_default();
     let settings = storage
         .load_settings()
         .map(|data| data.settings)
@@ -168,7 +177,11 @@ pub fn swap_sort_order(
 }
 
 #[tauri::command]
-pub fn complete_task(app: AppHandle, state: State<AppState>, task_id: String) -> CommandResult<Task> {
+pub fn complete_task(
+    app: AppHandle,
+    state: State<AppState>,
+    task_id: String,
+) -> CommandResult<Task> {
     let completed = match state.complete_task(&task_id) {
         Some(task) => task,
         None => return err("task not found"),
@@ -205,20 +218,66 @@ pub fn complete_task(app: AppHandle, state: State<AppState>, task_id: String) ->
 }
 
 #[tauri::command]
-pub fn update_settings(app: AppHandle, state: State<AppState>, settings: Settings) -> CommandResult<Settings> {
+pub fn update_settings(
+    app: AppHandle,
+    state: State<AppState>,
+    settings: Settings,
+) -> CommandResult<Settings> {
+    let previous = state.settings();
+
+    // Shortcut validation/registration is the #1 place users can lock themselves out:
+    // if we unregister the old one and fail to register the new one, the app becomes unreachable
+    // from the keyboard. So we validate + register with a rollback path and only then persist.
+    let mut shortcut_changed = false;
+    if previous.shortcut != settings.shortcut {
+        shortcut_changed = true;
+        let next_shortcut = match settings
+            .shortcut
+            .parse::<tauri_plugin_global_shortcut::Shortcut>()
+        {
+            Ok(value) => value,
+            Err(parse_err) => return err(&format!("invalid shortcut: {parse_err}")),
+        };
+
+        let _ = app.global_shortcut().unregister_all();
+        if let Err(register_err) = app.global_shortcut().register(next_shortcut) {
+            // Best-effort restore the previous shortcut so the user can still summon the quick window.
+            if let Ok(prev_shortcut) = previous
+                .shortcut
+                .parse::<tauri_plugin_global_shortcut::Shortcut>()
+            {
+                let _ = app.global_shortcut().register(prev_shortcut);
+            }
+            return err(&format!("failed to register shortcut: {register_err}"));
+        }
+    }
+
     state.update_settings(settings.clone());
     if let Err(error) = persist(&app, &state) {
+        // Roll back in-memory settings to keep the running app consistent.
+        state.update_settings(previous.clone());
+        if shortcut_changed {
+            let _ = app.global_shortcut().unregister_all();
+            if let Ok(prev_shortcut) = previous
+                .shortcut
+                .parse::<tauri_plugin_global_shortcut::Shortcut>()
+            {
+                let _ = app.global_shortcut().register(prev_shortcut);
+            }
+        }
         return err(&format!("storage error: {error:?}"));
     }
-    if let Ok(shortcut) = settings.shortcut.parse::<tauri_plugin_global_shortcut::Shortcut>() {
-        let _ = app.global_shortcut().unregister_all();
-        let _ = app.global_shortcut().register(shortcut);
-    }
+
     ok(settings)
 }
 
 #[tauri::command]
-pub fn snooze_task(app: AppHandle, state: State<AppState>, task_id: String, until: i64) -> CommandResult<bool> {
+pub fn snooze_task(
+    app: AppHandle,
+    state: State<AppState>,
+    task_id: String,
+    until: i64,
+) -> CommandResult<bool> {
     let mut tasks = state.tasks();
     if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) {
         task.reminder.snoozed_until = Some(until);
@@ -232,7 +291,11 @@ pub fn snooze_task(app: AppHandle, state: State<AppState>, task_id: String, unti
 }
 
 #[tauri::command]
-pub fn dismiss_forced(app: AppHandle, state: State<AppState>, task_id: String) -> CommandResult<bool> {
+pub fn dismiss_forced(
+    app: AppHandle,
+    state: State<AppState>,
+    task_id: String,
+) -> CommandResult<bool> {
     let mut tasks = state.tasks();
     if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) {
         task.reminder.forced_dismissed = true;
@@ -255,7 +318,11 @@ pub fn delete_task(app: AppHandle, state: State<AppState>, task_id: String) -> C
 }
 
 #[tauri::command]
-pub fn delete_tasks(app: AppHandle, state: State<AppState>, task_ids: Vec<String>) -> CommandResult<bool> {
+pub fn delete_tasks(
+    app: AppHandle,
+    state: State<AppState>,
+    task_ids: Vec<String>,
+) -> CommandResult<bool> {
     state.remove_tasks(&task_ids);
     if let Err(error) = persist(&app, &state) {
         return err(&format!("storage error: {error:?}"));
@@ -313,7 +380,11 @@ pub fn create_backup(app: AppHandle, state: State<AppState>) -> CommandResult<bo
 }
 
 #[tauri::command]
-pub fn restore_backup(app: AppHandle, state: State<AppState>, filename: String) -> CommandResult<Vec<Task>> {
+pub fn restore_backup(
+    app: AppHandle,
+    state: State<AppState>,
+    filename: String,
+) -> CommandResult<Vec<Task>> {
     let root = match app.path().app_data_dir() {
         Ok(path) => path,
         Err(e) => return err(&format!("app_data_dir error: {e}")),
@@ -337,7 +408,11 @@ pub fn restore_backup(app: AppHandle, state: State<AppState>, filename: String) 
 }
 
 #[tauri::command]
-pub fn import_backup(app: AppHandle, state: State<AppState>, path: String) -> CommandResult<Vec<Task>> {
+pub fn import_backup(
+    app: AppHandle,
+    state: State<AppState>,
+    path: String,
+) -> CommandResult<Vec<Task>> {
     let root = match app.path().app_data_dir() {
         Ok(path) => path,
         Err(e) => return err(&format!("app_data_dir error: {e}")),

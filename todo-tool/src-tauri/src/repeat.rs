@@ -1,4 +1,4 @@
-use chrono::{Datelike, Duration, Local, LocalResult, NaiveDate, Timelike, TimeZone, Weekday};
+use chrono::{Datelike, Duration, Local, LocalResult, NaiveDate, TimeZone, Timelike, Weekday};
 
 use crate::models::RepeatRule;
 
@@ -44,7 +44,7 @@ fn next_workday(date: NaiveDate, workday_only: bool) -> NaiveDate {
     }
     loop {
         match next.weekday() {
-            Weekday::Sat | Weekday::Sun => next = next + Duration::days(1),
+            Weekday::Sat | Weekday::Sun => next += Duration::days(1),
             _ => return next,
         }
     }
@@ -81,7 +81,7 @@ fn next_month_day(date: NaiveDate, day: u8) -> NaiveDate {
 
 fn next_year_day(date: NaiveDate, month: u8, day: u8) -> NaiveDate {
     let year = date.year() + 1;
-    let month = std::cmp::min(12, std::cmp::max(1, month as u32));
+    let month = (month as u32).clamp(1, 12);
     let last_day = last_day_of_month(year, month);
     let safe_day = std::cmp::max(1, day as u32);
     let use_day = std::cmp::min(safe_day, last_day);

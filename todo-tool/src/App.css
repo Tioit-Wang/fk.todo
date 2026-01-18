@@ -212,6 +212,133 @@ textarea:focus-visible {
   filter: brightness(1.06);
 }
 
+/* ----------------------------- Window titlebar ----------------------------- */
+
+.window-titlebar {
+  height: 44px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.window-titlebar.quick {
+  /* Let the quick window background shine through a bit. */
+  background: transparent;
+}
+
+.window-titlebar-left,
+.window-titlebar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  -webkit-app-region: no-drag;
+}
+
+.window-titlebar-center {
+  display: grid;
+  place-items: center;
+  -webkit-app-region: drag;
+}
+
+.window-titlebar-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  opacity: 0.9;
+}
+
+.traffic-lights {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.traffic-light {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  padding: 0;
+}
+
+.traffic-light.red {
+  background: #ff5f57;
+  border-color: #d94b44;
+}
+
+.traffic-light.yellow {
+  background: #febc2e;
+  border-color: #dca022;
+}
+
+.traffic-light.green {
+  background: #28c840;
+  border-color: #1fa836;
+}
+
+.traffic-light.green.active {
+  box-shadow: 0 0 0 3px rgba(40, 200, 64, 0.28);
+}
+
+.traffic-light:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+/* ----------------------------- Main titlebar actions ----------------------------- */
+
+.main-titlebar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.icon-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--muted-strong);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.icon-btn:hover:not(:disabled) {
+  background: var(--panel-strong);
+  color: var(--text);
+}
+
+.segment {
+  display: inline-flex;
+  border: none;
+  background: transparent;
+  gap: 6px;
+}
+
+.segment-btn {
+  border: none;
+  background: transparent;
+  color: var(--muted-strong);
+  padding: 6px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.segment-btn:hover:not(:disabled) {
+  background: var(--panel-strong);
+  color: var(--text);
+}
+
+.segment-btn.active {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
 /* ----------------------------- Quick window ----------------------------- */
 
 .quick-window {
@@ -321,13 +448,37 @@ textarea:focus-visible {
 /* ----------------------------- Task card ----------------------------- */
 
 .task-card {
+  --card-accent: transparent;
   border: 1px solid var(--border);
   background: var(--panel);
   border-radius: 12px;
+  box-shadow: inset 4px 0 0 var(--card-accent);
+}
+
+.task-card.q1 {
+  --card-accent: var(--danger);
+}
+
+.task-card.q2 {
+  --card-accent: var(--warning);
+}
+
+.task-card.q3 {
+  --card-accent: var(--accent);
+}
+
+.task-card.q4 {
+  --card-accent: var(--border-strong);
 }
 
 .task-card.completed {
   opacity: 0.7;
+}
+
+.task-card.overdue {
+  border-color: var(--danger-border);
+  background: linear-gradient(0deg, var(--danger-soft), var(--danger-soft)), var(--panel);
+  --card-accent: var(--danger);
 }
 
 .task-card.overdue .task-title,
@@ -337,14 +488,14 @@ textarea:focus-visible {
 
 .task-row {
   display: grid;
-  grid-template-columns: 28px 1fr auto;
-  gap: 10px;
-  padding: 10px;
-  align-items: start;
+  grid-template-columns: 26px 1fr auto;
+  gap: 8px;
+  padding: 8px 10px;
+  align-items: center;
 }
 
 .task-row.selectable {
-  grid-template-columns: auto 28px 1fr auto;
+  grid-template-columns: auto 26px 1fr auto;
 }
 
 .task-select {
@@ -364,9 +515,9 @@ textarea:focus-visible {
 }
 
 .task-checkbox {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
   border: 1px solid var(--border);
   background: var(--panel-strong);
   color: var(--text);
@@ -376,6 +527,8 @@ textarea:focus-visible {
 }
 
 .task-content {
+  display: grid;
+  gap: 2px;
   min-width: 0;
 }
 
@@ -383,6 +536,9 @@ textarea:focus-visible {
   display: block;
   font-weight: 600;
   color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .task-card.completed .task-title {
@@ -393,15 +549,21 @@ textarea:focus-visible {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  margin-top: 6px;
+  gap: 6px;
   color: var(--muted);
+  font-size: 12px;
+  line-height: 16px;
 }
 
 .task-due-time {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .task-icons {
@@ -423,8 +585,8 @@ textarea:focus-visible {
 }
 
 .task-icon-btn {
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--panel-strong);
@@ -445,8 +607,8 @@ textarea:focus-visible {
 }
 
 .task-chip {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   border-radius: 999px;
   border: 1px solid var(--border);
   display: inline-grid;
@@ -675,6 +837,144 @@ textarea:focus-visible {
   background: var(--panel);
 }
 
+.main-input-bar {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+
+/* Shared bottom composer (quick + main) */
+.composer-bar {
+  display: grid;
+  gap: 8px;
+}
+
+.composer-input-wrapper {
+  position: relative;
+}
+
+.composer-input {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--panel-strong);
+  color: var(--text);
+  padding: 10px 152px 10px 12px;
+}
+
+.composer-input::placeholder {
+  color: var(--muted);
+}
+
+.composer-actions {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.composer-action-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.composer-action-btn.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.composer-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.composer-due-preview {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  min-width: 0;
+}
+
+.composer-submit {
+  border-radius: 12px;
+  border: 1px solid var(--success-border);
+  background: var(--success-soft);
+  color: var(--text);
+  cursor: pointer;
+  padding: 8px 12px;
+}
+
+.composer-submit:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.composer-popup {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  width: min(420px, 92vw);
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--panel-strong);
+  padding: 12px;
+  z-index: 20;
+  box-shadow: 0 24px 60px var(--shadow);
+}
+
+.composer-popup-section {
+  display: grid;
+  gap: 10px;
+}
+
+.composer-popup-title {
+  font-size: 12px;
+  color: var(--muted-strong);
+  letter-spacing: 0.02em;
+}
+
+.composer-popup-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.composer-popup-input {
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  padding: 8px 10px;
+}
+
+.composer-popup-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.composer-popup-number {
+  width: 82px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  padding: 6px 8px;
+}
+
 .quick-input-wrapper {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -886,7 +1186,17 @@ textarea:focus-visible {
   height: 100%;
   background: var(--main-bg);
   color: var(--text);
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.main-content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .main-header {
@@ -981,9 +1291,12 @@ textarea:focus-visible {
 }
 
 .quadrant-grid {
+  flex: 1;
+  min-height: 0;
   padding: 16px;
   display: grid;
   grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
   gap: 12px;
 }
 
@@ -992,10 +1305,10 @@ textarea:focus-visible {
   border-radius: 14px;
   background: var(--panel);
   padding: 12px;
-  min-height: 220px;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-height: 0;
 }
 
 .quadrant-header {
@@ -1015,15 +1328,6 @@ textarea:focus-visible {
   font-size: 12px;
 }
 
-.quadrant-toggle {
-  border: 1px solid var(--border);
-  background: var(--panel-strong);
-  color: var(--text);
-  padding: 4px 8px;
-  border-radius: 8px;
-  cursor: pointer;
-}
-
 .quadrant-add input {
   width: 100%;
   border-radius: 8px;
@@ -1034,11 +1338,23 @@ textarea:focus-visible {
 }
 
 .quadrant-list {
+  flex: 1;
+  min-height: 0;
   display: grid;
   gap: 8px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.quadrant-list .task-card.main {
+  min-height: 56px;
 }
 
 .quadrant-empty {
+  border-radius: 12px;
+  border: 1px dashed var(--border);
+  padding: 12px;
+  text-align: center;
   color: var(--muted);
 }
 
@@ -1059,9 +1375,56 @@ textarea:focus-visible {
 }
 
 .list-view {
+  flex: 1;
+  min-height: 0;
   padding: 16px;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
+  overflow: hidden;
+}
+
+.list-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.list-tab {
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  padding: 6px 10px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.list-tab.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.list-tab-count {
+  min-width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--panel-strong);
+  border: 1px solid var(--border);
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: var(--muted-strong);
+}
+
+.list-panel {
+  display: grid;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
 .list-section {
@@ -1075,6 +1438,70 @@ textarea:focus-visible {
 
 .list-empty {
   color: var(--muted);
+}
+
+/* ----------------------------- Task edit modal ----------------------------- */
+
+.task-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay);
+  display: grid;
+  place-items: center;
+  z-index: 20;
+}
+
+.task-modal {
+  width: min(820px, 94vw);
+  max-height: 90vh;
+  overflow: auto;
+  background: var(--panel-strong);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 24px 60px var(--shadow);
+}
+
+.task-modal-header {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.task-modal-title {
+  display: grid;
+  gap: 4px;
+}
+
+.task-modal-subtitle {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.task-modal-body {
+  padding: 16px;
+  display: grid;
+  gap: 14px;
+}
+
+.task-modal-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 10px;
+}
+
+.task-modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.task-modal-actions-right {
+  display: flex;
+  gap: 10px;
 }
 
 /* ----------------------------- Settings ----------------------------- */

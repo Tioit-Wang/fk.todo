@@ -81,7 +81,11 @@ impl Storage {
         Ok(serde_json::from_str(&buf)?)
     }
 
-    fn write_with_backup<T: Serialize>(&self, filename: &str, data: &T) -> Result<(), StorageError> {
+    fn write_with_backup<T: Serialize>(
+        &self,
+        filename: &str,
+        data: &T,
+    ) -> Result<(), StorageError> {
         let path = self.root.join(filename);
         if path.exists() {
             self.create_backup(&path)?;

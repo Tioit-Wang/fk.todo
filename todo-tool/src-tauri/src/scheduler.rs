@@ -73,7 +73,10 @@ fn collect_due_tasks(state: &AppState, now: i64) -> Vec<Task> {
             ReminderKind::Forced => Some(task.due_at),
             ReminderKind::None => None,
         };
-        let target_time = reminder.snoozed_until.or(reminder.remind_at).or(default_target);
+        let target_time = reminder
+            .snoozed_until
+            .or(reminder.remind_at)
+            .or(default_target);
         if let Some(target) = target_time {
             if let Some(last_fired) = reminder.last_fired_at {
                 if last_fired >= target {
@@ -87,7 +90,11 @@ fn collect_due_tasks(state: &AppState, now: i64) -> Vec<Task> {
     }
     due.sort_by(|a, b| {
         if a.important != b.important {
-            return if a.important { std::cmp::Ordering::Less } else { std::cmp::Ordering::Greater };
+            return if a.important {
+                std::cmp::Ordering::Less
+            } else {
+                std::cmp::Ordering::Greater
+            };
         }
         a.due_at.cmp(&b.due_at)
     });

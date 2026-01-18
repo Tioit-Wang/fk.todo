@@ -13,12 +13,15 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 
 import "./App.css";
 
+import { TaskComposer, type TaskComposerDraft } from "./components/TaskComposer";
+import { WindowTitlebar } from "./components/WindowTitlebar";
+import { Icons } from "./components/icons";
+
 import {
   completeTask,
   createBackup,
   createTask,
   deleteTask,
-  deleteTasks,
   dismissForced,
   importBackup,
   listBackups,
@@ -31,7 +34,7 @@ import {
 } from "./api";
 import { formatDue, fromDateTimeLocal, toDateTimeLocal } from "./date";
 import { newTask, visibleQuickTasks, type QuickSortMode } from "./logic";
-import { defaultDueAt, isDueInFuture, isDueToday, isDueTomorrow, isOverdue } from "./scheduler";
+import { isDueInFuture, isDueToday, isDueTomorrow, isOverdue } from "./scheduler";
 import type { BackupSchedule, ReminderKind, RepeatRule, Settings, Task } from "./types";
 
 const QUICK_TABS = [
@@ -114,12 +117,6 @@ const QUADRANTS = [
   { id: 4, title: "不重要不紧急", sublabel: "Eliminate", className: "quadrant-gray" },
 ];
 
-const QUICK_DUE_PRESETS = [
-  { id: "today", label: "今天 18:00", offsetDays: 0 },
-  { id: "tomorrow", label: "明天 18:00", offsetDays: 1 },
-  { id: "dayAfter", label: "后天 18:00", offsetDays: 2 },
-] as const;
-
 function formatRepeat(rule: RepeatRule) {
   switch (rule.type) {
     case "none":
@@ -178,10 +175,9 @@ function buildReminderConfig(kind: ReminderKind, dueAt: number, offsetMinutes: n
 }
 
 function normalizeTask(task: Task) {
-  if (!task.sort_order) {
-    return { ...task, sort_order: task.created_at * 1000 };
-  }
-  return task;
+  const sort_order = task.sort_order || task.created_at * 1000;
+  const quadrant = [1, 2, 3, 4].includes(task.quadrant) ? task.quadrant : 1;
+  return { ...task, sort_order, quadrant };
 }
 
 function mergeUniqueIds(existing: string[], incoming: string[]) {
@@ -225,168 +221,7 @@ function playBeep() {
   }
 }
 
-// ============================================================================
-// ICON COMPONENTS
-// ============================================================================
-const Icons = {
-  Star: () => (
-    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-    </svg>
-  ),
-  Calendar: () => (
-    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-      <line x1="16" y1="2" x2="16" y2="6" />
-      <line x1="8" y1="2" x2="8" y2="6" />
-      <line x1="3" y1="10" x2="21" y2="10" />
-    </svg>
-  ),
-  Bell: () => (
-    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-    </svg>
-  ),
-  Repeat: () => (
-    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <polyline points="17 1 21 5 17 9" />
-      <path d="M3 11V9a4 4 0 0 1 4-4h14" />
-      <polyline points="7 23 3 19 7 15" />
-      <path d="M21 13v2a4 4 0 0 1-4 4H3" />
-    </svg>
-  ),
-  Plus: () => (
-    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <line x1="12" y1="5" x2="12" y2="19" />
-      <line x1="5" y1="12" x2="19" y2="12" />
-    </svg>
-  ),
-  Check: () => (
-    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
-  ),
-  ChevronDown: () => (
-    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <polyline points="6 9 12 15 18 9" />
-    </svg>
-  ),
-  ChevronRight: () => (
-    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <polyline points="9 18 15 12 9 6" />
-    </svg>
-  ),
-  Grid: () => (
-    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <rect x="3" y="3" width="7" height="7" />
-      <rect x="14" y="3" width="7" height="7" />
-      <rect x="14" y="14" width="7" height="7" />
-      <rect x="3" y="14" width="7" height="7" />
-    </svg>
-  ),
-  List: () => (
-    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <line x1="8" y1="6" x2="21" y2="6" />
-      <line x1="8" y1="12" x2="21" y2="12" />
-      <line x1="8" y1="18" x2="21" y2="18" />
-      <line x1="3" y1="6" x2="3.01" y2="6" />
-      <line x1="3" y1="12" x2="3.01" y2="12" />
-      <line x1="3" y1="18" x2="3.01" y2="18" />
-    </svg>
-  ),
-  Filter: () => (
-    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-    </svg>
-  ),
-  Sort: () => (
-    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <line x1="4" y1="6" x2="11" y2="6" />
-      <line x1="4" y1="12" x2="11" y2="12" />
-      <line x1="4" y1="18" x2="13" y2="18" />
-      <polyline points="15 15 18 18 21 15" />
-      <line x1="18" y1="6" x2="18" y2="18" />
-    </svg>
-  ),
-  Trash: () => (
-    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <polyline points="3 6 5 6 21 6" />
-      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-    </svg>
-  ),
-  Move: () => (
-    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <polyline points="5 9 2 12 5 15" />
-      <polyline points="9 5 12 2 15 5" />
-      <polyline points="15 19 12 22 9 19" />
-      <polyline points="19 9 22 12 19 15" />
-      <line x1="2" y1="12" x2="22" y2="12" />
-      <line x1="12" y1="2" x2="12" y2="22" />
-    </svg>
-  ),
-  Clock: () => (
-    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <circle cx="12" cy="12" r="10" />
-      <polyline points="12 6 12 12 16 14" />
-    </svg>
-  ),
-  X: () => (
-    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <line x1="18" y1="6" x2="6" y2="18" />
-      <line x1="6" y1="6" x2="18" y2="18" />
-    </svg>
-  ),
-  AlertCircle: () => (
-    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <circle cx="12" cy="12" r="10" />
-      <line x1="12" y1="8" x2="12" y2="12" />
-      <line x1="12" y1="16" x2="12.01" y2="16" />
-    </svg>
-  ),
-  Snooze: () => (
-    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M4 11h6L4 19h6" />
-      <path d="M14 7h6l-6 8h6" />
-    </svg>
-  ),
-  Edit: () => (
-    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M12 20h9" />
-      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
-    </svg>
-  ),
-  Settings: () => (
-    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
-    </svg>
-  ),
-  Pin: () => (
-    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M12 17v5" />
-      <path d="M5 9h14l-1 6H6l-1-6Z" />
-      <path d="M5 9V6l7-4 7 4v3" />
-    </svg>
-  ),
-  ArrowUp: () => (
-    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <polyline points="6 15 12 9 18 15" />
-    </svg>
-  ),
-  ArrowDown: () => (
-    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <polyline points="6 9 12 15 18 9" />
-    </svg>
-  ),
-  ExternalLink: () => (
-    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M14 3h7v7" />
-      <path d="M10 14L21 3" />
-      <path d="M5 7v14h14v-5" />
-    </svg>
-  ),
-};
+// (Icons are now in `src/components/icons.tsx`.)
 
 // ============================================================================
 // TASK CARD
@@ -394,148 +229,38 @@ const Icons = {
 function TaskCard({
   task,
   mode,
-  expanded,
-  selectable,
-  selected,
-  showNotes,
   showMove,
   draggable,
   onDragStart,
   onMoveUp,
   onMoveDown,
-  onToggleSelect,
   onToggleComplete,
   onToggleImportant,
   onDelete,
-  onExpand,
-  onUpdate,
+  onEdit,
 }: {
   task: Task;
   mode: "quick" | "main";
-  expanded: boolean;
-  selectable?: boolean;
-  selected?: boolean;
-  showNotes?: boolean;
   showMove?: boolean;
   draggable?: boolean;
   onDragStart?: (event: DragEvent) => void;
   onMoveUp?: () => void;
   onMoveDown?: () => void;
-  onToggleSelect?: () => void;
   onToggleComplete: () => void;
   onToggleImportant: () => void;
   onDelete: () => void;
-  onExpand: () => void;
-  onUpdate: (task: Task) => void;
+  onEdit: () => void;
 }) {
-  const [draftTitle, setDraftTitle] = useState(task.title);
-  const [draftDueAt, setDraftDueAt] = useState(task.due_at);
-  const [draftReminderKind, setDraftReminderKind] = useState<ReminderKind>(task.reminder.kind);
-  const [draftReminderOffset, setDraftReminderOffset] = useState<number>(getReminderOffset(task));
-  const [draftRepeat, setDraftRepeat] = useState<RepeatRule>(task.repeat);
-  const [draftNotes, setDraftNotes] = useState(task.notes ?? "");
-  const [newStepTitle, setNewStepTitle] = useState("");
-
-  useEffect(() => {
-    if (!expanded) return;
-    setDraftTitle(task.title);
-    setDraftDueAt(task.due_at);
-    setDraftReminderKind(task.reminder.kind);
-    setDraftReminderOffset(getReminderOffset(task));
-    setDraftRepeat(task.repeat);
-    setDraftNotes(task.notes ?? "");
-    setNewStepTitle("");
-  }, [expanded, task]);
-
   const now = Math.floor(Date.now() / 1000);
   const overdue = isOverdue(task, now);
 
-  function handleSave() {
-    const title = draftTitle.trim();
-    if (!title) return;
-    const next: Task = {
-      ...task,
-      title,
-      due_at: draftDueAt,
-      repeat: draftRepeat,
-      reminder: buildReminderConfig(draftReminderKind, draftDueAt, draftReminderOffset),
-      notes: showNotes ? draftNotes.trim() || undefined : task.notes,
-      updated_at: now,
-    };
-    onUpdate(next);
-  }
-
-  function handleReset() {
-    setDraftTitle(task.title);
-    setDraftDueAt(task.due_at);
-    setDraftReminderKind(task.reminder.kind);
-    setDraftReminderOffset(getReminderOffset(task));
-    setDraftRepeat(task.repeat);
-    setDraftNotes(task.notes ?? "");
-  }
-
-  function handleAddStep() {
-    const title = newStepTitle.trim();
-    if (!title) return;
-    const ts = Math.floor(Date.now() / 1000);
-    const next: Task = {
-      ...task,
-      steps: [
-        ...task.steps,
-        {
-          id: crypto.randomUUID(),
-          title,
-          completed: false,
-          created_at: ts,
-        },
-      ],
-      updated_at: ts,
-    };
-    setNewStepTitle("");
-    onUpdate(next);
-  }
-
-  function toggleStep(stepId: string) {
-    const ts = Math.floor(Date.now() / 1000);
-    const nextSteps = task.steps.map((step) => {
-      if (step.id !== stepId) return step;
-      const completed = !step.completed;
-      return {
-        ...step,
-        completed,
-        completed_at: completed ? ts : undefined,
-      };
-    });
-    onUpdate({ ...task, steps: nextSteps, updated_at: ts });
-  }
-
-  function removeStep(stepId: string) {
-    const ts = Math.floor(Date.now() / 1000);
-    onUpdate({ ...task, steps: task.steps.filter((step) => step.id !== stepId), updated_at: ts });
-  }
-
   return (
     <div
-      className={`task-card ${mode} ${task.completed ? "completed" : ""} ${overdue ? "overdue" : ""}`}
+      className={`task-card ${mode} q${task.quadrant} ${task.completed ? "completed" : ""} ${overdue ? "overdue" : ""}`}
       draggable={draggable}
       onDragStart={onDragStart}
     >
-      <div className={`task-row ${selectable ? "selectable" : ""}`}>
-        {selectable && (
-          <button
-            type="button"
-            className={`task-select ${selected ? "selected" : ""}`}
-            onClick={(event) => {
-              event.stopPropagation();
-              onToggleSelect?.();
-            }}
-            title={selected ? "取消选择" : "选择"}
-            aria-label={selected ? "取消选择任务" : "选择任务"}
-            aria-pressed={selected}
-          >
-            {selected && <Icons.Check />}
-          </button>
-        )}
+      <div className="task-row">
         <button
           type="button"
           className="task-checkbox"
@@ -599,22 +324,140 @@ function TaskCard({
           <button
             type="button"
             className="task-icon-btn"
-            onClick={onExpand}
-            title={expanded ? "收起" : "编辑"}
-            aria-label={expanded ? "收起编辑" : "展开编辑"}
+            onClick={onEdit}
+            title="编辑"
+            aria-label="编辑任务"
           >
-            {expanded ? <Icons.ChevronDown /> : <Icons.Edit />}
+            <Icons.Edit />
           </button>
         </div>
       </div>
+    </div>
+  );
+}
 
-      {expanded && (
-        <div className="task-details">
-          <div className="task-edit-row">
+function TaskEditModal({
+  task,
+  showNotes,
+  onSave,
+  onClose,
+}: {
+  task: Task;
+  showNotes: boolean;
+  onSave: (next: Task) => Promise<void> | void;
+  onClose: () => void;
+}) {
+  const [draftTitle, setDraftTitle] = useState(task.title);
+  const [draftDueAt, setDraftDueAt] = useState(task.due_at);
+  const [draftReminderKind, setDraftReminderKind] = useState<ReminderKind>(task.reminder.kind);
+  const [draftReminderOffset, setDraftReminderOffset] = useState<number>(getReminderOffset(task));
+  const [draftRepeat, setDraftRepeat] = useState<RepeatRule>(task.repeat);
+  const [draftNotes, setDraftNotes] = useState(task.notes ?? "");
+  const [draftSteps, setDraftSteps] = useState(task.steps);
+  const [newStepTitle, setNewStepTitle] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setDraftTitle(task.title);
+    setDraftDueAt(task.due_at);
+    setDraftReminderKind(task.reminder.kind);
+    setDraftReminderOffset(getReminderOffset(task));
+    setDraftRepeat(task.repeat);
+    setDraftNotes(task.notes ?? "");
+    setDraftSteps(task.steps);
+    setNewStepTitle("");
+    setSaving(false);
+  }, [task.id]);
+
+  function handleReset() {
+    setDraftTitle(task.title);
+    setDraftDueAt(task.due_at);
+    setDraftReminderKind(task.reminder.kind);
+    setDraftReminderOffset(getReminderOffset(task));
+    setDraftRepeat(task.repeat);
+    setDraftNotes(task.notes ?? "");
+    setDraftSteps(task.steps);
+    setNewStepTitle("");
+  }
+
+  function handleAddStep() {
+    const title = newStepTitle.trim();
+    if (!title) return;
+    const ts = Math.floor(Date.now() / 1000);
+    setDraftSteps((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        title,
+        completed: false,
+        created_at: ts,
+      },
+    ]);
+    setNewStepTitle("");
+  }
+
+  function toggleStep(stepId: string) {
+    const ts = Math.floor(Date.now() / 1000);
+    setDraftSteps((prev) =>
+      prev.map((step) => {
+        if (step.id !== stepId) return step;
+        const completed = !step.completed;
+        return {
+          ...step,
+          completed,
+          completed_at: completed ? ts : undefined,
+        };
+      }),
+    );
+  }
+
+  function removeStep(stepId: string) {
+    setDraftSteps((prev) => prev.filter((step) => step.id !== stepId));
+  }
+
+  async function handleSave() {
+    const title = draftTitle.trim();
+    if (!title) return;
+    const now = Math.floor(Date.now() / 1000);
+    const next: Task = {
+      ...task,
+      title,
+      due_at: draftDueAt,
+      repeat: draftRepeat,
+      reminder: buildReminderConfig(draftReminderKind, draftDueAt, draftReminderOffset),
+      steps: draftSteps,
+      notes: showNotes ? draftNotes.trim() || undefined : task.notes,
+      updated_at: now,
+    };
+    setSaving(true);
+    try {
+      await onSave(next);
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="task-modal-overlay" role="dialog" aria-modal="true" aria-label="编辑任务" onClick={onClose}>
+      <div className="task-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="task-modal-header">
+          <div className="task-modal-title">
+            <span>编辑任务</span>
+            <span className="task-modal-subtitle">{formatDue(task.due_at)}</span>
+          </div>
+          <button type="button" className="icon-btn" onClick={onClose} aria-label="关闭编辑" title="关闭">
+            <Icons.X />
+          </button>
+        </div>
+
+        <div className="task-modal-body">
+          <div className="task-modal-row">
             <input
               className="task-edit-title"
               value={draftTitle}
               onChange={(event) => setDraftTitle(event.currentTarget.value)}
+              placeholder="任务标题"
             />
             <input
               className="task-edit-due"
@@ -625,18 +468,26 @@ function TaskCard({
                 if (next) setDraftDueAt(next);
               }}
             />
-            <button
-              type="button"
-              className="task-edit-btn"
-              onClick={handleSave}
-              disabled={!draftTitle.trim()}
-              title={!draftTitle.trim() ? "标题不能为空" : "保存"}
-            >
-              保存
-            </button>
-            <button type="button" className="task-edit-btn ghost" onClick={handleReset} title="重置">
+          </div>
+
+          <div className="task-modal-actions">
+            <button type="button" className="task-edit-btn ghost" onClick={handleReset} disabled={saving}>
               重置
             </button>
+            <div className="task-modal-actions-right">
+              <button type="button" className="task-edit-btn ghost" onClick={onClose} disabled={saving}>
+                取消
+              </button>
+              <button
+                type="button"
+                className="task-edit-btn"
+                onClick={() => void handleSave()}
+                disabled={saving || !draftTitle.trim()}
+                title={!draftTitle.trim() ? "标题不能为空" : "保存"}
+              >
+                保存
+              </button>
+            </div>
           </div>
 
           <div className="inline-config">
@@ -653,6 +504,7 @@ function TaskCard({
                       setDraftReminderOffset(opt.id === "normal" ? 10 : 0);
                     }}
                     aria-pressed={draftReminderKind === opt.id}
+                    disabled={saving}
                   >
                     {opt.label}
                   </button>
@@ -667,6 +519,7 @@ function TaskCard({
                     className="inline-input"
                     value={draftReminderOffset}
                     onChange={(event) => setDraftReminderOffset(Number(event.currentTarget.value) || 0)}
+                    disabled={saving}
                   />
                   <span>分钟</span>
                 </div>
@@ -683,6 +536,7 @@ function TaskCard({
                     className={`pill ${draftRepeat.type === opt.id ? "active" : ""}`}
                     onClick={() => setDraftRepeat(defaultRepeatRule(opt.id))}
                     aria-pressed={draftRepeat.type === opt.id}
+                    disabled={saving}
                   >
                     {opt.label}
                   </button>
@@ -700,6 +554,7 @@ function TaskCard({
                       })
                     }
                     aria-pressed={draftRepeat.workday_only}
+                    disabled={saving}
                   >
                     仅工作日
                   </button>
@@ -722,6 +577,7 @@ function TaskCard({
                           setDraftRepeat({ type: "weekly", days: nextDays.sort() });
                         }}
                         aria-pressed={selected}
+                        disabled={saving}
                       >
                         周{day.label}
                       </button>
@@ -744,6 +600,7 @@ function TaskCard({
                         day: Math.min(31, Math.max(1, Number(event.currentTarget.value) || 1)),
                       })
                     }
+                    disabled={saving}
                   />
                   <span>号</span>
                 </div>
@@ -764,6 +621,7 @@ function TaskCard({
                         day: draftRepeat.day,
                       })
                     }
+                    disabled={saving}
                   />
                   <span>月</span>
                   <input
@@ -779,6 +637,7 @@ function TaskCard({
                         day: Math.min(31, Math.max(1, Number(event.currentTarget.value) || 1)),
                       })
                     }
+                    disabled={saving}
                   />
                   <span>号</span>
                 </div>
@@ -798,12 +657,13 @@ function TaskCard({
                   onKeyDown={(event) => {
                     if (event.key === "Enter") handleAddStep();
                   }}
+                  disabled={saving}
                 />
                 <button
                   type="button"
                   className="step-add-btn"
                   onClick={handleAddStep}
-                  disabled={!newStepTitle.trim()}
+                  disabled={saving || !newStepTitle.trim()}
                   title={!newStepTitle.trim() ? "请输入步骤内容" : "添加步骤"}
                   aria-label="添加步骤"
                 >
@@ -811,10 +671,10 @@ function TaskCard({
                 </button>
               </div>
             </div>
-            {task.steps.length === 0 ? (
+            {draftSteps.length === 0 ? (
               <div className="steps-empty">无步骤</div>
             ) : (
-              task.steps.map((step) => (
+              draftSteps.map((step) => (
                 <div key={step.id} className={`step-item ${step.completed ? "completed" : ""}`}>
                   <button
                     type="button"
@@ -822,6 +682,7 @@ function TaskCard({
                     onClick={() => toggleStep(step.id)}
                     aria-label={step.completed ? "标记步骤为未完成" : "标记步骤为完成"}
                     aria-pressed={step.completed}
+                    disabled={saving}
                   >
                     {step.completed && <Icons.Check />}
                   </button>
@@ -832,6 +693,7 @@ function TaskCard({
                     onClick={() => removeStep(step.id)}
                     title="删除步骤"
                     aria-label="删除步骤"
+                    disabled={saving}
                   >
                     <Icons.X />
                   </button>
@@ -845,14 +707,15 @@ function TaskCard({
               <div className="notes-header">备注</div>
               <textarea
                 className="notes-input"
-                rows={3}
+                rows={4}
                 value={draftNotes}
                 onChange={(event) => setDraftNotes(event.currentTarget.value)}
+                disabled={saving}
               />
             </div>
           )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -986,20 +849,14 @@ function App() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [tab, setTab] = useState<(typeof QUICK_TABS)[number]["id"]>("todo");
   const [quickSort, setQuickSort] = useState<QuickSortMode>("default");
-  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
-  const [inputValue, setInputValue] = useState<string>("");
-  const [quickConfigOpen, setQuickConfigOpen] = useState(false);
-  const [draftDueAt, setDraftDueAt] = useState<number>(defaultDueAt(new Date()));
-  const [draftImportant, setDraftImportant] = useState(false);
-  const [draftRepeat, setDraftRepeat] = useState<RepeatRule>({ type: "none" });
-  const [draftReminderKind, setDraftReminderKind] = useState<ReminderKind>("none");
-  const [draftReminderOffset, setDraftReminderOffset] = useState<number>(10);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
 
   const [forcedQueueIds, setForcedQueueIds] = useState<string[]>([]);
   const [normalQueueIds, setNormalQueueIds] = useState<string[]>([]);
   const [permissionStatus, setPermissionStatus] = useState<"unknown" | "granted" | "denied">("unknown");
 
-  const [mainView, setMainView] = useState<"quadrant" | "list">("quadrant");
+  const [mainView, setMainView] = useState<"quadrant" | "list">("list");
+  const [listTab, setListTab] = useState<"overdue" | "today" | "tomorrow" | "future" | "completed">("today");
   const [dueFilter, setDueFilter] = useState<(typeof DUE_FILTER_OPTIONS)[number]["id"]>("all");
   const [importanceFilter, setImportanceFilter] = useState<
     (typeof IMPORTANCE_FILTER_OPTIONS)[number]["id"]
@@ -1007,23 +864,15 @@ function App() {
   const [repeatFilter, setRepeatFilter] = useState<(typeof REPEAT_FILTER_OPTIONS)[number]["id"]>("all");
   const [reminderFilter, setReminderFilter] = useState<(typeof REMINDER_FILTER_OPTIONS)[number]["id"]>("all");
   const [mainSort, setMainSort] = useState<(typeof MAIN_SORT_OPTIONS)[number]["id"]>("due");
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [collapsedQuadrants, setCollapsedQuadrants] = useState<Record<number, boolean>>({
-    1: false,
-    2: false,
-    3: false,
-    4: false,
-  });
 
   const [showSettings, setShowSettings] = useState(false);
   const [backups, setBackups] = useState<{ name: string; modified_at: number }[]>([]);
   const [importPath, setImportPath] = useState("");
+  const [shortcutDraft, setShortcutDraft] = useState("");
 
   const quickWindowApplied = useRef(false);
   const quickSaveTimer = useRef<number | null>(null);
   const settingsRef = useRef<Settings | null>(null);
-
-  const dueTimePreview = useMemo(() => formatDue(draftDueAt), [draftDueAt]);
 
   useEffect(() => {
     const onHash = () => setView(getViewFromHash());
@@ -1148,8 +997,50 @@ function App() {
   }, [settings]);
 
   useEffect(() => {
+    if (!showSettings || !settings) return;
+    setShortcutDraft(settings.shortcut);
+  }, [showSettings, settings?.shortcut]);
+
+  useEffect(() => {
+    if (!showSettings) return;
+    // Refresh permission status when opening the settings panel to avoid showing stale "unknown".
+    (async () => {
+      try {
+        const granted = await isPermissionGranted();
+        setPermissionStatus(granted ? "granted" : "denied");
+      } catch {
+        // Ignore environments where permission status isn't available.
+      }
+    })();
+  }, [showSettings]);
+
+  useEffect(() => {
     document.documentElement.dataset.view = view;
   }, [view]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+
+      // Priority: close modals/overlays first.
+      if (editingTaskId) {
+        setEditingTaskId(null);
+        return;
+      }
+      if (showSettings) {
+        setShowSettings(false);
+        return;
+      }
+
+      // Quick window: Esc hides the window (classic launcher behavior).
+      if (view === "quick") {
+        void getCurrentWindow().hide();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [editingTaskId, showSettings, view]);
 
   useEffect(() => {
     (async () => {
@@ -1159,17 +1050,19 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!settings) return;
+    // IMPORTANT: quick-tab UI state must only be synced inside the quick window.
+    // Otherwise, multiple windows will fight each other via `update_settings` and cause tab "ping-pong".
+    if (view !== "quick" || !settings) return;
     if (settings.quick_tab) {
       setTab(settings.quick_tab as typeof QUICK_TABS[number]["id"]);
     }
     if (settings.quick_sort) {
       setQuickSort(settings.quick_sort as QuickSortMode);
     }
-  }, [settings?.quick_tab, settings?.quick_sort, settings]);
+  }, [view, settings?.quick_tab, settings?.quick_sort, settings]);
 
   useEffect(() => {
-    if (!settings) return;
+    if (view !== "quick" || !settings) return;
     if (settings.quick_tab !== tab || settings.quick_sort !== quickSort) {
       handleUpdateSettings({
         ...settings,
@@ -1177,7 +1070,7 @@ function App() {
         quick_sort: quickSort,
       });
     }
-  }, [tab, quickSort, settings]);
+  }, [view, tab, quickSort, settings]);
 
   useEffect(() => {
     if (view !== "quick" || !settings) return;
@@ -1197,9 +1090,12 @@ function App() {
           appWindow.setPosition(new LogicalPosition(centerX, centerY + offsetY));
         });
       }
-      appWindow.setAlwaysOnTop(settings.quick_always_on_top);
       quickWindowApplied.current = true;
     }
+
+    // Some platforms lose the always-on-top state after hide()/show() cycles.
+    // Re-assert it whenever we (re)enter the quick view.
+    void appWindow.setAlwaysOnTop(settings.quick_always_on_top);
 
     const scheduleSave = () => {
       if (quickSaveTimer.current) {
@@ -1222,15 +1118,21 @@ function App() {
 
     let unlistenMoved: (() => void) | null = null;
     let unlistenResized: (() => void) | null = null;
+    let unlistenFocus: (() => void) | null = null;
 
     (async () => {
       unlistenMoved = await appWindow.onMoved(scheduleSave);
       unlistenResized = await appWindow.onResized(scheduleSave);
+      unlistenFocus = await appWindow.onFocusChanged(({ payload }) => {
+        if (!payload) return;
+        void appWindow.setAlwaysOnTop(settingsRef.current?.quick_always_on_top ?? false);
+      });
     })();
 
     return () => {
       if (unlistenMoved) unlistenMoved();
       if (unlistenResized) unlistenResized();
+      if (unlistenFocus) unlistenFocus();
       if (quickSaveTimer.current) {
         window.clearTimeout(quickSaveTimer.current);
       }
@@ -1239,21 +1141,19 @@ function App() {
 
   useEffect(() => {
     if (view !== "quick") return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        getCurrentWindow().hide();
-      }
-    };
+    const appWindow = getCurrentWindow();
     const onBlur = () => {
-      getCurrentWindow().hide();
+      // When pinned (always-on-top), do not auto-hide on focus loss.
+      // This also prevents accidental hide while trying to drag the window.
+      if (settingsRef.current?.quick_always_on_top) return;
+      if (editingTaskId) return;
+      void appWindow.hide();
     };
-    window.addEventListener("keydown", onKeyDown);
     window.addEventListener("blur", onBlur);
     return () => {
-      window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("blur", onBlur);
     };
-  }, [view]);
+  }, [view, editingTaskId]);
 
   useEffect(() => {
     setForcedQueueIds((prev) =>
@@ -1286,6 +1186,11 @@ function App() {
 
   const reminderTask = forcedTasks[0] ?? null;
 
+  const editingTask = useMemo(() => {
+    if (!editingTaskId) return null;
+    return tasks.find((task) => task.id === editingTaskId) ?? null;
+  }, [tasks, editingTaskId]);
+
   async function refreshState() {
     const res = await loadState();
     if (res.ok && res.data) {
@@ -1305,6 +1210,9 @@ function App() {
       if (previous) {
         setSettings(previous);
       }
+      if (result.error) {
+        alert(result.error);
+      }
       return;
     }
     if (result.data) {
@@ -1312,27 +1220,45 @@ function App() {
     }
   }
 
-  async function handleAddTask() {
-    const title = inputValue.trim();
-    if (!title) return;
-    const task = newTask(title, new Date());
-    task.due_at = draftDueAt;
-    task.important = draftImportant;
-    task.repeat = draftRepeat;
-    task.reminder = buildReminderConfig(draftReminderKind, draftDueAt, draftReminderOffset);
+  async function applyShortcutDraft() {
+    if (!settings) return;
+    const nextShortcut = shortcutDraft.trim();
+    if (!nextShortcut) {
+      setShortcutDraft(settings.shortcut);
+      return;
+    }
+    if (nextShortcut === settings.shortcut) return;
+    await handleUpdateSettings({ ...settings, shortcut: nextShortcut });
+  }
+
+  async function handleCreateFromComposer(draft: TaskComposerDraft) {
+    const task = newTask(draft.title, new Date());
+    task.due_at = draft.due_at;
+    task.important = draft.important;
+    task.repeat = draft.repeat;
+    task.reminder = buildReminderConfig(draft.reminder_kind, draft.due_at, draft.reminder_offset_minutes);
     task.updated_at = Math.floor(Date.now() / 1000);
-    setInputValue("");
-    setDraftRepeat({ type: "none" });
-    setDraftImportant(false);
-    setDraftReminderKind("none");
-    setDraftReminderOffset(10);
-    setDraftDueAt(defaultDueAt(new Date()));
     await createTask(task);
   }
 
   async function handleToggleComplete(task: Task) {
-    if (task.completed) return;
-    await completeTask(task.id);
+    const now = Math.floor(Date.now() / 1000);
+    if (!task.completed) {
+      await completeTask(task.id);
+      return;
+    }
+
+    if (task.repeat.type !== "none") {
+      const ok = confirm("该任务为循环任务，取消完成不会删除已经生成的下一期任务，仍要继续吗？");
+      if (!ok) return;
+    }
+
+    await updateTask({
+      ...task,
+      completed: false,
+      completed_at: undefined,
+      updated_at: now,
+    });
   }
 
   async function handleToggleImportant(task: Task) {
@@ -1345,12 +1271,12 @@ function App() {
     await deleteTask(task.id);
   }
 
-  function handleExpand(task: Task) {
-    setExpandedTaskId((prev) => (prev === task.id ? null : task.id));
-  }
-
   async function handleUpdateTask(next: Task) {
     await updateTask(next);
+  }
+
+  function handleEditTask(task: Task) {
+    setEditingTaskId(task.id);
   }
 
   async function handleReminderSnooze5() {
@@ -1405,37 +1331,6 @@ function App() {
       await openUrl("x-apple.systempreferences:com.apple.preference.notifications");
       return;
     }
-  }
-
-  function updateSelection(taskId: string) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(taskId)) {
-        next.delete(taskId);
-      } else {
-        next.add(taskId);
-      }
-      return next;
-    });
-  }
-
-  async function handleBatchComplete() {
-    const list = Array.from(selectedIds);
-    for (const id of list) {
-      const task = tasks.find((item) => item.id === id);
-      if (task && !task.completed) {
-        await completeTask(id);
-      }
-    }
-    setSelectedIds(new Set());
-  }
-
-  async function handleBatchDelete() {
-    const list = Array.from(selectedIds);
-    if (list.length === 0) return;
-    if (!confirm(`确认删除 ${list.length} 条任务？`)) return;
-    await deleteTasks(list);
-    setSelectedIds(new Set());
   }
 
   async function refreshBackups() {
@@ -1538,6 +1433,14 @@ function App() {
     ];
   }, [sortedTasks]);
 
+  const activeListSection = useMemo(() => {
+    return (
+      listSections.find((section) => section.id === listTab) ??
+      listSections[0] ??
+      ({ id: listTab, label: "", tasks: [] } as { id: string; label: string; tasks: Task[] })
+    );
+  }, [listSections, listTab]);
+
   const quadrantCounts = useMemo(() => {
     const counts: Record<number, { total: number; completed: number }> = {
       1: { total: 0, completed: 0 },
@@ -1583,25 +1486,11 @@ function App() {
   }
 
   useEffect(() => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      let changed = false;
-      for (const id of Array.from(next)) {
-        if (!tasks.find((task) => task.id === id)) {
-          next.delete(id);
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [tasks]);
-
-  useEffect(() => {
-    if (!expandedTaskId) return;
-    if (!tasks.find((task) => task.id === expandedTaskId)) {
-      setExpandedTaskId(null);
+    if (!editingTaskId) return;
+    if (!tasks.some((task) => task.id === editingTaskId)) {
+      setEditingTaskId(null);
     }
-  }, [tasks, expandedTaskId]);
+  }, [tasks, editingTaskId]);
 
   useEffect(() => {
     if (view === "reminder" && !reminderTask) {
@@ -1619,19 +1508,6 @@ function App() {
     appWindow.setPosition(new LogicalPosition(0, Math.round((availableHeight - bannerHeight) / 2)));
   }, [view]);
 
-  const quickDueSunday = useMemo(() => {
-    const now = new Date();
-    const target = new Date(now);
-    const day = target.getDay();
-    const diff = (7 - day) % 7;
-    target.setDate(target.getDate() + diff);
-    target.setHours(18, 0, 0, 0);
-    if (diff === 0 && now.getTime() > target.getTime()) {
-      target.setDate(target.getDate() + 7);
-    }
-    return Math.floor(target.getTime() / 1000);
-  }, []);
-
   useEffect(() => {
     if (!showSettings) return;
     refreshBackups();
@@ -1641,28 +1517,11 @@ function App() {
     <div className="app-container">
       {view === "quick" && (
         <div className="quick-window">
-          <div className="quick-header" data-tauri-drag-region>
-            <div className="quick-header-actions" data-tauri-drag-region="false">
-              <button
-                type="button"
-                className={`quick-header-btn icon-only ${settings?.quick_always_on_top ? "active" : ""}`}
-                onClick={handleToggleAlwaysOnTop}
-                title="置顶"
-                aria-label="置顶"
-              >
-                <Icons.Pin />
-              </button>
-              <button
-                type="button"
-                className="quick-header-btn icon-only"
-                onClick={() => getCurrentWindow().hide()}
-                title="关闭"
-                aria-label="关闭"
-              >
-                <Icons.X />
-              </button>
-            </div>
-          </div>
+          <WindowTitlebar
+            variant="quick"
+            pinned={settings?.quick_always_on_top}
+            onTogglePin={handleToggleAlwaysOnTop}
+          />
 
           <NotificationBanner tasks={normalTasks} onSnooze={handleNormalSnooze} onComplete={handleNormalComplete} />
 
@@ -1699,370 +1558,110 @@ function App() {
                 key={task.id}
                 task={task}
                 mode="quick"
-                expanded={expandedTaskId === task.id}
                 onToggleComplete={() => handleToggleComplete(task)}
                 onToggleImportant={() => handleToggleImportant(task)}
                 onDelete={() => handleDeleteTask(task)}
-                onExpand={() => handleExpand(task)}
-                onUpdate={(next) => handleUpdateTask(next)}
+                onEdit={() => handleEditTask(task)}
               />
             ))}
           </div>
 
           <div className="quick-input-bar">
-            <div className="quick-input-wrapper">
-              <input
-                type="text"
-                className="quick-input"
-                placeholder="输入任务内容，回车添加"
-                value={inputValue}
-                onChange={(e) => setInputValue(e.currentTarget.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleAddTask();
-                }}
-              />
-              <div className="quick-input-actions">
-                <button
-                  type="button"
-                  className={`quick-input-btn ${quickConfigOpen ? "active" : ""}`}
-                  onClick={() => setQuickConfigOpen((prev) => !prev)}
-                  title="到期时间"
-                  aria-label="设置到期时间"
-                  aria-pressed={quickConfigOpen}
-                >
-                  <Icons.Calendar />
-                </button>
-                <button
-                  type="button"
-                  className={`quick-input-btn ${draftReminderKind !== "none" ? "active" : ""}`}
-                  onClick={() => setQuickConfigOpen(true)}
-                  title="提醒"
-                  aria-label="提醒设置"
-                  aria-pressed={draftReminderKind !== "none"}
-                >
-                  <Icons.Bell />
-                </button>
-                <button
-                  type="button"
-                  className={`quick-input-btn ${draftRepeat.type !== "none" ? "active" : ""}`}
-                  onClick={() => setQuickConfigOpen(true)}
-                  title="循环"
-                  aria-label="循环设置"
-                  aria-pressed={draftRepeat.type !== "none"}
-                >
-                  <Icons.Repeat />
-                </button>
-                <button
-                  type="button"
-                  className={`quick-input-btn ${draftImportant ? "active" : ""}`}
-                  onClick={() => setDraftImportant((prev) => !prev)}
-                  title="重要"
-                  aria-label={draftImportant ? "取消标记重要" : "标记为重要"}
-                  aria-pressed={draftImportant}
-                >
-                  <Icons.Star />
-                </button>
-              </div>
-            </div>
-            <div className="quick-due-preview">
-              <Icons.Clock />
-              <span>{dueTimePreview}</span>
-            </div>
-            {quickConfigOpen && (
-              <div className="quick-config-panel">
-                <div className="quick-config-row">
-                  <span className="quick-config-label">到期时间</span>
-                  <div className="quick-config-buttons">
-                    {QUICK_DUE_PRESETS.map((preset) => (
-                      <button
-                        key={preset.id}
-                        type="button"
-                        className="pill"
-                        onClick={() => {
-                          const base = new Date();
-                          const target = new Date(base);
-                          target.setDate(target.getDate() + preset.offsetDays);
-                          target.setHours(18, 0, 0, 0);
-                          setDraftDueAt(Math.floor(target.getTime() / 1000));
-                        }}
-                      >
-                        {preset.label}
-                      </button>
-                    ))}
-                    <button type="button" className="pill" onClick={() => setDraftDueAt(quickDueSunday)}>
-                      本周日 18:00
-                    </button>
-                  </div>
-                  <input
-                    type="datetime-local"
-                    className="quick-config-input"
-                    value={toDateTimeLocal(draftDueAt)}
-                    onChange={(event) => {
-                      const next = fromDateTimeLocal(event.currentTarget.value);
-                      if (next) setDraftDueAt(next);
-                    }}
-                  />
-                </div>
-
-                <div className="quick-config-row">
-                  <span className="quick-config-label">提醒</span>
-                  <div className="quick-config-buttons">
-                    {REMINDER_KIND_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        className={`pill ${draftReminderKind === opt.id ? "active" : ""}`}
-                        onClick={() => {
-                          setDraftReminderKind(opt.id);
-                          setDraftReminderOffset(opt.id === "normal" ? 10 : 0);
-                        }}
-                        aria-pressed={draftReminderKind === opt.id}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                  {draftReminderKind !== "none" && (
-                    <div className="quick-config-inline">
-                      <span>提前</span>
-                      <input
-                        type="number"
-                        min={0}
-                        className="inline-input"
-                        value={draftReminderOffset}
-                        onChange={(event) => setDraftReminderOffset(Number(event.currentTarget.value) || 0)}
-                      />
-                      <span>分钟</span>
-                    </div>
-                  )}
-                </div>
-
-                <div className="quick-config-row">
-                  <span className="quick-config-label">循环</span>
-                  <div className="quick-config-buttons">
-                    {REPEAT_TYPE_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        className={`pill ${draftRepeat.type === opt.id ? "active" : ""}`}
-                        onClick={() => setDraftRepeat(defaultRepeatRule(opt.id))}
-                        aria-pressed={draftRepeat.type === opt.id}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                  {draftRepeat.type === "daily" && (
-                    <div className="quick-config-inline">
-                      <button
-                        type="button"
-                        className={`pill ${draftRepeat.workday_only ? "active" : ""}`}
-                        onClick={() =>
-                          setDraftRepeat({
-                            type: "daily",
-                            workday_only: !draftRepeat.workday_only,
-                          })
-                        }
-                        aria-pressed={draftRepeat.workday_only}
-                      >
-                        仅工作日
-                      </button>
-                    </div>
-                  )}
-                  {draftRepeat.type === "weekly" && (
-                    <div className="quick-config-buttons">
-                      {WEEKDAY_OPTIONS.map((day) => {
-                        const selected = draftRepeat.days.includes(day.id);
-                        return (
-                          <button
-                            key={day.id}
-                            type="button"
-                            className={`pill ${selected ? "active" : ""}`}
-                            onClick={() => {
-                              const nextDays = selected
-                                ? draftRepeat.days.filter((value) => value !== day.id)
-                                : [...draftRepeat.days, day.id];
-                              if (nextDays.length === 0) return;
-                              setDraftRepeat({ type: "weekly", days: nextDays.sort() });
-                            }}
-                            aria-pressed={selected}
-                          >
-                            周{day.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                  {draftRepeat.type === "monthly" && (
-                    <div className="quick-config-inline">
-                      <span>每月</span>
-                      <input
-                        className="inline-input"
-                        type="number"
-                        min={1}
-                        max={31}
-                        value={draftRepeat.day}
-                        onChange={(event) =>
-                          setDraftRepeat({
-                            type: "monthly",
-                            day: Math.min(31, Math.max(1, Number(event.currentTarget.value) || 1)),
-                          })
-                        }
-                      />
-                      <span>号</span>
-                    </div>
-                  )}
-                  {draftRepeat.type === "yearly" && (
-                    <div className="quick-config-inline">
-                      <span>每年</span>
-                      <input
-                        className="inline-input"
-                        type="number"
-                        min={1}
-                        max={12}
-                        value={draftRepeat.month}
-                        onChange={(event) =>
-                          setDraftRepeat({
-                            type: "yearly",
-                            month: Math.min(12, Math.max(1, Number(event.currentTarget.value) || 1)),
-                            day: draftRepeat.day,
-                          })
-                        }
-                      />
-                      <span>月</span>
-                      <input
-                        className="inline-input"
-                        type="number"
-                        min={1}
-                        max={31}
-                        value={draftRepeat.day}
-                        onChange={(event) =>
-                          setDraftRepeat({
-                            type: "yearly",
-                            month: draftRepeat.month,
-                            day: Math.min(31, Math.max(1, Number(event.currentTarget.value) || 1)),
-                          })
-                        }
-                      />
-                      <span>号</span>
-                    </div>
-                  )}
-                </div>
-
-                <div className="quick-config-row">
-                  <span className="quick-config-label">重要</span>
-                  <button
-                    type="button"
-                    className={`pill ${draftImportant ? "active" : ""}`}
-                    onClick={() => setDraftImportant((prev) => !prev)}
-                    aria-pressed={draftImportant}
-                  >
-                    <Icons.Star />
-                    {draftImportant ? "重要" : "未标记"}
-                  </button>
-                </div>
-              </div>
-            )}
+            <TaskComposer onSubmit={handleCreateFromComposer} />
           </div>
         </div>
       )}
 
       {view === "main" && (
         <div className="main-window">
-          <header className="main-header">
-            <div className="main-header-left">
-              <h1 className="main-title">任务管理</h1>
-              <div className="main-subtitle">四象限 + 列表视图</div>
-            </div>
-            <div className="main-header-actions">
-              <button
-                type="button"
-                className={`main-toggle ${mainView === "quadrant" ? "active" : ""}`}
-                onClick={() => setMainView("quadrant")}
-                aria-pressed={mainView === "quadrant"}
-              >
-                <Icons.Grid />
-                四象限
-              </button>
-              <button
-                type="button"
-                className={`main-toggle ${mainView === "list" ? "active" : ""}`}
-                onClick={() => setMainView("list")}
-                aria-pressed={mainView === "list"}
-              >
-                <Icons.List />
-                列表
-              </button>
-              <button type="button" className="main-toggle" onClick={() => setShowSettings(true)}>
-                <Icons.Settings />
-                设置
-              </button>
-            </div>
-          </header>
+          <WindowTitlebar
+            variant="main"
+            title="Todo Tool"
+            right={
+              <div className="main-titlebar-actions">
+                <div className="segment" role="tablist" aria-label="Main view">
+                  <button
+                    type="button"
+                    className={`segment-btn ${mainView === "list" ? "active" : ""}`}
+                    onClick={() => setMainView("list")}
+                    aria-selected={mainView === "list"}
+                  >
+                    列表
+                  </button>
+                  <button
+                    type="button"
+                    className={`segment-btn ${mainView === "quadrant" ? "active" : ""}`}
+                    onClick={() => setMainView("quadrant")}
+                    aria-selected={mainView === "quadrant"}
+                  >
+                    四象限
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={() => setShowSettings(true)}
+                  title="设置"
+                  aria-label="设置"
+                >
+                  <Icons.Settings />
+                </button>
+              </div>
+            }
+          />
 
-          <NotificationBanner tasks={normalTasks} onSnooze={handleNormalSnooze} onComplete={handleNormalComplete} />
+          <div className="main-content">
+            <NotificationBanner tasks={normalTasks} onSnooze={handleNormalSnooze} onComplete={handleNormalComplete} />
 
-          <div className="main-filters">
-            <div className="filter-group">
-              <Icons.Filter />
-              <select value={dueFilter} onChange={(event) => setDueFilter(event.currentTarget.value as any)}>
-                {DUE_FILTER_OPTIONS.map((opt) => (
-                  <option key={opt.id} value={opt.id}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={importanceFilter}
-                onChange={(event) => setImportanceFilter(event.currentTarget.value as any)}
-              >
-                {IMPORTANCE_FILTER_OPTIONS.map((opt) => (
-                  <option key={opt.id} value={opt.id}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-              <select value={repeatFilter} onChange={(event) => setRepeatFilter(event.currentTarget.value as any)}>
-                {REPEAT_FILTER_OPTIONS.map((opt) => (
-                  <option key={opt.id} value={opt.id}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={reminderFilter}
-                onChange={(event) => setReminderFilter(event.currentTarget.value as any)}
-              >
-                {REMINDER_FILTER_OPTIONS.map((opt) => (
-                  <option key={opt.id} value={opt.id}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+            <div className="main-filters">
+              <div className="filter-group">
+                <Icons.Filter />
+                <select value={dueFilter} onChange={(event) => setDueFilter(event.currentTarget.value as any)}>
+                  {DUE_FILTER_OPTIONS.map((opt) => (
+                    <option key={opt.id} value={opt.id}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={importanceFilter}
+                  onChange={(event) => setImportanceFilter(event.currentTarget.value as any)}
+                >
+                  {IMPORTANCE_FILTER_OPTIONS.map((opt) => (
+                    <option key={opt.id} value={opt.id}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <select value={repeatFilter} onChange={(event) => setRepeatFilter(event.currentTarget.value as any)}>
+                  {REPEAT_FILTER_OPTIONS.map((opt) => (
+                    <option key={opt.id} value={opt.id}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={reminderFilter}
+                  onChange={(event) => setReminderFilter(event.currentTarget.value as any)}
+                >
+                  {REMINDER_FILTER_OPTIONS.map((opt) => (
+                    <option key={opt.id} value={opt.id}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="filter-group">
+                <Icons.Sort />
+                <select value={mainSort} onChange={(event) => setMainSort(event.currentTarget.value as any)}>
+                  {MAIN_SORT_OPTIONS.map((opt) => (
+                    <option key={opt.id} value={opt.id}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
-            <div className="filter-group">
-              <Icons.Sort />
-              <select value={mainSort} onChange={(event) => setMainSort(event.currentTarget.value as any)}>
-                {MAIN_SORT_OPTIONS.map((opt) => (
-                  <option key={opt.id} value={opt.id}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {selectedIds.size > 0 && (
-            <div className="batch-bar">
-              <span>已选择 {selectedIds.size} 项</span>
-              <button type="button" className="batch-btn" onClick={handleBatchComplete}>
-                批量完成
-              </button>
-              <button type="button" className="batch-btn danger" onClick={handleBatchDelete}>
-                批量删除
-              </button>
-            </div>
-          )}
 
           {mainView === "quadrant" && (
             <div className="quadrant-grid">
@@ -2083,68 +1682,30 @@ function App() {
                         {quad.sublabel} · {quadrantCounts[quad.id].completed}/{quadrantCounts[quad.id].total}
                       </span>
                     </div>
-                    <button
-                      type="button"
-                      className="quadrant-toggle"
-                      onClick={() =>
-                        setCollapsedQuadrants((prev) => ({
-                          ...prev,
-                          [quad.id]: !prev[quad.id],
-                        }))
-                      }
-                      aria-expanded={!collapsedQuadrants[quad.id]}
-                      aria-controls={`quadrant-list-${quad.id}`}
-                    >
-                      {collapsedQuadrants[quad.id] ? "展开" : "收起"}
-                    </button>
                   </div>
 
-                  <div className="quadrant-add">
-                    <input
-                      placeholder="添加任务，回车创建"
-                      onKeyDown={async (event) => {
-                        if (event.key !== "Enter") return;
-                        const title = event.currentTarget.value.trim();
-                        if (!title) return;
-                        const task = newTask(title, new Date());
-                        task.quadrant = quad.id;
-                        task.updated_at = Math.floor(Date.now() / 1000);
-                        await createTask(task);
-                        event.currentTarget.value = "";
-                      }}
-                    />
+                  <div className="quadrant-list">
+                    {tasksByQuadrant[quad.id].length === 0 ? (
+                      <div className="quadrant-empty">暂无任务</div>
+                    ) : (
+                      tasksByQuadrant[quad.id].map((task) => (
+                        <TaskCard
+                          key={task.id}
+                          task={task}
+                          mode="main"
+                          showMove={mainSort === "manual"}
+                          draggable
+                          onDragStart={(event) => handleDragStart(task, event)}
+                          onMoveUp={() => handleMoveTask(task, "up", tasksByQuadrant[quad.id])}
+                          onMoveDown={() => handleMoveTask(task, "down", tasksByQuadrant[quad.id])}
+                          onToggleComplete={() => handleToggleComplete(task)}
+                          onToggleImportant={() => handleToggleImportant(task)}
+                          onDelete={() => handleDeleteTask(task)}
+                          onEdit={() => handleEditTask(task)}
+                        />
+                      ))
+                    )}
                   </div>
-
-                  {!collapsedQuadrants[quad.id] && (
-                    <div className="quadrant-list" id={`quadrant-list-${quad.id}`}>
-                      {tasksByQuadrant[quad.id].length === 0 ? (
-                        <div className="quadrant-empty">暂无任务</div>
-                      ) : (
-                        tasksByQuadrant[quad.id].map((task) => (
-                          <TaskCard
-                            key={task.id}
-                            task={task}
-                            mode="main"
-                            expanded={expandedTaskId === task.id}
-                            selectable
-                            selected={selectedIds.has(task.id)}
-                            showNotes
-                            showMove={mainSort === "manual"}
-                            draggable
-                            onDragStart={(event) => handleDragStart(task, event)}
-                            onMoveUp={() => handleMoveTask(task, "up", tasksByQuadrant[quad.id])}
-                            onMoveDown={() => handleMoveTask(task, "down", tasksByQuadrant[quad.id])}
-                            onToggleSelect={() => updateSelection(task.id)}
-                            onToggleComplete={() => handleToggleComplete(task)}
-                            onToggleImportant={() => handleToggleImportant(task)}
-                            onDelete={() => handleDeleteTask(task)}
-                            onExpand={() => handleExpand(task)}
-                            onUpdate={(next) => handleUpdateTask(next)}
-                          />
-                        ))
-                      )}
-                    </div>
-                  )}
                 </div>
               ))}
             </div>
@@ -2152,37 +1713,43 @@ function App() {
 
           {mainView === "list" && (
             <div className="list-view">
-              {listSections.map((section) => (
-                <div key={section.id} className="list-section">
-                  <div className="list-section-header">{section.label}</div>
-                  {section.tasks.length === 0 ? (
-                    <div className="list-empty">暂无任务</div>
-                  ) : (
-                    section.tasks.map((task) => (
-                      <TaskCard
-                        key={task.id}
-                        task={task}
-                        mode="main"
-                        expanded={expandedTaskId === task.id}
-                        selectable
-                        selected={selectedIds.has(task.id)}
-                        showNotes
-                        showMove={mainSort === "manual"}
-                        draggable
-                        onDragStart={(event) => handleDragStart(task, event)}
-                        onMoveUp={() => handleMoveTask(task, "up", section.tasks)}
-                        onMoveDown={() => handleMoveTask(task, "down", section.tasks)}
-                        onToggleSelect={() => updateSelection(task.id)}
-                        onToggleComplete={() => handleToggleComplete(task)}
-                        onToggleImportant={() => handleToggleImportant(task)}
-                        onDelete={() => handleDeleteTask(task)}
-                        onExpand={() => handleExpand(task)}
-                        onUpdate={(next) => handleUpdateTask(next)}
-                      />
-                    ))
-                  )}
-                </div>
-              ))}
+              <div className="list-tabs" role="tablist" aria-label="列表分组">
+                {listSections.map((section) => (
+                  <button
+                    key={section.id}
+                    type="button"
+                    className={`list-tab ${listTab === section.id ? "active" : ""}`}
+                    onClick={() => setListTab(section.id as any)}
+                    aria-selected={listTab === section.id}
+                  >
+                    <span>{section.label}</span>
+                    <span className="list-tab-count">{section.tasks.length}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="list-panel" role="tabpanel">
+                {activeListSection.tasks.length === 0 ? (
+                  <div className="list-empty">暂无任务</div>
+                ) : (
+                  activeListSection.tasks.map((task) => (
+                    <TaskCard
+                      key={task.id}
+                      task={task}
+                      mode="main"
+                      showMove={mainSort === "manual"}
+                      draggable
+                      onDragStart={(event) => handleDragStart(task, event)}
+                      onMoveUp={() => handleMoveTask(task, "up", activeListSection.tasks)}
+                      onMoveDown={() => handleMoveTask(task, "down", activeListSection.tasks)}
+                      onToggleComplete={() => handleToggleComplete(task)}
+                      onToggleImportant={() => handleToggleImportant(task)}
+                      onDelete={() => handleDeleteTask(task)}
+                      onEdit={() => handleEditTask(task)}
+                    />
+                  ))
+                )}
+              </div>
             </div>
           )}
 
@@ -2206,13 +1773,15 @@ function App() {
                   <div className="settings-row">
                     <label>快捷键</label>
                     <input
-                      value={settings.shortcut}
-                      onChange={(event) =>
-                        handleUpdateSettings({
-                          ...settings,
-                          shortcut: event.currentTarget.value,
-                        })
-                      }
+                      value={shortcutDraft}
+                      onChange={(event) => setShortcutDraft(event.currentTarget.value)}
+                      onBlur={() => void applyShortcutDraft()}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          event.currentTarget.blur();
+                        }
+                      }}
                     />
                   </div>
                   <div className="settings-row">
@@ -2354,6 +1923,11 @@ function App() {
               </div>
             </div>
           )}
+          </div>
+
+          <div className="main-input-bar">
+            <TaskComposer onSubmit={handleCreateFromComposer} />
+          </div>
         </div>
       )}
 
@@ -2364,6 +1938,15 @@ function App() {
           onDismiss={handleReminderDismiss}
           onSnooze5={handleReminderSnooze5}
           onComplete={handleReminderComplete}
+        />
+      )}
+
+      {editingTask && view !== "reminder" && (
+        <TaskEditModal
+          task={editingTask}
+          showNotes={view === "main"}
+          onSave={handleUpdateTask}
+          onClose={() => setEditingTaskId(null)}
         />
       )}
     </div>
