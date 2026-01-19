@@ -186,17 +186,28 @@ function App() {
         if (normal.length > 0) {
           setNormalQueueIds((prev) => mergeUniqueIds(prev, normal.map((task) => task.id)));
 
-          const granted = await isPermissionGranted();
-          if (granted && getViewFromHash() === "quick") {
-            normal.forEach((task) => {
-              sendNotification({
-                title: "任务提醒",
-                body: `${task.title} (${formatDue(task.due_at)})`,
-                actionTypeId: NOTIFICATION_ACTION_TYPE,
-                extra: { taskId: task.id },
-                silent: settingsRef.current ? !settingsRef.current.sound_enabled : false,
+          // System-level notifications for normal reminders:
+          // - Send from a single window instance to avoid duplicates (main window is always present).
+          // - Keep the in-app banner (NotificationBanner) as the primary interaction surface.
+          if (getViewFromHash() === "main") {
+            let granted = false;
+            try {
+              granted = await isPermissionGranted();
+            } catch {
+              // If the permission check fails (platform differences), attempt to send anyway.
+              granted = true;
+            }
+            if (granted) {
+              normal.forEach((task) => {
+                sendNotification({
+                  title: "普通提醒",
+                  body: `${task.title} (${formatDue(task.due_at)})`,
+                  actionTypeId: NOTIFICATION_ACTION_TYPE,
+                  extra: { taskId: task.id },
+                  silent: settingsRef.current ? !settingsRef.current.sound_enabled : false,
+                });
               });
-            });
+            }
           }
         }
       });
