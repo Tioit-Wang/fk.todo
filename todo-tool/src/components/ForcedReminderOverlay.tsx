@@ -1,8 +1,9 @@
 import { useEffect, useMemo } from "react";
 
 import { formatDue } from "../date";
+import { formatRepeatRule } from "../repeat";
 import { isOverdue } from "../scheduler";
-import type { RepeatRule, Task } from "../types";
+import type { Task } from "../types";
 
 import { Icons } from "./icons";
 
@@ -25,22 +26,6 @@ function formatSpan(seconds: number) {
   }
   if (mins > 0) return `${mins}分`;
   return "不到 1 分钟";
-}
-
-function formatRepeat(rule: RepeatRule) {
-  switch (rule.type) {
-    case "daily":
-      return rule.workday_only ? "每日(工作日)" : "每日";
-    case "weekly":
-      return "每周";
-    case "monthly":
-      return `每月${rule.day}号`;
-    case "yearly":
-      return `每年${rule.month}-${rule.day}`;
-    case "none":
-    default:
-      return "不循环";
-  }
 }
 
 export function ForcedReminderOverlay({
@@ -138,7 +123,7 @@ export function ForcedReminderOverlay({
               {task.repeat.type !== "none" && (
                 <span className="forced-reminder-chip">
                   <Icons.Repeat />
-                  {formatRepeat(task.repeat)}
+                  {formatRepeatRule(task.repeat)}
                 </span>
               )}
             </div>

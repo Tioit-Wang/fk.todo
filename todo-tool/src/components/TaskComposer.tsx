@@ -3,7 +3,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Icons } from "./icons";
 
 import { fromDateTimeLocal, toDateTimeLocal } from "../date";
+import { REMINDER_KIND_OPTIONS, REMINDER_OFFSET_PRESETS } from "../reminder";
 import { defaultDueAt } from "../scheduler";
+import { defaultRepeatRule, REPEAT_TYPE_OPTIONS, WEEKDAY_OPTIONS } from "../repeat";
 import type { ReminderKind, RepeatRule } from "../types";
 
 const QUICK_DUE_PRESETS = [
@@ -12,46 +14,13 @@ const QUICK_DUE_PRESETS = [
   { id: "dayAfter", label: "后天 18:00", offsetDays: 2 },
 ] as const;
 
-const REMINDER_KIND_OPTIONS = [
-  { id: "none", label: "不提醒" },
-  { id: "normal", label: "普通" },
-  { id: "forced", label: "强制" },
+// Relative shortcuts are handy for short-lived tasks (e.g. "call back in 30m").
+const QUICK_DUE_RELATIVE_PRESETS = [
+  { id: "30m", label: "半小时后", minutes: 30 },
+  { id: "1h", label: "1小时后", minutes: 60 },
+  { id: "2h", label: "2小时后", minutes: 120 },
+  { id: "4h", label: "4小时后", minutes: 240 },
 ] as const;
-
-const REPEAT_TYPE_OPTIONS = [
-  { id: "none", label: "不循环" },
-  { id: "daily", label: "每日" },
-  { id: "weekly", label: "每周" },
-  { id: "monthly", label: "每月" },
-  { id: "yearly", label: "每年" },
-] as const;
-
-const WEEKDAY_OPTIONS = [
-  { id: 1, label: "一" },
-  { id: 2, label: "二" },
-  { id: 3, label: "三" },
-  { id: 4, label: "四" },
-  { id: 5, label: "五" },
-  { id: 6, label: "六" },
-  { id: 7, label: "日" },
-] as const;
-
-function defaultRepeatRule(type: RepeatRule["type"]): RepeatRule {
-  const now = new Date();
-  switch (type) {
-    case "daily":
-      return { type: "daily", workday_only: false };
-    case "weekly":
-      return { type: "weekly", days: [1, 2, 3, 4, 5] };
-    case "monthly":
-      return { type: "monthly", day: Math.min(31, Math.max(1, now.getDate())) };
-    case "yearly":
-      return { type: "yearly", month: now.getMonth() + 1, day: now.getDate() };
-    case "none":
-    default:
-      return { type: "none" };
-  }
-}
 
 export type TaskComposerDraft = {
   title: string;
@@ -72,6 +41,10 @@ export function TaskComposer({
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [title, setTitle] = useState("");
   const [activePopup, setActivePopup] = useState<"due" | "reminder" | "repeat" | null>(null);
+
+  // Used for disabling "past" presets (e.g. selecting "today 18:00" after 18:00).
+  // This is evaluated on each render; opening the popup triggers a render, so it's current enough for UI gating.
+  const nowForPresets = new Date();
 
   const [dueAt, setDueAt] = useState<number>(() => defaultDueAt(new Date()));
   const [important, setImportant] = useState(false);
@@ -210,25 +183,53 @@ export function TaskComposer({
             <div className="composer-popup-section">
               <div className="composer-popup-title">到期时间</div>
               <div className="composer-popup-row">
-                {QUICK_DUE_PRESETS.map((preset) => (
+                {QUICK_DUE_PRESETS.map((preset) => {
+                  const target = new Date(nowForPresets);
+                  target.setDate(target.getDate() + preset.offsetDays);
+                  target.setHours(18, 0, 0, 0);
+
+                  // If it's already past 18:00 today, "today 18:00" becomes an invalid shortcut.
+                  const disabled = preset.offsetDays === 0 && nowForPresets.getTime() > target.getTime();
+
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      className="pill"
+                      disabled={disabled}
+                      title={disabled ? "当前时间已超过 18:00" : undefined}
+                      onClick={() => {
+                        if (disabled) return;
+                        setDueAt(Math.floor(target.getTime() / 1000));
+                      }}
+                    >
+                      {preset.label}
+                    </button>
+                  );
+                })}
+                <button type="button" className="pill" onClick={() => setDueAt(quickDueSunday)}>
+                  本周日 18:00
+                </button>
+              </div>
+
+              <div className="composer-popup-title">相对时间</div>
+              <div className="composer-popup-row">
+                {QUICK_DUE_RELATIVE_PRESETS.map((preset) => (
                   <button
                     key={preset.id}
                     type="button"
                     className="pill"
                     onClick={() => {
-                      const base = new Date();
-                      const target = new Date(base);
-                      target.setDate(target.getDate() + preset.offsetDays);
-                      target.setHours(18, 0, 0, 0);
-                      setDueAt(Math.floor(target.getTime() / 1000));
+                      const now = new Date();
+                      now.setSeconds(0, 0);
+                      now.setMinutes(now.getMinutes() + preset.minutes);
+                      setDueAt(Math.floor(now.getTime() / 1000));
                     }}
+                    title={`从现在起 ${preset.label}`}
                   >
                     {preset.label}
                   </button>
                 ))}
-                <button type="button" className="pill" onClick={() => setDueAt(quickDueSunday)}>
-                  本周日 18:00
-                </button>
               </div>
               <input
                 type="datetime-local"
@@ -263,6 +264,23 @@ export function TaskComposer({
                   </button>
                 ))}
               </div>
+
+              {reminderKind !== "none" && (
+                <div className="composer-popup-row" aria-label="提醒快捷时间">
+                  {REMINDER_OFFSET_PRESETS.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      className={`pill ${reminderOffset === preset.minutes ? "active" : ""}`}
+                      onClick={() => setReminderOffset(preset.minutes)}
+                      aria-pressed={reminderOffset === preset.minutes}
+                      title={preset.minutes === 0 ? "到期时提醒" : `提前 ${preset.label} 提醒`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              )}
               {reminderKind !== "none" && (
                 <div className="composer-popup-inline">
                   <span>提前</span>

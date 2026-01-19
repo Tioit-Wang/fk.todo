@@ -1,10 +1,8 @@
-import { defaultDueAt, isDueToday, isOverdue, sortByDue } from "./scheduler";
-import type { ReminderConfig, RepeatRule, Task } from "./types";
+import { defaultDueAt, isDueToday, isOverdue } from "./scheduler";
+import type { ReminderConfig, Task } from "./types";
 
 export type QuickTab = "todo" | "done" | "all";
 export type QuickSortMode = "default" | "created";
-
-export type SortMode = "due" | "created";
 
 export function newTask(title: string, now: Date): Task {
   const ts = Math.floor(now.getTime() / 1000);
@@ -26,50 +24,11 @@ export function newTask(title: string, now: Date): Task {
   };
 }
 
-export function defaultReminder(): ReminderConfig {
+function defaultReminder(): ReminderConfig {
   return {
     kind: "none",
     forced_dismissed: false,
   };
-}
-
-export function setReminder(task: Task, kind: "none" | "normal" | "forced"): Task {
-  const now = Math.floor(Date.now() / 1000);
-  const next = { ...task };
-  next.reminder = { ...next.reminder, kind, forced_dismissed: false };
-
-  if (kind === "none") {
-    delete next.reminder.remind_at;
-    delete next.reminder.snoozed_until;
-    delete next.reminder.last_fired_at;
-    return next;
-  }
-
-  if (kind === "normal") {
-    // default: due - 10 minutes
-    next.reminder.remind_at = Math.max(task.due_at - 10 * 60, now);
-    return next;
-  }
-
-  // forced: default at due
-  next.reminder.remind_at = task.due_at;
-  return next;
-}
-
-export function setRepeat(task: Task, repeat: RepeatRule): Task {
-  return { ...task, repeat };
-}
-
-export function toggleImportant(task: Task): Task {
-  return { ...task, important: !task.important };
-}
-
-export function toggleCompleted(task: Task, now: Date): Task {
-  const ts = Math.floor(now.getTime() / 1000);
-  if (task.completed) {
-    return { ...task, completed: false, completed_at: undefined, updated_at: ts };
-  }
-  return { ...task, completed: true, completed_at: ts, updated_at: ts };
 }
 
 export function visibleQuickTasks(tasks: Task[], tab: QuickTab, now: Date, sortMode: QuickSortMode): Task[] {
@@ -96,11 +55,4 @@ export function visibleQuickTasks(tasks: Task[], tab: QuickTab, now: Date, sortM
     if (a.important !== b.important) return a.important ? -1 : 1;
     return a.created_at - b.created_at;
   });
-}
-
-export function sortTasks(tasks: Task[], mode: SortMode): Task[] {
-  if (mode === "created") {
-    return tasks.slice().sort((a, b) => a.created_at - b.created_at);
-  }
-  return sortByDue(tasks);
 }
