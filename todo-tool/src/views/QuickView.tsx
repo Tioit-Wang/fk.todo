@@ -10,10 +10,15 @@ import { Icons } from "../components/icons";
 import { visibleQuickTasks, type QuickSortMode, type QuickTab } from "../logic";
 import type { Settings, Task } from "../types";
 
+function isQuickTab(value: string): value is QuickTab {
+  return value === "todo" || value === "today" || value === "all" || value === "done";
+}
+
 const QUICK_TABS = [
   { id: "todo", label: "待完成" },
-  { id: "done", label: "已完成" },
+  { id: "today", label: "今日" },
   { id: "all", label: "全部" },
+  { id: "done", label: "已完成" },
 ] as const;
 
 const QUICK_SORT_OPTIONS = [
@@ -63,7 +68,7 @@ export function QuickView({
   useEffect(() => {
     if (!settings) return;
     if (settings.quick_tab) {
-      setTab(settings.quick_tab as QuickTab);
+      setTab(isQuickTab(settings.quick_tab) ? settings.quick_tab : "todo");
     }
     if (settings.quick_sort) {
       setQuickSort(settings.quick_sort as QuickSortMode);

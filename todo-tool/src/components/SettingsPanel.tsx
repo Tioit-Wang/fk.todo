@@ -3,8 +3,9 @@ import { useEffect, useState } from "react";
 import { isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
-import { createBackup, importBackup, listBackups, restoreBackup, type BackupEntry } from "../api";
-import type { BackupSchedule, Settings } from "../types";
+import { createBackup, createTask, importBackup, listBackups, restoreBackup, type BackupEntry } from "../api";
+import { buildAiNovelAssistantSampleTasks, taskIsAiNovelAssistantSample } from "../sampleData";
+import type { BackupSchedule, Settings, Task } from "../types";
 
 import { Icons } from "./icons";
 
@@ -20,11 +21,13 @@ function detectPlatform(): "windows" | "macos" | "linux" | "unknown" {
 
 export function SettingsPanel({
   open,
+  tasks,
   settings,
   onClose,
   onUpdateSettings,
 }: {
   open: boolean;
+  tasks: Task[];
   settings: Settings | null;
   onClose: () => void;
   onUpdateSettings: (next: Settings) => Promise<boolean>;
@@ -33,6 +36,7 @@ export function SettingsPanel({
   const [backups, setBackups] = useState<BackupEntry[]>([]);
   const [importPath, setImportPath] = useState("");
   const [shortcutDraft, setShortcutDraft] = useState("");
+  const [seedBusy, setSeedBusy] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -94,6 +98,43 @@ export function SettingsPanel({
     if (!confirm("恢复将覆盖当前数据，确认继续？")) return;
     await importBackup(importPath.trim());
     setImportPath("");
+  }
+
+  async function handleAddAiNovelAssistantSamples() {
+    if (seedBusy) return;
+    const samples = buildAiNovelAssistantSampleTasks(new Date());
+    const alreadySeeded = tasks.some(taskIsAiNovelAssistantSample);
+
+    const ok = alreadySeeded
+      ? confirm(`检测到已有 AI 小说助手示例任务。\n继续添加将产生重复（共 ${samples.length} 条）。\n仍然继续吗？`)
+      : confirm(`将向当前数据添加 ${samples.length} 条示例任务（AI 小说助手开发计划）。\n建议：添加前会自动创建一次备份。\n继续吗？`);
+    if (!ok) return;
+
+    setSeedBusy(true);
+    try {
+      // Best-effort backup before polluting the dataset with demo tasks.
+      await createBackup().catch(() => {});
+      await refreshBackups();
+
+      const errors: string[] = [];
+      let created = 0;
+      for (const task of samples) {
+        const res = await createTask(task);
+        if (!res.ok) {
+          errors.push(res.error ?? `unknown error: ${task.title}`);
+        } else {
+          created += 1;
+        }
+      }
+
+      if (errors.length > 0) {
+        alert(`已添加 ${created}/${samples.length} 条示例任务。\n部分失败：\n${errors.slice(0, 5).join("\n")}${errors.length > 5 ? "\n..." : ""}`);
+      } else {
+        alert(`已添加 ${created} 条示例任务。`);
+      }
+    } finally {
+      setSeedBusy(false);
+    }
   }
 
   async function applyShortcutDraft() {
@@ -295,6 +336,21 @@ export function SettingsPanel({
               title={!importPath.trim() ? "请输入备份文件路径" : "导入恢复"}
             >
               导入恢复
+            </button>
+          </div>
+        </div>
+
+        <div className="settings-section">
+          <div className="settings-row">
+            <label>示例数据</label>
+            <button
+              type="button"
+              className="pill"
+              onClick={() => void handleAddAiNovelAssistantSamples()}
+              disabled={seedBusy}
+              title="向当前记录追加一批 AI 小说助手开发计划相关的示例任务"
+            >
+              {seedBusy ? "添加中..." : "添加 AI 小说助手示例任务"}
             </button>
           </div>
         </div>

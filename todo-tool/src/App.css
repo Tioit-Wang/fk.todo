@@ -39,6 +39,12 @@
   --shadow: rgba(18, 14, 12, 0.35);
   --focus-ring: rgba(43, 157, 148, 0.55);
 
+  /* Scrollbars (WebView2/Chromium + Firefox) */
+  --scrollbar-size: 10px;
+  --scrollbar-thumb: rgba(245, 233, 213, 0.18);
+  --scrollbar-thumb-hover: rgba(245, 233, 213, 0.3);
+  --scrollbar-thumb-active: rgba(245, 233, 213, 0.42);
+
   --quick-bg: radial-gradient(1200px 800px at 20% -10%, rgba(43, 157, 148, 0.28), rgba(0, 0, 0, 0) 60%),
     radial-gradient(1000px 700px at 110% 20%, rgba(213, 158, 64, 0.2), rgba(0, 0, 0, 0) 60%),
     linear-gradient(180deg, rgba(33, 26, 22, 0.92), rgba(20, 16, 14, 0.92));
@@ -86,6 +92,12 @@
   --overlay: rgba(20, 16, 14, 0.55);
   --shadow: rgba(43, 33, 28, 0.18);
   --focus-ring: rgba(33, 132, 124, 0.45);
+
+  /* Scrollbars (WebView2/Chromium + Firefox) */
+  --scrollbar-size: 10px;
+  --scrollbar-thumb: rgba(86, 67, 57, 0.2);
+  --scrollbar-thumb-hover: rgba(86, 67, 57, 0.32);
+  --scrollbar-thumb-active: rgba(86, 67, 57, 0.44);
 
   --quick-bg: radial-gradient(1200px 800px at 20% -10%, rgba(33, 132, 124, 0.22), rgba(0, 0, 0, 0) 60%),
     radial-gradient(1000px 700px at 110% 20%, rgba(199, 139, 45, 0.18), rgba(0, 0, 0, 0) 60%),
@@ -147,6 +159,36 @@
 
 * {
   box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background-color: var(--scrollbar-thumb-active);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 html,

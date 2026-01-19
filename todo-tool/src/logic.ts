@@ -1,7 +1,7 @@
 import { defaultDueAt, isDueToday, isOverdue } from "./scheduler";
 import type { ReminderConfig, Task } from "./types";
 
-export type QuickTab = "todo" | "done" | "all";
+export type QuickTab = "todo" | "today" | "all" | "done";
 export type QuickSortMode = "default" | "created";
 
 export function newTask(title: string, now: Date): Task {
@@ -33,13 +33,16 @@ function defaultReminder(): ReminderConfig {
 
 export function visibleQuickTasks(tasks: Task[], tab: QuickTab, now: Date, sortMode: QuickSortMode): Task[] {
   const ts = Math.floor(now.getTime() / 1000);
-  let list = tasks;
-  if (tab === "todo") list = tasks.filter((t) => !t.completed);
-  if (tab === "done") list = tasks.filter((t) => t.completed);
 
-  // quick window default: overdue + today for todo tab; for other tabs show all
+  let list = tasks;
   if (tab === "todo") {
-    list = list.filter((t) => isOverdue(t, ts) || isDueToday(t, now));
+    // All incomplete tasks (do not restrict by due window).
+    list = tasks.filter((t) => !t.completed);
+  } else if (tab === "today") {
+    // Focused "today" list: due today + overdue (incomplete only).
+    list = tasks.filter((t) => !t.completed && (isOverdue(t, ts) || isDueToday(t, now)));
+  } else if (tab === "done") {
+    list = tasks.filter((t) => t.completed);
   }
 
   const sorted = list.slice();

@@ -81,7 +81,7 @@ export function MainView({
   onNormalComplete: (task: Task) => Promise<void> | void;
 }) {
   const [mainView, setMainView] = useState<"quadrant" | "list">("list");
-  const [listTab, setListTab] = useState<"overdue" | "today" | "tomorrow" | "future" | "completed">("today");
+  const [listTab, setListTab] = useState<"all" | "overdue" | "today" | "tomorrow" | "future" | "completed">("today");
 
   const [dueFilter, setDueFilter] = useState<(typeof DUE_FILTER_OPTIONS)[number]["id"]>("all");
   const [importanceFilter, setImportanceFilter] = useState<(typeof IMPORTANCE_FILTER_OPTIONS)[number]["id"]>("all");
@@ -135,6 +135,7 @@ export function MainView({
 
   const listSections = useMemo(() => {
     const now = new Date();
+    const all: Task[] = [];
     const overdue: Task[] = [];
     const today: Task[] = [];
     const tomorrow: Task[] = [];
@@ -142,6 +143,7 @@ export function MainView({
     const completed: Task[] = [];
 
     sortedTasks.forEach((task) => {
+      all.push(task);
       if (task.completed) {
         completed.push(task);
         return;
@@ -158,6 +160,7 @@ export function MainView({
     });
 
     return [
+      { id: "all", label: "全部", tasks: all },
       { id: "overdue", label: "逾期", tasks: overdue },
       { id: "today", label: "今天", tasks: today },
       { id: "tomorrow", label: "明天", tasks: tomorrow },
@@ -393,7 +396,13 @@ export function MainView({
           </div>
         )}
 
-        <SettingsPanel open={showSettings} settings={settings} onClose={() => setShowSettings(false)} onUpdateSettings={onUpdateSettings} />
+        <SettingsPanel
+          open={showSettings}
+          tasks={tasks}
+          settings={settings}
+          onClose={() => setShowSettings(false)}
+          onUpdateSettings={onUpdateSettings}
+        />
       </div>
 
       <div className="main-input-bar">
@@ -402,4 +411,3 @@ export function MainView({
     </div>
   );
 }
-
