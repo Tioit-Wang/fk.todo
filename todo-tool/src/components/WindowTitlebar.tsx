@@ -49,20 +49,18 @@ export function WindowTitlebar({ variant, title, pinned, onTogglePin, right }: W
               void appWindow.minimize();
             }}
           />
-          <button
-            type="button"
-            className={`traffic-light green ${showPin && pinned ? "active" : ""}`}
-            title={showPin ? (pinned ? "取消置顶" : "置顶") : "最大化/还原"}
-            aria-label={showPin ? (pinned ? "取消置顶" : "置顶") : "最大化/还原"}
-            aria-pressed={showPin ? Boolean(pinned) : undefined}
-            onClick={() => {
-              if (showPin) {
+          {showPin && (
+            <button
+              type="button"
+              className={`traffic-light green ${pinned ? "active" : ""}`}
+              title={pinned ? "取消置顶" : "置顶"}
+              aria-label={pinned ? "取消置顶" : "置顶"}
+              aria-pressed={Boolean(pinned)}
+              onClick={() => {
                 void onTogglePin?.();
-                return;
-              }
-              void appWindow.toggleMaximize();
-            }}
-          />
+              }}
+            />
+          )}
         </div>
       </div>
 

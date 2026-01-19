@@ -14,6 +14,8 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import "./App.css";
 
 import { TaskComposer, type TaskComposerDraft } from "./components/TaskComposer";
+import { ConfirmDialog } from "./components/ConfirmDialog";
+import { ForcedReminderOverlay } from "./components/ForcedReminderOverlay";
 import { WindowTitlebar } from "./components/WindowTitlebar";
 import { Icons } from "./components/icons";
 
@@ -720,86 +722,6 @@ function TaskEditModal({
   );
 }
 
-// ============================================================================
-// REMINDER OVERLAY VIEW
-// ============================================================================
-function ReminderOverlay({
-  task,
-  color,
-  onDismiss,
-  onSnooze5,
-  onComplete,
-}: {
-  task: Task | null;
-  color: string;
-  onDismiss: () => void;
-  onSnooze5: () => void;
-  onComplete: () => void;
-}) {
-  if (!task) {
-    return (
-      <div className="reminder-overlay">
-        <div className="reminder-banner">
-          <div className="reminder-content">
-            <div className="reminder-header">
-              <Icons.AlertCircle />
-              <span className="reminder-label">无提醒</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const now = Math.floor(Date.now() / 1000);
-  const isOverdue = !task.completed && task.due_at < now;
-
-  return (
-    <div className="reminder-overlay">
-      <div className="reminder-banner" style={{ backgroundColor: color }}>
-        <div className="reminder-indicator"></div>
-
-        <div className="reminder-content">
-          <div className="reminder-header">
-            <Icons.AlertCircle />
-            <span className="reminder-label">{isOverdue ? "逾期" : "提醒"}</span>
-          </div>
-
-          <h2 className="reminder-title">{task.title}</h2>
-
-          <div className="reminder-meta">
-            <span className="reminder-time">
-              <Icons.Clock />
-              {formatDue(task.due_at)}
-            </span>
-            {task.important && (
-              <span className="reminder-important">
-                <Icons.Star />
-                重要
-              </span>
-            )}
-          </div>
-        </div>
-
-        <div className="reminder-actions">
-          <button type="button" className="reminder-btn secondary" onClick={onDismiss}>
-            <Icons.X />
-            <span>关闭提醒</span>
-          </button>
-          <button type="button" className="reminder-btn secondary" onClick={onSnooze5}>
-            <Icons.Snooze />
-            <span>稍后 5 分钟</span>
-          </button>
-          <button type="button" className="reminder-btn primary" onClick={onComplete}>
-            <Icons.Check />
-            <span>立即完成</span>
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function NotificationBanner({
   tasks,
   onSnooze,
@@ -850,6 +772,8 @@ function App() {
   const [tab, setTab] = useState<(typeof QUICK_TABS)[number]["id"]>("todo");
   const [quickSort, setQuickSort] = useState<QuickSortMode>("default");
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [confirmDeleteTaskId, setConfirmDeleteTaskId] = useState<string | null>(null);
+  const [confirmDeleteBusy, setConfirmDeleteBusy] = useState(false);
 
   const [forcedQueueIds, setForcedQueueIds] = useState<string[]>([]);
   const [normalQueueIds, setNormalQueueIds] = useState<string[]>([]);
@@ -1022,6 +946,11 @@ function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
 
+      if (confirmDeleteTaskId) {
+        if (!confirmDeleteBusy) setConfirmDeleteTaskId(null);
+        return;
+      }
+
       // Priority: close modals/overlays first.
       if (editingTaskId) {
         setEditingTaskId(null);
@@ -1040,7 +969,7 @@ function App() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [editingTaskId, showSettings, view]);
+  }, [confirmDeleteTaskId, confirmDeleteBusy, editingTaskId, showSettings, view]);
 
   useEffect(() => {
     (async () => {
@@ -1185,6 +1114,13 @@ function App() {
   }, [normalQueueIds, tasks]);
 
   const reminderTask = forcedTasks[0] ?? null;
+  const reminderQueueTotal = forcedTasks.length;
+  const reminderQueueIndex = reminderTask ? 1 : 0;
+
+  const deleteCandidate = useMemo(() => {
+    if (!confirmDeleteTaskId) return null;
+    return tasks.find((task) => task.id === confirmDeleteTaskId) ?? null;
+  }, [tasks, confirmDeleteTaskId]);
 
   const editingTask = useMemo(() => {
     if (!editingTaskId) return null;
@@ -1266,9 +1202,23 @@ function App() {
     await updateTask({ ...task, important: !task.important, updated_at: now });
   }
 
-  async function handleDeleteTask(task: Task) {
-    if (!confirm("确认删除该任务？")) return;
-    await deleteTask(task.id);
+  function handleRequestDelete(task: Task) {
+    setConfirmDeleteTaskId(task.id);
+  }
+
+  async function handleConfirmDelete() {
+    if (!deleteCandidate || confirmDeleteBusy) return;
+    setConfirmDeleteBusy(true);
+    try {
+      const result = await deleteTask(deleteCandidate.id);
+      if (!result.ok) {
+        alert(result.error ?? "删除失败");
+        return;
+      }
+      setConfirmDeleteTaskId(null);
+    } finally {
+      setConfirmDeleteBusy(false);
+    }
   }
 
   async function handleUpdateTask(next: Task) {
@@ -1281,21 +1231,43 @@ function App() {
 
   async function handleReminderSnooze5() {
     if (!reminderTask) return;
+    const taskId = reminderTask.id;
     const until = Math.floor(Date.now() / 1000) + 5 * 60;
-    await snoozeTask(reminderTask.id, until);
-    setForcedQueueIds((prev) => prev.filter((id) => id !== reminderTask.id));
+
+    // Update UI first so the overlay reacts instantly (show next reminder or hide if none).
+    setForcedQueueIds((prev) => {
+      const next = prev.filter((id) => id !== taskId);
+      if (next.length === 0) void getCurrentWindow().hide();
+      return next;
+    });
+
+    await snoozeTask(taskId, until);
   }
 
   async function handleReminderDismiss() {
     if (!reminderTask) return;
-    await dismissForced(reminderTask.id);
-    setForcedQueueIds((prev) => prev.filter((id) => id !== reminderTask.id));
+    const taskId = reminderTask.id;
+
+    setForcedQueueIds((prev) => {
+      const next = prev.filter((id) => id !== taskId);
+      if (next.length === 0) void getCurrentWindow().hide();
+      return next;
+    });
+
+    await dismissForced(taskId);
   }
 
   async function handleReminderComplete() {
     if (!reminderTask) return;
-    await completeTask(reminderTask.id);
-    setForcedQueueIds((prev) => prev.filter((id) => id !== reminderTask.id));
+    const taskId = reminderTask.id;
+
+    setForcedQueueIds((prev) => {
+      const next = prev.filter((id) => id !== taskId);
+      if (next.length === 0) void getCurrentWindow().hide();
+      return next;
+    });
+
+    await completeTask(taskId);
   }
 
   async function handleNormalSnooze(task: Task) {
@@ -1493,6 +1465,13 @@ function App() {
   }, [tasks, editingTaskId]);
 
   useEffect(() => {
+    if (!confirmDeleteTaskId) return;
+    if (!tasks.some((task) => task.id === confirmDeleteTaskId)) {
+      setConfirmDeleteTaskId(null);
+    }
+  }, [tasks, confirmDeleteTaskId]);
+
+  useEffect(() => {
     if (view === "reminder" && !reminderTask) {
       getCurrentWindow().hide();
     }
@@ -1501,11 +1480,18 @@ function App() {
   useEffect(() => {
     if (view !== "reminder") return;
     const appWindow = getCurrentWindow();
-    const availableWidth = window.screen.availWidth || window.screen.width;
-    const availableHeight = window.screen.availHeight || window.screen.height;
-    const bannerHeight = Math.round(availableHeight * 0.2);
-    appWindow.setSize(new LogicalSize(availableWidth, bannerHeight));
-    appWindow.setPosition(new LogicalPosition(0, Math.round((availableHeight - bannerHeight) / 2)));
+    const screenWidth = window.screen.width || window.innerWidth;
+    const screenHeight = window.screen.height || window.innerHeight;
+
+    // The reminder window is a full-screen transparent overlay; the banner is centered via CSS.
+    (async () => {
+      try {
+        await appWindow.setSize(new LogicalSize(screenWidth, screenHeight));
+        await appWindow.setPosition(new LogicalPosition(0, 0));
+      } catch {
+        // Best-effort: if the window API fails (platform quirks), keep the reminder usable.
+      }
+    })();
   }, [view]);
 
   useEffect(() => {
@@ -1516,7 +1502,7 @@ function App() {
   return (
     <div className="app-container">
       {view === "quick" && (
-        <div className="quick-window">
+        <div className={`quick-window ${settings?.quick_blur_enabled === false ? "blur-off" : ""}`}>
           <WindowTitlebar
             variant="quick"
             pinned={settings?.quick_always_on_top}
@@ -1554,16 +1540,16 @@ function App() {
 
           <div className="quick-task-list">
             {quickTasks.map((task) => (
-              <TaskCard
-                key={task.id}
-                task={task}
-                mode="quick"
-                onToggleComplete={() => handleToggleComplete(task)}
-                onToggleImportant={() => handleToggleImportant(task)}
-                onDelete={() => handleDeleteTask(task)}
-                onEdit={() => handleEditTask(task)}
-              />
-            ))}
+                <TaskCard
+                  key={task.id}
+                  task={task}
+                  mode="quick"
+                  onToggleComplete={() => handleToggleComplete(task)}
+                  onToggleImportant={() => handleToggleImportant(task)}
+                  onDelete={() => handleRequestDelete(task)}
+                  onEdit={() => handleEditTask(task)}
+                />
+              ))}
           </div>
 
           <div className="quick-input-bar">
@@ -1700,7 +1686,7 @@ function App() {
                           onMoveDown={() => handleMoveTask(task, "down", tasksByQuadrant[quad.id])}
                           onToggleComplete={() => handleToggleComplete(task)}
                           onToggleImportant={() => handleToggleImportant(task)}
-                          onDelete={() => handleDeleteTask(task)}
+                          onDelete={() => handleRequestDelete(task)}
                           onEdit={() => handleEditTask(task)}
                         />
                       ))
@@ -1744,7 +1730,7 @@ function App() {
                       onMoveDown={() => handleMoveTask(task, "down", activeListSection.tasks)}
                       onToggleComplete={() => handleToggleComplete(task)}
                       onToggleImportant={() => handleToggleImportant(task)}
-                      onDelete={() => handleDeleteTask(task)}
+                      onDelete={() => handleRequestDelete(task)}
                       onEdit={() => handleEditTask(task)}
                     />
                   ))
@@ -1798,6 +1784,22 @@ function App() {
                       <option value="light">浅色</option>
                       <option value="dark">深色</option>
                     </select>
+                  </div>
+                  <div className="settings-row">
+                    <label>快捷界面毛玻璃</label>
+                    <button
+                      type="button"
+                      className={`pill ${settings.quick_blur_enabled ? "active" : ""}`}
+                      onClick={() =>
+                        handleUpdateSettings({
+                          ...settings,
+                          quick_blur_enabled: !settings.quick_blur_enabled,
+                        })
+                      }
+                      aria-pressed={settings.quick_blur_enabled}
+                    >
+                      {settings.quick_blur_enabled ? "开启" : "关闭"}
+                    </button>
                   </div>
                   <div className="settings-row">
                     <label>提示音</label>
@@ -1932,9 +1934,11 @@ function App() {
       )}
 
       {view === "reminder" && settings && (
-        <ReminderOverlay
+        <ForcedReminderOverlay
           task={reminderTask}
           color={settings.forced_reminder_color}
+          queueIndex={reminderQueueIndex}
+          queueTotal={reminderQueueTotal}
           onDismiss={handleReminderDismiss}
           onSnooze5={handleReminderSnooze5}
           onComplete={handleReminderComplete}
@@ -1949,6 +1953,21 @@ function App() {
           onClose={() => setEditingTaskId(null)}
         />
       )}
+
+      <ConfirmDialog
+        open={Boolean(deleteCandidate)}
+        title="确认删除任务？"
+        description={deleteCandidate ? deleteCandidate.title : undefined}
+        confirmText={confirmDeleteBusy ? "删除中..." : "删除"}
+        cancelText="取消"
+        tone="danger"
+        busy={confirmDeleteBusy}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => {
+          if (confirmDeleteBusy) return;
+          setConfirmDeleteTaskId(null);
+        }}
+      />
     </div>
   );
 }

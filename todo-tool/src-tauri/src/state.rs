@@ -144,3 +144,142 @@ struct AppData {
     tasks: Vec<Task>,
     settings: Settings,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{ReminderConfig, ReminderKind, RepeatRule, Task};
+
+    fn make_task(id: &str, created_at: i64, sort_order: i64, due_at: i64) -> Task {
+        Task {
+            id: id.to_string(),
+            title: format!("task-{id}"),
+            due_at,
+            important: false,
+            completed: false,
+            completed_at: None,
+            created_at,
+            updated_at: created_at,
+            sort_order,
+            quadrant: 1,
+            notes: None,
+            steps: Vec::new(),
+            reminder: ReminderConfig {
+                kind: ReminderKind::Normal,
+                ..ReminderConfig::default()
+            },
+            repeat: RepeatRule::None,
+        }
+    }
+
+    #[test]
+    fn new_fills_sort_order_when_zero() {
+        let tasks = vec![
+            make_task("a", 10, 0, 100),
+            make_task("b", 20, 777, 200),
+        ];
+        let state = AppState::new(tasks, Settings::default());
+        let out = state.tasks();
+        let a = out.iter().find(|t| t.id == "a").unwrap();
+        let b = out.iter().find(|t| t.id == "b").unwrap();
+        assert_eq!(a.sort_order, 10 * 1000);
+        assert_eq!(b.sort_order, 777);
+    }
+
+    #[test]
+    fn tasks_file_and_settings_file_include_schema_version() {
+        let state = AppState::new(Vec::new(), Settings::default());
+        let tasks_file = state.tasks_file();
+        assert_eq!(tasks_file.schema_version, SCHEMA_VERSION);
+        assert_eq!(tasks_file.tasks.len(), 0);
+
+        let settings_file = state.settings_file();
+        assert_eq!(settings_file.schema_version, SCHEMA_VERSION);
+        assert_eq!(settings_file.settings.shortcut, Settings::default().shortcut);
+    }
+
+    #[test]
+    fn add_update_and_replace_tasks() {
+        let state = AppState::new(Vec::new(), Settings::default());
+        state.add_task(make_task("a", 10, 0, 100));
+        assert_eq!(state.tasks().len(), 1);
+
+        let mut updated = make_task("a", 10, 0, 100);
+        updated.title = "updated".to_string();
+        state.update_task(updated.clone());
+        let out = state.tasks();
+        assert_eq!(out[0].title, "updated");
+
+        // Updating a non-existent task should be a no-op.
+        state.update_task(make_task("missing", 1, 0, 1));
+        assert_eq!(state.tasks().len(), 1);
+
+        // replace_tasks should also fill sort_order if missing.
+        state.replace_tasks(vec![make_task("x", 7, 0, 1)]);
+        let out = state.tasks();
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].id, "x");
+        assert_eq!(out[0].sort_order, 7 * 1000);
+    }
+
+    #[test]
+    fn swap_sort_order_success_and_failure() {
+        let t1 = make_task("a", 1, 100, 10);
+        let t2 = make_task("b", 2, 200, 20);
+        let state = AppState::new(vec![t1, t2], Settings::default());
+
+        assert!(state.swap_sort_order("a", "b", 999));
+        let out = state.tasks();
+        let a = out.iter().find(|t| t.id == "a").unwrap();
+        let b = out.iter().find(|t| t.id == "b").unwrap();
+        assert_eq!(a.sort_order, 200);
+        assert_eq!(b.sort_order, 100);
+        assert_eq!(a.updated_at, 999);
+        assert_eq!(b.updated_at, 999);
+
+        // Missing IDs should return false.
+        assert!(!state.swap_sort_order("a", "missing", 1));
+    }
+
+    #[test]
+    fn complete_remove_and_mark_reminder() {
+        let mut task = make_task("a", 1, 1, 10);
+        task.reminder.snoozed_until = Some(123);
+        let state = AppState::new(vec![task], Settings::default());
+
+        let completed = state.complete_task("a").expect("task exists");
+        assert!(completed.completed);
+        assert!(completed.completed_at.is_some());
+        assert_eq!(completed.completed_at, Some(completed.updated_at));
+        assert_eq!(completed.reminder.snoozed_until, None);
+        assert_eq!(completed.reminder.last_fired_at, completed.completed_at);
+
+        // Not found => None.
+        assert!(state.complete_task("missing").is_none());
+
+        // mark_reminder_fired should update last_fired_at if it exists.
+        state.mark_reminder_fired(&completed, 777);
+        let refreshed = state.tasks().into_iter().find(|t| t.id == "a").unwrap();
+        assert_eq!(refreshed.reminder.last_fired_at, Some(777));
+
+        // mark_reminder_fired on a missing task is a no-op.
+        state.mark_reminder_fired(&make_task("missing", 1, 1, 1), 1);
+
+        // remove_task and remove_tasks.
+        state.add_task(make_task("b", 1, 1, 1));
+        state.add_task(make_task("c", 1, 1, 1));
+        state.remove_task("b");
+        assert!(state.tasks().iter().all(|t| t.id != "b"));
+        state.remove_tasks(&vec!["a".to_string(), "c".to_string()]);
+        assert!(state.tasks().is_empty());
+    }
+
+    #[test]
+    fn update_settings_replaces_previous_value() {
+        let state = AppState::new(Vec::new(), Settings::default());
+        let mut next = Settings::default();
+        next.theme = "dark".to_string();
+        state.update_settings(next.clone());
+        assert_eq!(state.settings().theme, "dark");
+    }
+}

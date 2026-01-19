@@ -7,20 +7,31 @@ mod scheduler;
 mod state;
 mod storage;
 mod tray;
+#[cfg(not(test))]
 mod windows;
 
+#[cfg(not(test))]
 use tauri::{Manager, WebviewWindowBuilder, WindowEvent};
+#[cfg(not(test))]
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
+#[cfg(not(test))]
 use crate::commands::*;
+#[cfg(not(test))]
 use crate::scheduler::start_scheduler;
+#[cfg(not(test))]
 use crate::state::AppState;
+#[cfg(not(test))]
 use crate::storage::Storage;
+#[cfg(not(test))]
 use crate::tray::init_tray;
+#[cfg(not(test))]
 use crate::tray::update_tray_count;
+#[cfg(not(test))]
 use crate::windows::hide_quick_window;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+#[cfg(not(test))]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
@@ -72,10 +83,24 @@ pub fn run() {
             .title("Reminder")
             .decorations(false)
             .resizable(false)
+            // Full-screen overlay needs a transparent window background. The actual banner UI
+            // is rendered by the frontend.
+            .transparent(true)
             .always_on_top(true)
             .skip_taskbar(true)
             .visible(false)
             .build()?;
+
+            // The app uses custom titlebars; remove maximization to keep the layout predictable.
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_maximizable(false);
+            }
+            if let Some(window) = app.get_webview_window("quick") {
+                let _ = window.set_maximizable(false);
+            }
+            if let Some(window) = app.get_webview_window("reminder") {
+                let _ = window.set_maximizable(false);
+            }
 
             init_tray(app)?;
             update_tray_count(app.handle(), &state.tasks());

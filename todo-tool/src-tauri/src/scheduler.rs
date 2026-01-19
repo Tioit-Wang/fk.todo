@@ -1,15 +1,20 @@
-use std::time::Duration;
-
-use chrono::Utc;
-use tauri::{AppHandle, Emitter, Manager};
-
 use crate::models::{ReminderKind, Task};
 use crate::state::AppState;
+
+#[cfg(not(test))]
+use std::time::Duration;
+#[cfg(not(test))]
+use chrono::Utc;
+#[cfg(not(test))]
+use tauri::{AppHandle, Emitter, Manager};
+#[cfg(not(test))]
+use crate::events::{StatePayload, EVENT_REMINDER, EVENT_STATE_UPDATED};
+#[cfg(not(test))]
 use crate::storage::Storage;
+#[cfg(not(test))]
 use crate::windows::show_reminder_window;
 
-use crate::events::{StatePayload, EVENT_REMINDER, EVENT_STATE_UPDATED};
-
+#[cfg(not(test))]
 pub fn start_scheduler(app: AppHandle, state: AppState) {
     tauri::async_runtime::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(1));
@@ -35,6 +40,7 @@ pub fn start_scheduler(app: AppHandle, state: AppState) {
     });
 }
 
+#[cfg(not(test))]
 fn persist_reminder_state(app: &AppHandle, state: &AppState) {
     let root = match app.path().app_data_dir() {
         Ok(path) => path,
@@ -68,35 +74,163 @@ fn collect_due_tasks(state: &AppState, now: i64) -> Vec<Task> {
         if reminder.kind == ReminderKind::Forced && reminder.forced_dismissed {
             continue;
         }
-        let default_target = match reminder.kind {
-            ReminderKind::Normal => Some(task.due_at - 10 * 60),
-            ReminderKind::Forced => Some(task.due_at),
-            ReminderKind::None => None,
+        // At this point `reminder.kind` is Normal or Forced (None has already been skipped).
+        let default_target = if reminder.kind == ReminderKind::Normal {
+            task.due_at - 10 * 60
+        } else {
+            task.due_at
         };
         let target_time = reminder
             .snoozed_until
             .or(reminder.remind_at)
-            .or(default_target);
-        if let Some(target) = target_time {
-            if let Some(last_fired) = reminder.last_fired_at {
-                if last_fired >= target {
-                    continue;
-                }
-            }
-            if now >= target {
-                due.push(task.clone());
-            }
+            .unwrap_or(default_target);
+
+        let already_fired = reminder
+            .last_fired_at
+            .map_or(false, |last_fired| last_fired >= target_time);
+        if !already_fired && now >= target_time {
+            due.push(task.clone());
         }
     }
-    due.sort_by(|a, b| {
-        if a.important != b.important {
-            return if a.important {
-                std::cmp::Ordering::Less
-            } else {
-                std::cmp::Ordering::Greater
-            };
-        }
-        a.due_at.cmp(&b.due_at)
-    });
+    due.sort_by_key(|task| (!task.important, task.due_at));
     due
+}
+
+#[cfg(test)]
+mod tests {
+    use super::collect_due_tasks;
+    use crate::models::{ReminderConfig, ReminderKind, RepeatRule, Task};
+    use crate::state::AppState;
+
+    fn task_with_reminder(
+        id: &str,
+        due_at: i64,
+        important: bool,
+        completed: bool,
+        reminder: ReminderConfig,
+    ) -> Task {
+        Task {
+            id: id.to_string(),
+            title: format!("task-{id}"),
+            due_at,
+            important,
+            completed,
+            completed_at: None,
+            created_at: 1,
+            updated_at: 1,
+            sort_order: 1,
+            quadrant: 1,
+            notes: None,
+            steps: Vec::new(),
+            reminder,
+            repeat: RepeatRule::None,
+        }
+    }
+
+    #[test]
+    fn collect_due_tasks_filters_and_sorts_correctly() {
+        let now = 1000;
+
+        let not_due_normal = task_with_reminder(
+            "a",
+            2000,
+            false,
+            false,
+            ReminderConfig {
+                kind: ReminderKind::Normal,
+                ..ReminderConfig::default()
+            },
+        );
+
+        let due_normal_important = task_with_reminder(
+            "b",
+            1500,
+            true,
+            false,
+            ReminderConfig {
+                kind: ReminderKind::Normal,
+                ..ReminderConfig::default()
+            },
+        ); // target=900 => due
+
+        let not_due_forced = task_with_reminder(
+            "c",
+            1100,
+            false,
+            false,
+            ReminderConfig {
+                kind: ReminderKind::Forced,
+                ..ReminderConfig::default()
+            },
+        ); // target=1100 => not due
+
+        let due_forced_by_snooze = task_with_reminder(
+            "d",
+            1100,
+            false,
+            false,
+            ReminderConfig {
+                kind: ReminderKind::Forced,
+                snoozed_until: Some(900),
+                ..ReminderConfig::default()
+            },
+        ); // snoozed_until wins => due
+
+        let completed_task = task_with_reminder(
+            "e",
+            900,
+            false,
+            true,
+            ReminderConfig {
+                kind: ReminderKind::Normal,
+                ..ReminderConfig::default()
+            },
+        );
+
+        let none_reminder = task_with_reminder("f", 900, false, false, ReminderConfig::default());
+
+        let forced_dismissed = task_with_reminder(
+            "g",
+            900,
+            false,
+            false,
+            ReminderConfig {
+                kind: ReminderKind::Forced,
+                forced_dismissed: true,
+                ..ReminderConfig::default()
+            },
+        );
+
+        let already_fired = task_with_reminder(
+            "h",
+            1500,
+            false,
+            false,
+            ReminderConfig {
+                kind: ReminderKind::Normal,
+                last_fired_at: Some(950),
+                ..ReminderConfig::default()
+            },
+        ); // target=900; last_fired_at>=target => skip
+
+        let state = AppState::new(
+            vec![
+                not_due_normal,
+                due_normal_important.clone(),
+                not_due_forced,
+                due_forced_by_snooze.clone(),
+                completed_task,
+                none_reminder,
+                forced_dismissed,
+                already_fired,
+            ],
+            crate::models::Settings::default(),
+        );
+
+        let due = collect_due_tasks(&state, now);
+        assert_eq!(due.len(), 2);
+        // Important task should come first.
+        assert_eq!(due[0].id, due_normal_important.id);
+        assert_eq!(due[1].id, due_forced_by_snooze.id);
+    }
 }

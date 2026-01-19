@@ -1,14 +1,18 @@
 use chrono::{Local, TimeZone};
-use tauri::{
-    menu::{Menu, MenuItem},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    App, AppHandle, Manager,
-};
 
 use crate::models::Task;
 
+#[cfg(not(test))]
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    App, AppHandle, Manager, Runtime,
+};
+
+#[cfg(not(test))]
 const TRAY_ID: &str = "main";
 
+#[cfg(not(test))]
 pub fn init_tray(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     let show_quick = MenuItem::with_id(app, "show_quick", "打开快捷窗口", true, None::<&str>)?;
     let show_main = MenuItem::with_id(app, "show_main", "打开主界面", true, None::<&str>)?;
@@ -54,16 +58,20 @@ pub fn init_tray(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-pub fn update_tray_count(app: &AppHandle, tasks: &[Task]) {
-    let count = pending_count(tasks);
-    let tooltip = format!("待办: {count}");
-    if let Some(tray) = app.tray_by_id(TRAY_ID) {
-        let _ = tray.set_tooltip(Some(tooltip));
+#[cfg(not(test))]
+pub fn update_tray_count<R: Runtime>(app: &AppHandle<R>, tasks: &[Task]) {
+    let tooltip = tray_tooltip(tasks, Local::now());
+
+    // In production we update the real tray icon. In tests we avoid touching platform tray APIs
+    // (and keep coverage focused on the tooltip computation logic).
+    {
+        if let Some(tray) = app.tray_by_id(TRAY_ID) {
+            let _ = tray.set_tooltip(Some(tooltip));
+        }
     }
 }
 
-fn pending_count(tasks: &[Task]) -> usize {
-    let now = Local::now();
+fn pending_count_at(tasks: &[Task], now: chrono::DateTime<Local>) -> usize {
     let now_ts = now.timestamp();
     let today = now.date_naive();
     tasks
@@ -80,4 +88,59 @@ fn pending_count(tasks: &[Task]) -> usize {
             false
         })
         .count()
+}
+
+fn tray_tooltip(tasks: &[Task], now: chrono::DateTime<Local>) -> String {
+    let count = pending_count_at(tasks, now);
+    format!("待办: {count}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{ReminderConfig, RepeatRule, Task};
+
+    fn make_task(id: &str, due_at: i64, completed: bool) -> Task {
+        Task {
+            id: id.to_string(),
+            title: format!("task-{id}"),
+            due_at,
+            important: false,
+            completed,
+            completed_at: None,
+            created_at: 1,
+            updated_at: 1,
+            sort_order: 1,
+            quadrant: 1,
+            notes: None,
+            steps: Vec::new(),
+            reminder: ReminderConfig::default(),
+            repeat: RepeatRule::None,
+        }
+    }
+
+    #[test]
+    fn pending_count_counts_overdue_and_today_tasks() {
+        let now = Local::now();
+        let now_ts = now.timestamp();
+
+        let tasks = vec![
+            // Overdue (counts via due_at < now_ts).
+            make_task("overdue", now_ts - 60, false),
+            // Due today but in the future (counts via same-day match).
+            make_task("today", now_ts + 60, false),
+            // Far future (not today; should not count).
+            make_task("future", now_ts + 2 * 24 * 60 * 60, false),
+            // Completed tasks are excluded.
+            make_task("done", now_ts - 60, true),
+            // Out-of-range timestamp should be ignored (timestamp_opt(None)).
+            make_task("invalid", i64::MAX, false),
+        ];
+
+        let count = pending_count_at(&tasks, now);
+        assert_eq!(count, 2);
+
+        let tooltip = tray_tooltip(&tasks, now);
+        assert_eq!(tooltip, "待办: 2");
+    }
 }

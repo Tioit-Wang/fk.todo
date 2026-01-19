@@ -105,6 +105,8 @@
   --border-strong: rgba(86, 67, 57, 0.34);
   --accent: rgba(33, 132, 124, 0.9);
   --accent-soft: rgba(33, 132, 124, 0.14);
+  /* Same background language as the main window, just more transparent for the quick overlay. */
+  --main-bg: linear-gradient(180deg, rgba(255, 250, 240, 0.78), rgba(250, 243, 227, 0.72));
   --quick-bg: radial-gradient(900px 700px at 10% 0%, rgba(33, 132, 124, 0.24), rgba(0, 0, 0, 0) 60%),
     radial-gradient(900px 700px at 90% 10%, rgba(199, 139, 45, 0.18), rgba(0, 0, 0, 0) 60%),
     linear-gradient(160deg, rgba(255, 250, 240, 0.68), rgba(250, 243, 227, 0.6));
@@ -121,6 +123,7 @@
   --border-strong: rgba(245, 233, 213, 0.32);
   --accent: rgba(43, 157, 148, 0.9);
   --accent-soft: rgba(43, 157, 148, 0.2);
+  --main-bg: linear-gradient(180deg, rgba(33, 26, 22, 0.78), rgba(20, 16, 14, 0.72));
   --quick-bg: radial-gradient(900px 700px at 10% 0%, rgba(43, 157, 148, 0.22), rgba(0, 0, 0, 0) 60%),
     radial-gradient(900px 700px at 90% 10%, rgba(213, 158, 64, 0.18), rgba(0, 0, 0, 0) 60%),
     linear-gradient(160deg, rgba(33, 26, 22, 0.76), rgba(20, 16, 14, 0.72));
@@ -129,6 +132,16 @@
 :root[data-view="quick"] body,
 :root[data-view="quick"] #root,
 :root[data-view="quick"] .app-container {
+  background-color: transparent;
+}
+
+:root[data-view="reminder"] {
+  background-color: transparent;
+}
+
+:root[data-view="reminder"] body,
+:root[data-view="reminder"] #root,
+:root[data-view="reminder"] .app-container {
   background-color: transparent;
 }
 
@@ -345,13 +358,19 @@ textarea:focus-visible {
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: var(--quick-bg);
+  /* Match main window styling; quick adds transparency + optional blur on top. */
+  background: var(--main-bg);
   border: 1px solid var(--border);
   border-radius: 16px;
   overflow: hidden;
   backdrop-filter: blur(24px) saturate(160%);
   -webkit-backdrop-filter: blur(24px) saturate(160%);
   box-shadow: 0 24px 60px var(--shadow);
+}
+
+.quick-window.blur-off {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .quick-header {
@@ -407,17 +426,22 @@ textarea:focus-visible {
 
 .quick-filter-tab {
   appearance: none;
-  border: 1px solid var(--border);
-  background: var(--panel);
-  color: var(--text);
-  border-radius: 10px;
+  background: transparent;
+  border: none;
+  color: var(--muted-strong);
+  border-radius: 999px;
   padding: 6px 10px;
   cursor: pointer;
 }
 
+.quick-filter-tab:hover:not(:disabled) {
+  background: var(--panel-strong);
+  color: var(--text);
+}
+
 .quick-filter-tab.active {
   background: var(--accent-soft);
-  border-color: var(--accent);
+  color: var(--text);
 }
 
 .quick-sort {
@@ -893,34 +917,6 @@ textarea:focus-visible {
   background: var(--accent-soft);
 }
 
-.composer-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.composer-due-preview {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--muted);
-  min-width: 0;
-}
-
-.composer-submit {
-  border-radius: 12px;
-  border: 1px solid var(--success-border);
-  background: var(--success-soft);
-  color: var(--text);
-  cursor: pointer;
-  padding: 8px 12px;
-}
-
-.composer-submit:hover:not(:disabled) {
-  filter: brightness(1.06);
-}
-
 .composer-popup {
   position: absolute;
   right: 0;
@@ -1098,86 +1094,224 @@ textarea:focus-visible {
   gap: 6px;
 }
 
-/* ----------------------------- Reminder overlay ----------------------------- */
+/* ----------------------------- Forced reminder overlay ----------------------------- */
 
-.reminder-overlay {
+.forced-reminder {
   height: 100%;
+  width: 100%;
+  display: grid;
+  place-items: center;
+  padding: 32px 20px;
+  position: relative;
+}
+
+.forced-reminder-scrim {
+  position: absolute;
+  inset: 0;
+  /* Keep the window “transparent”, but add a gentle focus layer so content is always readable. */
+  background: radial-gradient(
+      900px 520px at 50% 45%,
+      rgba(20, 16, 14, 0.32),
+      rgba(20, 16, 14, 0.12) 55%,
+      rgba(20, 16, 14, 0.04)
+    ),
+    rgba(20, 16, 14, 0.1);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.forced-reminder-sheet {
+  position: relative;
+  width: 100%;
+  border-radius: 18px;
+  border: 1px solid var(--border-strong);
+  overflow: hidden;
+  background: var(--panel-strong);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(22px) saturate(160%);
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
+  animation: forced-reminder-pop 0.18s ease-out;
+}
+
+@keyframes forced-reminder-pop {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.forced-reminder-accent {
+  height: 6px;
+}
+
+.forced-reminder-inner {
+  padding: 22px 26px;
+  display: grid;
+  grid-template-columns: 56px 1fr auto;
+  gap: 18px;
+  align-items: center;
+}
+
+.forced-reminder-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  display: grid;
+  place-items: center;
+  color: var(--forced-color, var(--danger));
+}
+
+.forced-reminder-icon .icon {
+  width: 22px;
+  height: 22px;
+}
+
+.forced-reminder-toprow {
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 10px;
 }
 
-.reminder-banner {
-  width: 100%;
-  height: 20vh;
-  padding: 16px 24px;
-  display: grid;
-  grid-template-columns: 10px 1fr auto;
-  gap: 16px;
-  border: 1px solid rgba(255, 250, 240, 0.22);
-  color: #fff;
-}
-
-.reminder-indicator {
-  border-radius: 6px;
-  background: linear-gradient(180deg, var(--danger), var(--accent));
-}
-
-.reminder-header {
+.forced-reminder-badge {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: rgba(255, 255, 255, 0.8);
+  font-size: 12px;
+  color: var(--muted-strong);
+  letter-spacing: 0.02em;
 }
 
-.reminder-title {
-  margin: 10px 0 0;
-  font-size: 22px;
-  line-height: 28px;
+.forced-reminder-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.08);
 }
 
-.reminder-meta {
-  display: flex;
-  gap: 10px;
+.forced-reminder-queue {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  background: var(--panel);
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+.forced-reminder-title {
   margin-top: 10px;
+  font-size: 26px;
+  line-height: 32px;
+  font-weight: 700;
+  color: var(--text);
 }
 
-.reminder-time,
-.reminder-important {
+.forced-reminder-meta {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.forced-reminder-relative {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--neutral-soft);
+  color: var(--muted-strong);
+}
+
+.forced-reminder-relative.overdue {
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.forced-reminder-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted-strong);
+  font-size: 12px;
 }
 
-.reminder-important {
+.forced-reminder-chip.important {
+  border-color: var(--warning-border);
+  background: var(--warning-soft);
   color: var(--warning);
 }
 
-.reminder-actions {
-  display: flex;
-  align-items: center;
+.forced-reminder-actions {
+  display: grid;
   gap: 10px;
+  justify-items: end;
 }
 
-.reminder-btn {
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  background: rgba(20, 16, 14, 0.32);
-  color: #fff;
+.forced-btn {
+  width: 220px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
   padding: 10px 12px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
+  font-weight: 600;
 }
 
-.reminder-btn.primary {
-  background: var(--success-soft);
-  border-color: var(--success-border);
-}
-
-.reminder-btn:hover:not(:disabled) {
+.forced-btn:hover:not(:disabled) {
   filter: brightness(1.06);
+}
+
+.forced-btn.primary {
+  border-color: var(--success-border);
+  background: var(--success-soft);
+}
+
+.forced-btn.secondary {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.forced-btn.ghost {
+  background: transparent;
+}
+
+.forced-reminder-hint {
+  font-size: 12px;
+  color: var(--muted);
+  text-align: right;
+}
+
+@media (max-width: 840px) {
+  .forced-reminder-inner {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .forced-reminder-actions {
+    justify-items: stretch;
+  }
+
+  .forced-btn {
+    width: 100%;
+  }
 }
 
 /* ----------------------------- Main window ----------------------------- */
@@ -1344,6 +1478,10 @@ textarea:focus-visible {
   gap: 8px;
   overflow: auto;
   padding-right: 4px;
+  /* Grid defaults to stretching rows, which makes a single card fill the whole list height. */
+  align-content: start;
+  align-items: start;
+  grid-auto-rows: max-content;
 }
 
 .quadrant-list .task-card.main {
@@ -1425,6 +1563,9 @@ textarea:focus-visible {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  /* Prevent a single task card from stretching to the full available height. */
+  align-content: start;
+  grid-auto-rows: max-content;
 }
 
 .list-section {
@@ -1502,6 +1643,113 @@ textarea:focus-visible {
 .task-modal-actions-right {
   display: flex;
   gap: 10px;
+}
+
+/* ----------------------------- Confirm dialog ----------------------------- */
+
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay);
+  display: grid;
+  place-items: center;
+  z-index: 30;
+}
+
+.confirm-dialog {
+  width: min(520px, 92vw);
+  background: var(--panel-strong);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 24px 60px var(--shadow);
+  padding: 16px;
+  display: grid;
+  gap: 14px;
+}
+
+.confirm-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.confirm-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  display: grid;
+  place-items: center;
+  color: var(--text);
+  flex: 0 0 auto;
+}
+
+.confirm-icon.danger {
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.confirm-icon .icon {
+  width: 18px;
+  height: 18px;
+}
+
+.confirm-title {
+  flex: 1;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.confirm-title-text {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.confirm-description {
+  font-size: 13px;
+  color: var(--muted);
+  word-break: break-word;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.confirm-btn {
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  padding: 10px 12px;
+  cursor: pointer;
+  min-width: 96px;
+  font-weight: 600;
+}
+
+.confirm-btn:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.confirm-btn.ghost {
+  background: transparent;
+}
+
+.confirm-btn.primary {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.confirm-btn.danger {
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 
 /* ----------------------------- Settings ----------------------------- */

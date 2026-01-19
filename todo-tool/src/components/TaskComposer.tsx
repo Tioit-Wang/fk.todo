@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Icons } from "./icons";
 
-import { formatDue, fromDateTimeLocal, toDateTimeLocal } from "../date";
+import { fromDateTimeLocal, toDateTimeLocal } from "../date";
 import { defaultDueAt } from "../scheduler";
 import type { ReminderKind, RepeatRule } from "../types";
 
@@ -80,8 +80,6 @@ export function TaskComposer({
   const [reminderOffset, setReminderOffset] = useState<number>(10);
 
   const initialDueAtRef = useRef<number>(dueAt);
-
-  const dueTimePreview = useMemo(() => formatDue(dueAt), [dueAt]);
 
   const quickDueSunday = useMemo(() => {
     const now = new Date();
@@ -400,24 +398,7 @@ export function TaskComposer({
               )}
             </div>
           </div>
-        )}
-      </div>
-
-      <div className="composer-footer">
-        <div className="composer-due-preview">
-          <Icons.Clock />
-          <span>{dueTimePreview}</span>
-        </div>
-
-        <button
-          type="button"
-          className="composer-submit"
-          onClick={() => void handleSubmit()}
-          disabled={!title.trim()}
-          title={!title.trim() ? "请输入任务内容" : "添加任务"}
-        >
-          添加
-        </button>
+      )}
       </div>
     </div>
   );

@@ -88,6 +88,8 @@ pub struct Settings {
     pub close_behavior: CloseBehavior,
     #[serde(default)]
     pub quick_always_on_top: bool,
+    #[serde(default = "default_quick_blur_enabled")]
+    pub quick_blur_enabled: bool,
     #[serde(default)]
     pub quick_bounds: Option<WindowBounds>,
     #[serde(default = "default_quick_tab")]
@@ -110,6 +112,7 @@ impl Default for Settings {
             sound_enabled: true,
             close_behavior: CloseBehavior::HideToTray,
             quick_always_on_top: false,
+            quick_blur_enabled: default_quick_blur_enabled(),
             quick_bounds: None,
             quick_tab: default_quick_tab(),
             quick_sort: default_quick_sort(),
@@ -147,6 +150,10 @@ fn default_quick_sort() -> String {
     "default".to_string()
 }
 
+fn default_quick_blur_enabled() -> bool {
+    true
+}
+
 fn default_forced_color() -> String {
     // Retro warm red; used as the default reminder banner background.
     "#C94D37".to_string()
@@ -164,4 +171,112 @@ pub struct TasksFile {
 pub struct SettingsFile {
     pub schema_version: u32,
     pub settings: Settings,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reminder_config_default_values() {
+        let config = ReminderConfig::default();
+        assert_eq!(config.kind, ReminderKind::None);
+        assert_eq!(config.remind_at, None);
+        assert_eq!(config.snoozed_until, None);
+        assert!(!config.forced_dismissed);
+        assert_eq!(config.last_fired_at, None);
+    }
+
+    #[test]
+    fn settings_default_values() {
+        let settings = Settings::default();
+        assert_eq!(settings.shortcut, "CommandOrControl+Shift+T");
+        assert_eq!(settings.theme, "light");
+        assert!(settings.sound_enabled);
+        assert!(matches!(settings.close_behavior, CloseBehavior::HideToTray));
+        assert!(!settings.quick_always_on_top);
+        assert!(settings.quick_blur_enabled);
+        assert!(settings.quick_bounds.is_none());
+        assert_eq!(settings.quick_tab, "todo");
+        assert_eq!(settings.quick_sort, "default");
+        assert_eq!(settings.forced_reminder_color, "#C94D37");
+        assert!(matches!(settings.backup_schedule, BackupSchedule::Daily));
+        assert_eq!(settings.last_backup_at, None);
+    }
+
+    #[test]
+    fn settings_serde_applies_defaults_for_missing_optional_fields() {
+        let json = r#"
+        {
+          "shortcut": "CommandOrControl+Shift+T",
+          "theme": "dark",
+          "sound_enabled": false,
+          "close_behavior": "exit"
+        }
+        "#;
+
+        let settings: Settings = serde_json::from_str(json).expect("settings should deserialize");
+        assert_eq!(settings.shortcut, "CommandOrControl+Shift+T");
+        assert_eq!(settings.theme, "dark");
+        assert!(!settings.sound_enabled);
+        assert!(matches!(settings.close_behavior, CloseBehavior::Exit));
+
+        // These fields must be filled by serde defaults.
+        assert!(!settings.quick_always_on_top);
+        assert!(settings.quick_blur_enabled);
+        assert!(settings.quick_bounds.is_none());
+        assert_eq!(settings.quick_tab, "todo");
+        assert_eq!(settings.quick_sort, "default");
+        assert_eq!(settings.forced_reminder_color, "#C94D37");
+        assert!(matches!(settings.backup_schedule, BackupSchedule::Daily));
+        assert_eq!(settings.last_backup_at, None);
+    }
+
+    #[test]
+    fn repeat_rule_serialization_uses_tagged_enum_layout() {
+        let rule = RepeatRule::Daily {
+            workday_only: true,
+        };
+        let value = serde_json::to_value(&rule).expect("serialize repeat rule");
+        assert_eq!(
+            value,
+            serde_json::json!({
+              "type": "daily",
+              "workday_only": true
+            })
+        );
+
+        let back: RepeatRule = serde_json::from_value(value).expect("deserialize repeat rule");
+        assert!(matches!(back, RepeatRule::Daily { workday_only: true }));
+    }
+
+    #[test]
+    fn task_sort_order_defaults_to_zero_when_missing() {
+        let json = r#"
+        {
+          "id": "t1",
+          "title": "task",
+          "due_at": 123,
+          "important": false,
+          "completed": false,
+          "completed_at": null,
+          "created_at": 1,
+          "updated_at": 1,
+          "quadrant": 1,
+          "notes": null,
+          "steps": [],
+          "reminder": {
+            "kind": "none",
+            "remind_at": null,
+            "snoozed_until": null,
+            "forced_dismissed": false,
+            "last_fired_at": null
+          },
+          "repeat": { "type": "none" }
+        }
+        "#;
+
+        let task: Task = serde_json::from_str(json).expect("task should deserialize");
+        assert_eq!(task.sort_order, 0);
+    }
 }

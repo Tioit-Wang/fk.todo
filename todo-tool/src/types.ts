@@ -56,6 +56,7 @@ export interface Settings {
   sound_enabled: boolean;
   close_behavior: CloseBehavior;
   quick_always_on_top: boolean;
+  quick_blur_enabled: boolean;
   quick_bounds?: WindowBounds;
   quick_tab: string;
   quick_sort: string;
