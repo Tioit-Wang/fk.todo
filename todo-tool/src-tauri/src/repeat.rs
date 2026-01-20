@@ -58,15 +58,16 @@ fn next_weekday(date: NaiveDate, days: &[u8]) -> NaiveDate {
     if days.is_empty() {
         return date + Duration::days(7);
     }
-    let mut offset = 1;
-    loop {
+    // `days` is user-controlled data (and can be hand-edited in JSON). To avoid an infinite loop
+    // when it contains only invalid entries, we cap the search at one week.
+    for offset in 1..=7 {
         let candidate = date + Duration::days(offset);
         let weekday = candidate.weekday().number_from_monday() as u8;
         if days.contains(&weekday) {
             return candidate;
         }
-        offset += 1;
     }
+    date + Duration::days(7)
 }
 
 fn next_month_day(date: NaiveDate, day: u8) -> NaiveDate {
@@ -186,6 +187,14 @@ mod tests {
             .unwrap()
             .timestamp();
         assert_eq!(out_days, expected_days);
+
+        // Invalid weekday values should not loop forever; fall back to the "empty days" behavior.
+        let out_invalid = next_due_timestamp_in_timezone(
+            tz,
+            base,
+            &RepeatRule::Weekly { days: vec![0, 42] },
+        );
+        assert_eq!(out_invalid, expected_empty);
     }
 
     #[test]

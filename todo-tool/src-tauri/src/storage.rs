@@ -41,6 +41,36 @@ impl From<serde_json::Error> for StorageError {
     }
 }
 
+trait WriteAndSync {
+    fn write_all_bytes(&mut self, buf: &[u8]) -> std::io::Result<()>;
+    fn sync_all(&self) -> std::io::Result<()>;
+}
+
+impl WriteAndSync for File {
+    fn write_all_bytes(&mut self, buf: &[u8]) -> std::io::Result<()> {
+        Write::write_all(self, buf)
+    }
+
+    fn sync_all(&self) -> std::io::Result<()> {
+        File::sync_all(self)
+    }
+}
+
+type WriterFactory = fn(&Path) -> Result<Box<dyn WriteAndSync>, StorageError>;
+
+fn create_file_writer(path: &Path) -> Result<Box<dyn WriteAndSync>, StorageError> {
+    Ok(Box::new(File::create(path)?))
+}
+
+fn write_all_and_sync<W: WriteAndSync + ?Sized>(
+    writer: &mut W,
+    bytes: &[u8],
+) -> Result<(), StorageError> {
+    writer.write_all_bytes(bytes)?;
+    writer.sync_all()?;
+    Ok(())
+}
+
 pub struct Storage {
     root: PathBuf,
 }
@@ -94,13 +124,19 @@ impl Storage {
     }
 
     fn write_atomic<T: Serialize>(&self, path: PathBuf, data: &T) -> Result<(), StorageError> {
-        let temp_path = path.with_extension("tmp");
         let json = serde_json::to_vec_pretty(data)?;
-        {
-            let mut file = File::create(&temp_path)?;
-            file.write_all(&json)?;
-            file.sync_all()?;
-        }
+        self.write_atomic_bytes(path, &json, create_file_writer)
+    }
+
+    fn write_atomic_bytes(
+        &self,
+        path: PathBuf,
+        bytes: &[u8],
+        create_writer: WriterFactory,
+    ) -> Result<(), StorageError> {
+        let temp_path = path.with_extension("tmp");
+        let mut writer = create_writer(&temp_path)?;
+        write_all_and_sync(writer.as_mut(), bytes)?;
         fs::rename(temp_path, path)?;
         Ok(())
     }
@@ -112,7 +148,9 @@ impl Storage {
         let backup_name = format!("data-{timestamp_ms}.json");
         let backup_path = self.root.join(BACKUP_DIR).join(backup_name);
         fs::copy(path, backup_path)?;
-        self.trim_backups()?;
+        // Trimming is best-effort: a backup file was successfully created and should not be
+        // discarded just because cleanup failed (e.g., transient FS errors).
+        let _ = self.trim_backups();
         Ok(())
     }
 
@@ -167,6 +205,14 @@ mod tests {
     use super::*;
     use crate::models::{Settings, SettingsFile, TasksFile};
 
+    fn is_io(err: &StorageError) -> bool {
+        matches!(err, StorageError::Io(_))
+    }
+
+    fn is_json(err: &StorageError) -> bool {
+        matches!(err, StorageError::Json(_))
+    }
+
     fn sample_tasks_file() -> TasksFile {
         TasksFile {
             schema_version: 1,
@@ -194,7 +240,7 @@ mod tests {
         File::create(&backups_path).unwrap();
         let storage2 = Storage::new(root2.path().to_path_buf());
         let err = storage2.ensure_dirs().expect_err("should fail");
-        assert!(matches!(err, StorageError::Io(_)));
+        assert!(is_io(&err));
     }
 
     #[test]
@@ -205,14 +251,203 @@ mod tests {
 
         // Missing file => io error.
         let err = storage.load_tasks().expect_err("missing data.json");
-        assert!(matches!(err, StorageError::Io(_)));
+        assert!(is_io(&err));
+        assert!(!is_json(&err));
 
         // Invalid JSON => json error.
         let mut file = File::create(root.path().join(DATA_FILE)).unwrap();
         file.write_all(b"not-json").unwrap();
         file.sync_all().unwrap();
         let err = storage.load_tasks().expect_err("invalid json should fail");
-        assert!(matches!(err, StorageError::Json(_)));
+        assert!(is_json(&err));
+        assert!(!is_io(&err));
+    }
+
+    #[test]
+    fn load_tasks_errors_on_invalid_utf8_data() {
+        let root = tempfile::tempdir().unwrap();
+        let storage = Storage::new(root.path().to_path_buf());
+        storage.ensure_dirs().unwrap();
+
+        // `read_to_string` rejects invalid UTF-8 with an IO error (InvalidData).
+        fs::write(root.path().join(DATA_FILE), [0xFF]).unwrap();
+        let err = storage.load_tasks().expect_err("invalid utf8 should fail");
+        assert!(is_io(&err));
+        assert!(!is_json(&err));
+    }
+
+    #[test]
+    fn write_atomic_covers_serialize_and_tempfile_failures() {
+        let root = tempfile::tempdir().unwrap();
+        let storage = Storage::new(root.path().to_path_buf());
+        storage.ensure_dirs().unwrap();
+
+        struct BadSerialize;
+
+        impl serde::Serialize for BadSerialize {
+            fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                Err(serde::ser::Error::custom("boom"))
+            }
+        }
+
+        let err = storage
+            .write_atomic(root.path().join("bad.json"), &BadSerialize)
+            .expect_err("serialization should fail");
+        assert!(is_json(&err));
+        assert!(!is_io(&err));
+
+        // If the temp path is a directory, we should see an IO error from `File::create`.
+        let path = root.path().join("foo.json");
+        fs::create_dir_all(path.with_extension("tmp")).unwrap();
+        let err = storage
+            .write_atomic(path, &sample_tasks_file())
+            .expect_err("temp path is a directory");
+        assert!(is_io(&err));
+        assert!(!is_json(&err));
+    }
+
+    #[test]
+    fn save_settings_errors_when_serializing_non_finite_bounds() {
+        let root = tempfile::tempdir().unwrap();
+        let storage = Storage::new(root.path().to_path_buf());
+        storage.ensure_dirs().unwrap();
+
+        // Serde JSON rejects non-finite floats (NaN/inf). This exercises the `to_vec_pretty` error
+        // branch for the SettingsFile monomorphization of `write_atomic`.
+        let mut settings = Settings::default();
+        settings.quick_bounds = Some(crate::models::WindowBounds {
+            x: f64::INFINITY,
+            y: 0.0,
+            width: 1.0,
+            height: 1.0,
+        });
+
+        let data = SettingsFile {
+            schema_version: 1,
+            settings,
+        };
+
+        let err = storage
+            .save_settings(&data)
+            .expect_err("non-finite bounds should fail JSON serialization");
+        assert!(is_json(&err));
+        assert!(!is_io(&err));
+    }
+
+    #[test]
+    fn write_all_and_sync_covers_error_branches() {
+        struct TestWriter {
+            fail_write: bool,
+            fail_sync: bool,
+        }
+
+        impl WriteAndSync for TestWriter {
+            fn write_all_bytes(&mut self, _buf: &[u8]) -> std::io::Result<()> {
+                if self.fail_write {
+                    return Err(std::io::Error::other("write failed"));
+                }
+                Ok(())
+            }
+
+            fn sync_all(&self) -> std::io::Result<()> {
+                if self.fail_sync {
+                    return Err(std::io::Error::other("sync failed"));
+                }
+                Ok(())
+            }
+        }
+
+        let mut ok_writer = TestWriter {
+            fail_write: false,
+            fail_sync: false,
+        };
+        assert!(write_all_and_sync(&mut ok_writer, b"ok").is_ok());
+
+        let mut fail_write = TestWriter {
+            fail_write: true,
+            fail_sync: false,
+        };
+        let err = write_all_and_sync(&mut fail_write, b"x").expect_err("write should fail");
+        assert!(is_io(&err));
+
+        let mut fail_sync = TestWriter {
+            fail_write: false,
+            fail_sync: true,
+        };
+        let err = write_all_and_sync(&mut fail_sync, b"x").expect_err("sync should fail");
+        assert!(is_io(&err));
+    }
+
+    #[test]
+    fn write_atomic_bytes_propagates_write_errors() {
+        let root = tempfile::tempdir().unwrap();
+        let storage = Storage::new(root.path().to_path_buf());
+        storage.ensure_dirs().unwrap();
+
+        struct ConfigurableWriter {
+            fail_write: bool,
+            fail_sync: bool,
+        }
+
+        impl WriteAndSync for ConfigurableWriter {
+            fn write_all_bytes(&mut self, _buf: &[u8]) -> std::io::Result<()> {
+                if self.fail_write {
+                    return Err(std::io::Error::other("write failed"));
+                }
+                Ok(())
+            }
+
+            fn sync_all(&self) -> std::io::Result<()> {
+                if self.fail_sync {
+                    return Err(std::io::Error::other("sync failed"));
+                }
+                Ok(())
+            }
+        }
+
+        fn create_fail_write(_path: &Path) -> Result<Box<dyn WriteAndSync>, StorageError> {
+            Ok(Box::new(ConfigurableWriter {
+                fail_write: true,
+                fail_sync: false,
+            }))
+        }
+
+        fn create_fail_sync(_path: &Path) -> Result<Box<dyn WriteAndSync>, StorageError> {
+            Ok(Box::new(ConfigurableWriter {
+                fail_write: false,
+                fail_sync: true,
+            }))
+        }
+
+        fn create_ok_writer(_path: &Path) -> Result<Box<dyn WriteAndSync>, StorageError> {
+            Ok(Box::new(ConfigurableWriter {
+                fail_write: false,
+                fail_sync: false,
+            }))
+        }
+
+        // Fail in `sync_all` so that branch is exercised.
+        let err = storage
+            .write_atomic_bytes(root.path().join("any.json"), b"hello", create_fail_sync)
+            .expect_err("sync should fail");
+        assert!(is_io(&err));
+
+        // Also fail in `write_all_bytes` so the error short-circuit branch is exercised for the
+        // dyn-dispatch instantiation of `write_all_and_sync`.
+        let err = storage
+            .write_atomic_bytes(root.path().join("any2.json"), b"hello", create_fail_write)
+            .expect_err("write should fail");
+        assert!(is_io(&err));
+
+        // Finally, make both writer operations succeed so we exercise the `Ok(())` path in
+        // `sync_all`. This still errors later because no temp file exists to rename.
+        let err = storage
+            .write_atomic_bytes(root.path().join("any3.json"), b"hello", create_ok_writer)
+            .expect_err("rename should fail");
+        assert!(is_io(&err));
     }
 
     #[test]
@@ -232,6 +467,35 @@ mod tests {
         let loaded = storage.load_settings().unwrap();
         assert_eq!(loaded.schema_version, 1);
         assert_eq!(loaded.settings.shortcut, Settings::default().shortcut);
+    }
+
+    #[test]
+    fn save_settings_roundtrip_with_finite_window_bounds() {
+        let root = tempfile::tempdir().unwrap();
+        let storage = Storage::new(root.path().to_path_buf());
+        storage.ensure_dirs().unwrap();
+
+        let mut settings = Settings::default();
+        settings.quick_bounds = Some(crate::models::WindowBounds {
+            x: 12.5,
+            y: 34.0,
+            width: 800.0,
+            height: 600.0,
+        });
+        let data = SettingsFile {
+            schema_version: 1,
+            settings,
+        };
+
+        // `Storage::save_settings` uses `serde_json::to_vec_pretty`, which ensures we exercise the
+        // `WindowBounds::serialize` monomorphization for PrettyFormatter on the happy path.
+        storage.save_settings(&data).unwrap();
+        let loaded = storage.load_settings().unwrap();
+        let loaded_bounds = loaded.settings.quick_bounds.expect("bounds should roundtrip");
+        assert_eq!(loaded_bounds.x, 12.5);
+        assert_eq!(loaded_bounds.y, 34.0);
+        assert_eq!(loaded_bounds.width, 800.0);
+        assert_eq!(loaded_bounds.height, 600.0);
     }
 
     #[test]
@@ -286,6 +550,59 @@ mod tests {
         f.sync_all().unwrap();
         let restored2 = storage.restore_from_path(&external).unwrap();
         assert_eq!(restored2.schema_version, 1);
+    }
+
+    #[test]
+    fn restore_backup_propagates_write_atomic_error() {
+        let root = tempfile::tempdir().unwrap();
+        let storage = Storage::new(root.path().to_path_buf());
+        storage.ensure_dirs().unwrap();
+
+        let backup_name = "data-test.json";
+        let backup_path = root.path().join(BACKUP_DIR).join(backup_name);
+        fs::write(
+            &backup_path,
+            serde_json::to_string_pretty(&sample_tasks_file()).unwrap(),
+        )
+        .unwrap();
+
+        // Make the temp file path a directory so write_atomic fails.
+        fs::create_dir_all(root.path().join("data.tmp")).unwrap();
+
+        let err = storage
+            .restore_backup(backup_name)
+            .expect_err("write_atomic should fail");
+        assert!(is_io(&err));
+    }
+
+    #[test]
+    fn restore_from_path_propagates_write_atomic_error() {
+        let root = tempfile::tempdir().unwrap();
+        let storage = Storage::new(root.path().to_path_buf());
+        storage.ensure_dirs().unwrap();
+
+        let external = root.path().join("external.json");
+        fs::write(
+            &external,
+            serde_json::to_string_pretty(&sample_tasks_file()).unwrap(),
+        )
+        .unwrap();
+
+        fs::create_dir_all(root.path().join("data.tmp")).unwrap();
+
+        let err = storage
+            .restore_from_path(&external)
+            .expect_err("write_atomic should fail");
+        assert!(is_io(&err));
+    }
+
+    #[test]
+    fn trim_backups_errors_when_backups_is_not_a_directory() {
+        let root = tempfile::tempdir().unwrap();
+        File::create(root.path().join(BACKUP_DIR)).unwrap();
+        let storage = Storage::new(root.path().to_path_buf());
+        let err = storage.trim_backups().expect_err("read_dir should fail");
+        assert!(is_io(&err));
     }
 
     #[test]

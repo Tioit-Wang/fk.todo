@@ -57,11 +57,38 @@ pub fn run() {
                 .load_tasks()
                 .map(|data| data.tasks)
                 .unwrap_or_default();
-            let settings = storage
+            let mut settings = storage
                 .load_settings()
                 .map(|data| data.settings)
                 .unwrap_or_default();
-            let shortcut: Shortcut = settings.shortcut.parse()?;
+
+            // Normalize potentially user-edited settings files. We keep the app bootable even if
+            // the shortcut is invalid/unregisterable, otherwise users can brick the app.
+            let mut settings_dirty = false;
+            let trimmed_shortcut = settings.shortcut.trim().to_string();
+            if trimmed_shortcut != settings.shortcut {
+                settings.shortcut = trimmed_shortcut;
+                settings_dirty = true;
+            }
+
+            let shortcut = match settings.shortcut.parse::<Shortcut>() {
+                Ok(shortcut) => Some(shortcut),
+                Err(parse_err) => {
+                    eprintln!("invalid shortcut in settings: {parse_err}");
+                    let fallback = crate::models::Settings::default().shortcut;
+                    if fallback != settings.shortcut {
+                        settings.shortcut = fallback.clone();
+                        settings_dirty = true;
+                    }
+                    match fallback.parse::<Shortcut>() {
+                        Ok(shortcut) => Some(shortcut),
+                        Err(parse_err) => {
+                            eprintln!("invalid default shortcut (unexpected): {parse_err}");
+                            None
+                        }
+                    }
+                }
+            };
 
             let state = AppState::new(tasks, settings);
             app.manage(state.clone());
@@ -130,7 +157,18 @@ pub fn run() {
 
             init_tray(app)?;
             update_tray_count(app.handle(), &state.tasks());
-            app.handle().global_shortcut().register(shortcut)?;
+
+            if let Some(shortcut) = shortcut {
+                if let Err(err) = app.handle().global_shortcut().register(shortcut) {
+                    eprintln!("failed to register global shortcut: {err}");
+                }
+            }
+
+            if settings_dirty {
+                if let Err(err) = storage.save_settings(&state.settings_file()) {
+                    eprintln!("failed to persist normalized settings: {err}");
+                }
+            }
             start_scheduler(app.handle().clone(), state.clone());
 
             Ok(())

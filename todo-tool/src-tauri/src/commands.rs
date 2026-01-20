@@ -151,6 +151,10 @@ impl<R: Runtime> CommandCtx for TauriCommandCtx<'_, R> {
     }
 
     fn shortcut_validate(&self, shortcut: &str) -> Result<(), String> {
+        let shortcut = shortcut.trim();
+        if shortcut.is_empty() {
+            return Err("empty shortcut".to_string());
+        }
         shortcut
             .parse::<Shortcut>()
             .map(|_| ())
@@ -158,6 +162,10 @@ impl<R: Runtime> CommandCtx for TauriCommandCtx<'_, R> {
     }
 
     fn shortcut_register(&self, shortcut: &str) -> Result<(), String> {
+        let shortcut = shortcut.trim();
+        if shortcut.is_empty() {
+            return Err("empty shortcut".to_string());
+        }
         // Help type inference for `FromStr` in older compilers / trait contexts.
         let parsed = shortcut.parse::<Shortcut>().map_err(|e| e.to_string())?;
         self.app
@@ -274,24 +282,29 @@ fn complete_task_impl(
 fn update_settings_impl(
     ctx: &impl CommandCtx,
     state: &AppState,
-    settings: Settings,
+    mut settings: Settings,
 ) -> CommandResult<Settings> {
     let previous = state.settings();
+    let previous_shortcut = previous.shortcut.trim().to_string();
+    let next_shortcut = settings.shortcut.trim().to_string();
+
+    // Normalize user input so tests/production behave the same and the persisted config is stable.
+    settings.shortcut = next_shortcut.clone();
 
     // Shortcut validation/registration is the #1 place users can lock themselves out:
     // if we unregister the old one and fail to register the new one, the app becomes unreachable
     // from the keyboard. So we validate + register with a rollback path and only then persist.
     let mut shortcut_changed = false;
-    if previous.shortcut != settings.shortcut {
+    if previous_shortcut != next_shortcut {
         shortcut_changed = true;
-        if let Err(parse_err) = ctx.shortcut_validate(&settings.shortcut) {
+        if let Err(parse_err) = ctx.shortcut_validate(&next_shortcut) {
             return err(&format!("invalid shortcut: {parse_err}"));
         }
 
         ctx.shortcut_unregister_all();
-        if let Err(register_err) = ctx.shortcut_register(&settings.shortcut) {
+        if let Err(register_err) = ctx.shortcut_register(&next_shortcut) {
             // Best-effort restore the previous shortcut so the user can still summon the quick window.
-            let _ = ctx.shortcut_register(&previous.shortcut);
+            let _ = ctx.shortcut_register(&previous_shortcut);
             return err(&format!("failed to register shortcut: {register_err}"));
         }
     }
@@ -302,7 +315,7 @@ fn update_settings_impl(
         state.update_settings(previous.clone());
         if shortcut_changed {
             ctx.shortcut_unregister_all();
-            let _ = ctx.shortcut_register(&previous.shortcut);
+            let _ = ctx.shortcut_register(&previous_shortcut);
         }
         return err(&format!("storage error: {error:?}"));
     }
@@ -749,6 +762,15 @@ mod tests {
     }
 
     #[test]
+    fn test_ctx_shortcut_register_propagates_validation_error() {
+        let ctx = TestCtx::new();
+        let err = ctx
+            .shortcut_register("bad-shortcut")
+            .expect_err("should fail shortcut_validate");
+        assert_eq!(err, "parse error");
+    }
+
+    #[test]
     fn auto_backup_predicates_cover_all_schedules() {
         let now = Local
             .with_ymd_and_hms(2024, 1, 2, 12, 0, 0)
@@ -880,6 +902,15 @@ mod tests {
         assert!(res.ok);
         let created_task = res.data.unwrap();
         assert_eq!(created_task.sort_order, 2000);
+
+        // create_task keeps an explicit sort_order as-is.
+        let ctx_sort = TestCtx::new();
+        let state_sort = make_state(Vec::new());
+        let mut t2 = make_task("b", 1000);
+        t2.sort_order = 123;
+        let res = create_task_impl(&ctx_sort, &state_sort, t2);
+        assert!(res.ok);
+        assert_eq!(res.data.unwrap().sort_order, 123);
 
         // create_task persist failure path.
         let ctx_fail = TestCtx::new();

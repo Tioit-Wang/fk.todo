@@ -28,7 +28,7 @@
 - 开发运行（Tauri）：`npm run tauri dev`
 - 仅构建前端：`npm run build`
 - 预览前端：`npm run preview`
-- 构建（不打包 installer，CI 用）：`npm run tauri -- build --no-bundle`
+- 构建（不打包 installer，CI 用）：`npm exec -- tauri build -- --no-bundle`
 - 构建（带 bundle）：`npm run tauri build`
 
 后端（在 `todo-tool/src-tauri/` 下执行）：
@@ -80,7 +80,7 @@ CI（`ci-build`）在 ubuntu/windows/macos 上执行：
 
 - Node 20 + Rust stable
 - `npm ci`
-- `npm run tauri -- build --no-bundle`
+- `npm exec -- tauri build -- --no-bundle`
 - 上传 release 二进制（`todo-tool/src-tauri/target/release/todo-tool*`）
 
 ## 6) 修改指南（给 agent 的默认做法）

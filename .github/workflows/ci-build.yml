@@ -54,7 +54,7 @@ jobs:
 
       - name: Build (no bundle)
         working-directory: todo-tool
-        run: npm run tauri -- build --no-bundle
+        run: npm exec -- tauri build -- --no-bundle
 
       - name: Upload binary (release)
         uses: actions/upload-artifact@v4

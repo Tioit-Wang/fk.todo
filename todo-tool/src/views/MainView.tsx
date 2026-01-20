@@ -221,11 +221,15 @@ export function MainView({
   async function handleMinimize() {
     const appWindow = getCurrentWindow();
     const behavior = settings?.minimize_behavior ?? "hide_to_tray";
-    if (behavior === "minimize") {
-      await appWindow.minimize();
-      return;
+    try {
+      if (behavior === "minimize") {
+        await appWindow.minimize();
+        return;
+      }
+      await appWindow.hide();
+    } catch {
+      // Best-effort: if the platform disallows the requested action, keep the window usable.
     }
-    await appWindow.hide();
   }
 
   return (

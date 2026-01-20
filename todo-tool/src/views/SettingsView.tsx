@@ -10,16 +10,9 @@ import type { BackupSchedule, MinimizeBehavior, Settings, Task } from "../types"
 
 import { WindowTitlebar } from "../components/WindowTitlebar";
 import { Icons } from "../components/icons";
+import { detectPlatform } from "../platform";
 
 type PermissionStatus = "unknown" | "granted" | "denied";
-
-function detectPlatform(): "windows" | "macos" | "linux" | "unknown" {
-  const ua = navigator.userAgent.toLowerCase();
-  if (ua.includes("windows")) return "windows";
-  if (ua.includes("mac os") || ua.includes("macos") || ua.includes("macintosh")) return "macos";
-  if (ua.includes("linux")) return "linux";
-  return "unknown";
-}
 
 function formatMinimizeBehavior(value: MinimizeBehavior): string {
   switch (value) {
@@ -83,18 +76,22 @@ export function SettingsView({
   }
 
   async function requestNotificationPermission() {
-    const result = await requestPermission();
-    setPermissionStatus(result === "granted" ? "granted" : "denied");
+    try {
+      const result = await requestPermission();
+      setPermissionStatus(result === "granted" ? "granted" : "denied");
+    } catch {
+      setPermissionStatus("unknown");
+    }
   }
 
   async function openNotificationSettings() {
     const target = detectPlatform();
     if (target === "windows") {
-      await openUrl("ms-settings:notifications");
+      await openUrl("ms-settings:notifications").catch(() => {});
       return;
     }
     if (target === "macos") {
-      await openUrl("x-apple.systempreferences:com.apple.preference.notifications");
+      await openUrl("x-apple.systempreferences:com.apple.preference.notifications").catch(() => {});
       return;
     }
   }
@@ -113,13 +110,13 @@ export function SettingsView({
   }
 
   async function handleRestoreBackup(name: string) {
-    if (!confirm("恢复将覆盖当前数据，确认继续？")) return;
+    if (!confirm("恢复将覆盖当前任务数据（不影响设置），确认继续？")) return;
     await restoreBackup(name);
   }
 
   async function handleImportBackup() {
     if (!importPath.trim()) return;
-    if (!confirm("恢复将覆盖当前数据，确认继续？")) return;
+    if (!confirm("恢复将覆盖当前任务数据（不影响设置），确认继续？")) return;
     await importBackup(importPath.trim());
     setImportPath("");
   }
@@ -183,18 +180,26 @@ export function SettingsView({
   useEffect(() => {
     if (!settings) return;
     setShortcutDraft(settings.shortcut);
+  }, [settings?.shortcut]);
+
+  // Refresh side-effecty data when the settings page mounts.
+  useEffect(() => {
     void refreshPermissionStatus();
     void refreshBackups();
-  }, [settings?.shortcut, settings]);
+  }, []);
 
   async function handleMinimize() {
     const appWindow = getCurrentWindow();
     const behavior = settings?.minimize_behavior ?? "hide_to_tray";
-    if (behavior === "minimize") {
-      await appWindow.minimize();
-      return;
+    try {
+      if (behavior === "minimize") {
+        await appWindow.minimize();
+        return;
+      }
+      await appWindow.hide();
+    } catch {
+      // Best-effort: if the platform disallows the requested action, keep the window usable.
     }
-    await appWindow.hide();
   }
 
   return (

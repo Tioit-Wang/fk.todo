@@ -7,11 +7,16 @@ import { NotificationBanner } from "../components/NotificationBanner";
 import { TaskCard } from "../components/TaskCard";
 import { WindowTitlebar } from "../components/WindowTitlebar";
 import { Icons } from "../components/icons";
+import { DOM_WINDOW_DRAG_START } from "../events";
 import { visibleQuickTasks, type QuickSortMode, type QuickTab } from "../logic";
 import type { Settings, Task } from "../types";
 
 function isQuickTab(value: string): value is QuickTab {
   return value === "todo" || value === "today" || value === "all" || value === "done";
+}
+
+function isQuickSort(value: string): value is QuickSortMode {
+  return value === "default" || value === "created";
 }
 
 const QUICK_TABS = [
@@ -78,7 +83,7 @@ export function QuickView({
       setTab(isQuickTab(settings.quick_tab) ? settings.quick_tab : "todo");
     }
     if (settings.quick_sort) {
-      setQuickSort(settings.quick_sort as QuickSortMode);
+      setQuickSort(isQuickSort(settings.quick_sort) ? settings.quick_sort : "default");
     }
   }, [settings?.quick_tab, settings?.quick_sort, settings]);
 
@@ -90,7 +95,7 @@ export function QuickView({
         ...settings,
         quick_tab: tab,
         quick_sort: quickSort,
-      });
+      }).catch(() => {});
     }
   }, [settings, tab, quickSort, onUpdateSettings]);
 
@@ -102,24 +107,27 @@ export function QuickView({
     if (!quickWindowApplied.current) {
       if (settings.quick_bounds) {
         const bounds = settings.quick_bounds;
-        appWindow.setSize(new LogicalSize(bounds.width, bounds.height));
-        appWindow.setPosition(new LogicalPosition(bounds.x, bounds.y));
+        void appWindow.setSize(new LogicalSize(bounds.width, bounds.height)).catch(() => {});
+        void appWindow.setPosition(new LogicalPosition(bounds.x, bounds.y)).catch(() => {});
       } else {
-        appWindow.outerSize().then((size) => {
-          const availableWidth = window.screen.availWidth || window.screen.width;
-          const availableHeight = window.screen.availHeight || window.screen.height;
-          const centerX = Math.max(0, Math.round((availableWidth - size.width) / 2));
-          const centerY = Math.max(0, Math.round((availableHeight - size.height) / 2));
-          const offsetY = Math.round(availableHeight * 0.15);
-          appWindow.setPosition(new LogicalPosition(centerX, centerY + offsetY));
-        });
+        void appWindow
+          .outerSize()
+          .then((size) => {
+            const availableWidth = window.screen.availWidth || window.screen.width;
+            const availableHeight = window.screen.availHeight || window.screen.height;
+            const centerX = Math.max(0, Math.round((availableWidth - size.width) / 2));
+            const centerY = Math.max(0, Math.round((availableHeight - size.height) / 2));
+            const offsetY = Math.round(availableHeight * 0.15);
+            void appWindow.setPosition(new LogicalPosition(centerX, centerY + offsetY)).catch(() => {});
+          })
+          .catch(() => {});
       }
       quickWindowApplied.current = true;
     }
 
     // Some platforms lose the always-on-top state after hide()/show() cycles.
     // Re-assert it whenever settings change.
-    void appWindow.setAlwaysOnTop(settings.quick_always_on_top);
+    void appWindow.setAlwaysOnTop(settings.quick_always_on_top).catch(() => {});
 
     const scheduleSave = () => {
       // When the user drags/resizes the quick window on Windows, the native drag loop can
@@ -133,37 +141,60 @@ export function QuickView({
         clearTimeout(quickSaveTimer.current);
       }
       quickSaveTimer.current = window.setTimeout(async () => {
-        const [pos, size] = await Promise.all([appWindow.outerPosition(), appWindow.outerSize()]);
+        try {
+          const [pos, size] = await Promise.all([appWindow.outerPosition(), appWindow.outerSize()]);
 
-        // Use the latest settings snapshot to avoid overwriting newer changes (theme/sound/etc)
-        // with a stale closure while we're only trying to persist window bounds.
-        const base = settingsRef.current ?? settings;
-        void onUpdateSettings({
-          ...base,
-          quick_bounds: {
-            x: pos.x,
-            y: pos.y,
-            width: size.width,
-            height: size.height,
-          },
-        });
+          // Use the latest settings snapshot to avoid overwriting newer changes (theme/sound/etc)
+          // with a stale closure while we're only trying to persist window bounds.
+          const base = settingsRef.current ?? settings;
+          void onUpdateSettings({
+            ...base,
+            quick_bounds: {
+              x: pos.x,
+              y: pos.y,
+              width: size.width,
+              height: size.height,
+            },
+          }).catch(() => {});
+        } catch {
+          // Best-effort: if the window APIs fail (platform quirks), skip this save tick.
+        }
       }, 2000);
     };
 
+    let disposed = false;
     let unlistenMoved: (() => void) | null = null;
     let unlistenResized: (() => void) | null = null;
     let unlistenFocus: (() => void) | null = null;
 
     (async () => {
-      unlistenMoved = await appWindow.onMoved(scheduleSave);
-      unlistenResized = await appWindow.onResized(scheduleSave);
-      unlistenFocus = await appWindow.onFocusChanged(({ payload }) => {
+      const moved = await appWindow.onMoved(scheduleSave);
+      if (disposed) {
+        moved();
+        return;
+      }
+      unlistenMoved = moved;
+
+      const resized = await appWindow.onResized(scheduleSave);
+      if (disposed) {
+        resized();
+        return;
+      }
+      unlistenResized = resized;
+
+      const focused = await appWindow.onFocusChanged(({ payload }) => {
         if (!payload) return;
-        void appWindow.setAlwaysOnTop(settingsRef.current?.quick_always_on_top ?? false);
+        void appWindow.setAlwaysOnTop(settingsRef.current?.quick_always_on_top ?? false).catch(() => {});
       });
+      if (disposed) {
+        focused();
+        return;
+      }
+      unlistenFocus = focused;
     })();
 
     return () => {
+      disposed = true;
       if (unlistenMoved) unlistenMoved();
       if (unlistenResized) unlistenResized();
       if (unlistenFocus) unlistenFocus();
@@ -189,40 +220,52 @@ export function QuickView({
       }
 
       const tick = async () => {
-        focusLossCheckTimerRef.current = null;
-        const now = Date.now();
-        if (now < ignoreFocusLossUntilRef.current) {
-          // Grace period extended (e.g., continuous drag); re-check when it should have ended.
-          const remaining = ignoreFocusLossUntilRef.current - now;
-          focusLossCheckTimerRef.current = window.setTimeout(() => void tick(), remaining + 50);
-          return;
+        try {
+          focusLossCheckTimerRef.current = null;
+          const now = Date.now();
+          if (now < ignoreFocusLossUntilRef.current) {
+            // Grace period extended (e.g., continuous drag); re-check when it should have ended.
+            const remaining = ignoreFocusLossUntilRef.current - now;
+            focusLossCheckTimerRef.current = window.setTimeout(() => void tick(), remaining + 50);
+            return;
+          }
+          if (settingsRef.current?.quick_always_on_top) return;
+          if (isModalOpenRef.current) return;
+          const focused = await appWindow.isFocused();
+          if (!focused) void appWindow.hide().catch(() => {});
+        } catch {
+          // Best-effort: if focus APIs fail, don't auto-hide.
         }
-        if (settingsRef.current?.quick_always_on_top) return;
-        if (isModalOpenRef.current) return;
-        const focused = await appWindow.isFocused();
-        if (!focused) void appWindow.hide();
       };
 
       focusLossCheckTimerRef.current = window.setTimeout(() => void tick(), graceMs + 50);
     };
 
     const onDragStart = () => scheduleFocusLossCheck(1200);
-    window.addEventListener("fk.todo:window-drag-start", onDragStart as EventListener);
+    window.addEventListener(DOM_WINDOW_DRAG_START, onDragStart as EventListener);
 
+    let disposed = false;
     let unlistenFocus: (() => void) | null = null;
     (async () => {
-      unlistenFocus = await appWindow.onFocusChanged(({ payload }) => {
+      const focused = await appWindow.onFocusChanged(({ payload }) => {
         // payload === true => focused, payload === false => blurred.
         if (payload) return;
         if (Date.now() < ignoreFocusLossUntilRef.current) return;
         if (settingsRef.current?.quick_always_on_top) return;
         if (isModalOpenRef.current) return;
-        void appWindow.hide();
+        void appWindow.hide().catch(() => {});
       });
+
+      if (disposed) {
+        focused();
+        return;
+      }
+      unlistenFocus = focused;
     })();
 
     return () => {
-      window.removeEventListener("fk.todo:window-drag-start", onDragStart as EventListener);
+      disposed = true;
+      window.removeEventListener(DOM_WINDOW_DRAG_START, onDragStart as EventListener);
       if (focusLossCheckTimerRef.current) {
         window.clearTimeout(focusLossCheckTimerRef.current);
       }

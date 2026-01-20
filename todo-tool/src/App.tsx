@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { PluginListener } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow, LogicalPosition, LogicalSize } from "@tauri-apps/api/window";
+import { currentMonitor, getCurrentWindow, LogicalPosition, LogicalSize } from "@tauri-apps/api/window";
 import { isPermissionGranted, onAction, registerActionTypes, sendNotification } from "@tauri-apps/plugin-notification";
 
 import "./App.css";
@@ -18,6 +18,7 @@ import { SettingsView } from "./views/SettingsView";
 import { completeTask, createTask, deleteTask, dismissForced, loadState, snoozeTask, updateSettings, updateTask } from "./api";
 import { formatDue } from "./date";
 import { newTask } from "./logic";
+import { TAURI_NAVIGATE } from "./events";
 import { detectPlatform } from "./platform";
 import { buildReminderConfig } from "./reminder";
 import type { Settings, Task } from "./types";
@@ -100,9 +101,36 @@ function App() {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
+  // Backend-triggered navigation (tray menu, etc.). Keep it scoped to the main window.
+  useEffect(() => {
+    if (getCurrentWindow().label !== "main") return;
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+
+    void (async () => {
+      const listener = await listen<{ hash: string }>(TAURI_NAVIGATE, ({ payload }) => {
+        const next = typeof payload?.hash === "string" ? payload.hash : "";
+        if (!next) return;
+        window.location.hash = next;
+      });
+
+      if (disposed) {
+        listener();
+        return;
+      }
+      unlisten = listener;
+    })().catch(() => {});
+
+    return () => {
+      disposed = true;
+      if (unlisten) unlisten();
+    };
+  }, []);
+
   // Notification actions (OS-level buttons) should only be handled by the quick window.
   useEffect(() => {
     if (getViewFromHash() !== "quick") return;
+    let disposed = false;
     let actionListener: PluginListener | null = null;
 
     registerActionTypes([
@@ -115,8 +143,8 @@ function App() {
       },
     ]).catch(() => {});
 
-    (async () => {
-      actionListener = await onAction(async (notification) => {
+    void (async () => {
+      const listener = await onAction(async (notification) => {
         const payload = notification as {
           actionId?: string;
           actionIdentifier?: string;
@@ -138,12 +166,19 @@ function App() {
 
         // Bring the quick window forward so the user sees the updated list immediately.
         const window = getCurrentWindow();
-        void window.show();
-        void window.setFocus();
+        void window.show().catch(() => {});
+        void window.setFocus().catch(() => {});
       });
-    })();
+
+      if (disposed) {
+        listener.unregister();
+        return;
+      }
+      actionListener = listener;
+    })().catch(() => {});
 
     return () => {
+      disposed = true;
       if (actionListener) {
         actionListener.unregister();
       }
@@ -152,10 +187,11 @@ function App() {
 
   // Load initial state and subscribe to backend events.
   useEffect(() => {
+    let disposed = false;
     let unlistenState: (() => void) | null = null;
     let unlistenReminder: (() => void) | null = null;
 
-    (async () => {
+    void (async () => {
       const res = await loadState();
       if (res.ok && res.data) {
         const [loadedTasks, loadedSettings] = res.data;
@@ -163,7 +199,7 @@ function App() {
         setSettings(loadedSettings);
       }
 
-      unlistenState = await listen("state_updated", (event) => {
+      const stateListener = await listen("state_updated", (event) => {
         const payload = event.payload as { tasks?: Task[]; settings?: Settings };
         if (payload.tasks) {
           setTasks(payload.tasks.map(normalizeTask));
@@ -172,8 +208,13 @@ function App() {
           setSettings(payload.settings);
         }
       });
+      if (disposed) {
+        stateListener();
+        return;
+      }
+      unlistenState = stateListener;
 
-      unlistenReminder = await listen("reminder_fired", async (event) => {
+      const reminderListener = await listen("reminder_fired", async (event) => {
         const payload = event.payload as Task[];
         if (!Array.isArray(payload) || payload.length === 0) return;
 
@@ -205,21 +246,31 @@ function App() {
             }
             if (granted) {
               normal.forEach((task) => {
-                sendNotification({
-                  title: "普通提醒",
-                  body: `${task.title} (${formatDue(task.due_at)})`,
-                  actionTypeId: NOTIFICATION_ACTION_TYPE,
-                  extra: { taskId: task.id },
-                  silent: settingsRef.current ? !settingsRef.current.sound_enabled : false,
-                });
+                // `sendNotification` is typed as void on some platforms; wrap in Promise.resolve
+                // so we can safely catch (whether it throws synchronously or returns a Promise).
+                void Promise.resolve(
+                  sendNotification({
+                    title: "普通提醒",
+                    body: `${task.title} (${formatDue(task.due_at)})`,
+                    actionTypeId: NOTIFICATION_ACTION_TYPE,
+                    extra: { taskId: task.id },
+                    silent: settingsRef.current ? !settingsRef.current.sound_enabled : false,
+                  }),
+                ).catch(() => {});
               });
             }
           }
         }
       });
-    })();
+      if (disposed) {
+        reminderListener();
+        return;
+      }
+      unlistenReminder = reminderListener;
+    })().catch(() => {});
 
     return () => {
+      disposed = true;
       if (unlistenState) unlistenState();
       if (unlistenReminder) unlistenReminder();
     };
@@ -262,7 +313,7 @@ function App() {
         return;
       }
       if (view === "quick") {
-        void getCurrentWindow().hide();
+        void getCurrentWindow().hide().catch(() => {});
       }
     };
 
@@ -329,7 +380,7 @@ function App() {
   // Reminder window: if the queue is empty, hide it.
   useEffect(() => {
     if (view === "reminder" && !reminderTask) {
-      getCurrentWindow().hide();
+      void getCurrentWindow().hide().catch(() => {});
     }
   }, [view, reminderTask]);
 
@@ -337,11 +388,20 @@ function App() {
   useEffect(() => {
     if (view !== "reminder") return;
     const appWindow = getCurrentWindow();
-    const screenWidth = window.screen.width || window.innerWidth;
-    const screenHeight = window.screen.height || window.innerHeight;
 
     (async () => {
       try {
+        // Prefer the actual monitor bounds (multi-monitor / DPI aware). Fall back to browser
+        // screen dimensions if the monitor API is unavailable.
+        const monitor = await currentMonitor();
+        if (monitor) {
+          await appWindow.setSize(monitor.size);
+          await appWindow.setPosition(monitor.position);
+          return;
+        }
+
+        const screenWidth = window.screen.width || window.innerWidth;
+        const screenHeight = window.screen.height || window.innerHeight;
         await appWindow.setSize(new LogicalSize(screenWidth, screenHeight));
         await appWindow.setPosition(new LogicalPosition(0, 0));
       } catch {
@@ -448,7 +508,7 @@ function App() {
     // Update UI first so the overlay reacts instantly (show next reminder or hide if none).
     setForcedQueueIds((prev) => {
       const next = prev.filter((id) => id !== taskId);
-      if (next.length === 0) void getCurrentWindow().hide();
+      if (next.length === 0) void getCurrentWindow().hide().catch(() => {});
       return next;
     });
 
@@ -461,7 +521,7 @@ function App() {
 
     setForcedQueueIds((prev) => {
       const next = prev.filter((id) => id !== taskId);
-      if (next.length === 0) void getCurrentWindow().hide();
+      if (next.length === 0) void getCurrentWindow().hide().catch(() => {});
       return next;
     });
 
@@ -474,7 +534,7 @@ function App() {
 
     setForcedQueueIds((prev) => {
       const next = prev.filter((id) => id !== taskId);
-      if (next.length === 0) void getCurrentWindow().hide();
+      if (next.length === 0) void getCurrentWindow().hide().catch(() => {});
       return next;
     });
 

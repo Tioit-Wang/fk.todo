@@ -1,6 +1,8 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { ReactNode } from "react";
 
+import { DOM_WINDOW_DRAG_START } from "../events";
+
 type Variant = "quick" | "main";
 
 type WindowTitlebarProps = {
@@ -28,8 +30,8 @@ export function WindowTitlebar({ variant, title, pinned, onTogglePin, onMinimize
     // The quick window auto-hides itself when it loses focus (launcher-like behavior).
     // On Windows, starting a native drag can momentarily blur the webview. We emit a hint
     // so the quick window can ignore that transient focus loss and avoid "minimize on drag".
-    window.dispatchEvent(new CustomEvent("fk.todo:window-drag-start"));
-    void appWindow.startDragging();
+    window.dispatchEvent(new CustomEvent(DOM_WINDOW_DRAG_START));
+    void appWindow.startDragging().catch(() => {});
   }
 
   return (
@@ -43,7 +45,7 @@ export function WindowTitlebar({ variant, title, pinned, onTogglePin, onMinimize
             aria-label="关闭"
             onClick={() => {
               // Use close() to respect backend close-behavior hooks.
-              void appWindow.close();
+              void appWindow.close().catch(() => {});
             }}
           />
           <button
@@ -53,9 +55,9 @@ export function WindowTitlebar({ variant, title, pinned, onTogglePin, onMinimize
             aria-label="最小化"
             onClick={() => {
               if (onMinimize) {
-                void onMinimize();
+                void Promise.resolve(onMinimize()).catch(() => {});
               } else {
-                void appWindow.minimize();
+                void appWindow.minimize().catch(() => {});
               }
             }}
           />
@@ -67,7 +69,7 @@ export function WindowTitlebar({ variant, title, pinned, onTogglePin, onMinimize
               aria-label={pinned ? "取消置顶" : "置顶"}
               aria-pressed={Boolean(pinned)}
               onClick={() => {
-                void onTogglePin?.();
+                void Promise.resolve(onTogglePin?.()).catch(() => {});
               }}
             />
           )}

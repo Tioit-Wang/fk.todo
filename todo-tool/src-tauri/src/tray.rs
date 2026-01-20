@@ -3,10 +3,12 @@ use chrono::{Local, TimeZone};
 use crate::models::Task;
 
 #[cfg(all(feature = "app", not(test)))]
+use crate::events::{NavigatePayload, EVENT_NAVIGATE};
+#[cfg(all(feature = "app", not(test)))]
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    App, AppHandle, Manager, Runtime,
+    App, AppHandle, Emitter, Manager, Runtime,
 };
 
 #[cfg(all(feature = "app", not(test)))]
@@ -14,6 +16,10 @@ const TRAY_ID: &str = "main";
 
 #[cfg(all(feature = "app", not(test)))]
 pub fn init_tray(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
+    let icon = app.default_window_icon().cloned().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::NotFound, "default window icon is missing")
+    })?;
+
     let show_quick = MenuItem::with_id(app, "show_quick", "打开快捷窗口", true, None::<&str>)?;
     let show_main = MenuItem::with_id(app, "show_main", "打开主界面", true, None::<&str>)?;
     let show_settings = MenuItem::with_id(app, "show_settings", "设置", true, None::<&str>)?;
@@ -21,7 +27,7 @@ pub fn init_tray(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     let menu = Menu::with_items(app, &[&show_quick, &show_main, &show_settings, &quit])?;
 
     let _tray = TrayIconBuilder::with_id(TRAY_ID)
-        .icon(app.default_window_icon().unwrap().clone())
+        .icon(icon)
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
@@ -38,8 +44,13 @@ pub fn init_tray(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
                     let _ = window.unminimize();
                     let _ = window.show();
                     let _ = window.set_focus();
-                    // Always bring the main window back to its primary view.
-                    let _ = window.eval("window.location.hash = '#/main'");
+                    // Ask the frontend to navigate; avoids injecting JS via eval.
+                    let _ = window.emit(
+                        EVENT_NAVIGATE,
+                        NavigatePayload {
+                            hash: "#/main".to_string(),
+                        },
+                    );
                 }
             }
             "show_settings" => {
@@ -47,7 +58,12 @@ pub fn init_tray(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
                     let _ = window.unminimize();
                     let _ = window.show();
                     let _ = window.set_focus();
-                    let _ = window.eval("window.location.hash = '#/main/settings'");
+                    let _ = window.emit(
+                        EVENT_NAVIGATE,
+                        NavigatePayload {
+                            hash: "#/main/settings".to_string(),
+                        },
+                    );
                 }
             }
             _ => {}
