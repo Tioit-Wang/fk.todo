@@ -1,0 +1,66 @@
+name: ci-build
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022, macos-14]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: todo-tool/package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            todo-tool/src-tauri -> todo-tool/src-tauri/target
+
+      - name: Install Linux dependencies (Tauri)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libssl-dev \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Install frontend dependencies
+        working-directory: todo-tool
+        run: npm ci
+
+      - name: Build (no bundle)
+        working-directory: todo-tool
+        run: npm run tauri -- build --no-bundle
+
+      - name: Upload binary (release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: todo-tool-${{ matrix.os }}
+          if-no-files-found: error
+          path: |
+            todo-tool/src-tauri/target/release/todo-tool*
+
