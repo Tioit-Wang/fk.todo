@@ -1,0 +1,108 @@
+# fk.todo / Todo Tool - Agent Guide (Global)
+
+本仓库是一个「桌面级 Todo 工具」项目：Tauri v2（Rust）+ React + TypeScript（Vite）。
+
+如果你是自动化/AI 代理（agent），请先读这份全局说明，再按任务进入前端或后端的专用 AGENTS 文档：
+
+- 前端（React/TS + UI）：`todo-tool/AGENTS.md`
+- 后端（Rust/Tauri commands + storage/scheduler）：`todo-tool/src-tauri/AGENTS.md`
+
+另外两份“事实来源”文档也很重要：
+
+- PRD（需求）：`桌面级Todo工具需求文档.md`
+- 项目现状/关键文件索引：`todo-tool/UNFINISHED.md`
+
+## 1) 仓库结构（以 workspace 根目录为准）
+
+- `todo-tool/`：应用主体（Vite 前端 + Tauri 配置 + Rust 后端子项目）
+  - `todo-tool/src/`：React/TypeScript 前端
+  - `todo-tool/src-tauri/`：Rust 后端（Tauri app + commands + storage + scheduler）
+- `.github/workflows/ci-build.yml`：CI（多平台构建）
+- `桌面级Todo工具需求文档.md`：需求文档（MVP）
+
+## 2) 关键命令（开发/构建/测试）
+
+前端/整体（在 `todo-tool/` 下执行）：
+
+- 安装依赖：`npm ci`
+- 开发运行（Tauri）：`npm run tauri dev`
+- 仅构建前端：`npm run build`
+- 预览前端：`npm run preview`
+- 构建（不打包 installer，CI 用）：`npm run tauri -- build --no-bundle`
+- 构建（带 bundle）：`npm run tauri build`
+
+后端（在 `todo-tool/src-tauri/` 下执行）：
+
+- 单元测试（library）：`cargo test --lib`
+- 格式化：`cargo fmt`
+- 静态检查：`cargo clippy --lib -- -D warnings`
+- 覆盖率（可选，需要 cargo-llvm-cov）：`cargo llvm-cov --lib --summary-only`
+
+平台依赖（Linux CI/本地）：
+
+- WebKit/GTK 等依赖见：`.github/workflows/ci-build.yml`
+
+## 3) 架构概览（前后端边界）
+
+这不是传统“前后端服务”项目，而是桌面应用：
+
+- “前端”：`todo-tool/src` 的 React UI，负责交互、渲染、通知 UI、调用 Tauri commands。
+- “后端”：`todo-tool/src-tauri` 的 Rust 逻辑，负责本地数据持久化、调度器、托盘、全局快捷键、窗口控制。
+
+跨边界交互方式：
+
+1. 前端通过 `invoke` 调用 Rust commands（见 `todo-tool/src/api.ts`）。
+2. Rust 在变更后通过事件推送状态（`state_updated`）给前端（见 `todo-tool/src-tauri/src/events.rs`）。
+3. Rust 调度器触发提醒事件（`reminder_fired`），前端决定 UI 展示与系统通知策略。
+
+必须保持一致的“契约”：
+
+- TS 类型：`todo-tool/src/types.ts`
+- Rust 模型：`todo-tool/src-tauri/src/models.rs`
+- 字段命名规则：snake_case（serde / JSON / TS 一致）
+
+## 4) 数据与存储（本地 JSON + 备份）
+
+数据保存在系统 app data 目录（由 Tauri `app_data_dir()` 提供），典型文件：
+
+- `data.json`：任务数据（TasksFile，含 schema_version）
+- `settings.json`：设置（SettingsFile，含 schema_version）
+- `backups/`：备份目录（最多保留 5 份，自动轮转）
+
+写入策略（Rust 实现）：
+
+- 原子写入：临时文件 + rename 覆盖（避免崩溃导致 JSON 损坏）
+- 备份：按 settings 中的 schedule 决定是否生成（Daily/Weekly/Monthly/None）
+
+## 5) CI 与发布产物
+
+CI（`ci-build`）在 ubuntu/windows/macos 上执行：
+
+- Node 20 + Rust stable
+- `npm ci`
+- `npm run tauri -- build --no-bundle`
+- 上传 release 二进制（`todo-tool/src-tauri/target/release/todo-tool*`）
+
+## 6) 修改指南（给 agent 的默认做法）
+
+当你要实现一个需求/修复问题时，优先按下面顺序收敛风险：
+
+1. 找“真实入口”：
+   - UI 入口：`todo-tool/src/App.tsx`
+   - Rust 入口：`todo-tool/src-tauri/src/lib.rs`
+2. 如果涉及数据结构或跨边界字段：
+   - 同步修改 `todo-tool/src/types.ts` 与 `todo-tool/src-tauri/src/models.rs`
+   - 关注 serde default（避免旧数据反序列化失败）
+3. 如果新增/修改 command：
+   - Rust：新增 `*_impl` + `#[tauri::command]` wrapper，并注册到 `invoke_handler![]`
+   - TS：补 `todo-tool/src/api.ts` wrapper
+4. 跑最小验证：
+   - 前端：`npm run build`
+   - 后端：`cargo test --lib`
+
+---
+
+更详细的工作流与注意事项请看：
+
+- 前端：`todo-tool/AGENTS.md`
+- 后端：`todo-tool/src-tauri/AGENTS.md`
