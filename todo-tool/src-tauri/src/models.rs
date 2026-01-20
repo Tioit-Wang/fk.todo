@@ -81,11 +81,26 @@ pub enum CloseBehavior {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum MinimizeBehavior {
+    HideToTray,
+    Minimize,
+}
+
+impl Default for MinimizeBehavior {
+    fn default() -> Self {
+        Self::HideToTray
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct Settings {
     pub shortcut: String,
     pub theme: String,
     pub sound_enabled: bool,
     pub close_behavior: CloseBehavior,
+    #[serde(default)]
+    pub minimize_behavior: MinimizeBehavior,
     #[serde(default)]
     pub quick_always_on_top: bool,
     #[serde(default = "default_quick_blur_enabled")]
@@ -111,6 +126,7 @@ impl Default for Settings {
             theme: "light".to_string(),
             sound_enabled: true,
             close_behavior: CloseBehavior::HideToTray,
+            minimize_behavior: MinimizeBehavior::HideToTray,
             quick_always_on_top: false,
             quick_blur_enabled: default_quick_blur_enabled(),
             quick_bounds: None,
@@ -194,6 +210,10 @@ mod tests {
         assert_eq!(settings.theme, "light");
         assert!(settings.sound_enabled);
         assert!(matches!(settings.close_behavior, CloseBehavior::HideToTray));
+        assert!(matches!(
+            settings.minimize_behavior,
+            MinimizeBehavior::HideToTray
+        ));
         assert!(!settings.quick_always_on_top);
         assert!(settings.quick_blur_enabled);
         assert!(settings.quick_bounds.is_none());
@@ -222,6 +242,10 @@ mod tests {
         assert!(matches!(settings.close_behavior, CloseBehavior::Exit));
 
         // These fields must be filled by serde defaults.
+        assert!(matches!(
+            settings.minimize_behavior,
+            MinimizeBehavior::HideToTray
+        ));
         assert!(!settings.quick_always_on_top);
         assert!(settings.quick_blur_enabled);
         assert!(settings.quick_bounds.is_none());
@@ -234,9 +258,7 @@ mod tests {
 
     #[test]
     fn repeat_rule_serialization_uses_tagged_enum_layout() {
-        let rule = RepeatRule::Daily {
-            workday_only: true,
-        };
+        let rule = RepeatRule::Daily { workday_only: true };
         let value = serde_json::to_value(&rule).expect("serialize repeat rule");
         assert_eq!(
             value,

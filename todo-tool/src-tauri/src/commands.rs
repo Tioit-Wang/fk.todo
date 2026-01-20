@@ -2,21 +2,19 @@ use chrono::{Datelike, Local, TimeZone, Utc};
 use std::path::PathBuf;
 
 use crate::events::StatePayload;
-#[cfg(not(test))]
+#[cfg(all(feature = "app", not(test)))]
 use crate::events::EVENT_STATE_UPDATED;
 use crate::models::{BackupSchedule, RepeatRule, Settings, Task};
 use crate::repeat::next_due_timestamp;
 use crate::state::AppState;
 use crate::storage::{Storage, StorageError};
 
-use tauri_plugin_global_shortcut::Shortcut;
-
-#[cfg(not(test))]
+#[cfg(all(feature = "app", not(test)))]
 use crate::tray::update_tray_count;
-#[cfg(not(test))]
+#[cfg(all(feature = "app", not(test)))]
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
-#[cfg(not(test))]
-use tauri_plugin_global_shortcut::GlobalShortcutExt;
+#[cfg(all(feature = "app", not(test)))]
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
 #[derive(Debug, serde::Serialize)]
 pub struct CommandResult<T> {
@@ -30,7 +28,8 @@ trait CommandCtx {
     fn emit_state_updated(&self, payload: StatePayload);
     fn update_tray_count(&self, tasks: &[Task]);
     fn shortcut_unregister_all(&self);
-    fn shortcut_register(&self, shortcut: Shortcut) -> Result<(), String>;
+    fn shortcut_validate(&self, shortcut: &str) -> Result<(), String>;
+    fn shortcut_register(&self, shortcut: &str) -> Result<(), String>;
 }
 
 fn ok<T>(data: T) -> CommandResult<T> {
@@ -125,12 +124,12 @@ fn is_new_month(last: Option<i64>, now: i64) -> bool {
     }
 }
 
-#[cfg(not(test))]
+#[cfg(all(feature = "app", not(test)))]
 struct TauriCommandCtx<'a, R: Runtime> {
     app: &'a AppHandle<R>,
 }
 
-#[cfg(not(test))]
+#[cfg(all(feature = "app", not(test)))]
 impl<R: Runtime> CommandCtx for TauriCommandCtx<'_, R> {
     fn app_data_dir(&self) -> Result<PathBuf, StorageError> {
         self.app
@@ -151,15 +150,26 @@ impl<R: Runtime> CommandCtx for TauriCommandCtx<'_, R> {
         let _ = self.app.global_shortcut().unregister_all();
     }
 
-    fn shortcut_register(&self, shortcut: Shortcut) -> Result<(), String> {
+    fn shortcut_validate(&self, shortcut: &str) -> Result<(), String> {
+        shortcut
+            .parse::<Shortcut>()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
+    fn shortcut_register(&self, shortcut: &str) -> Result<(), String> {
+        let parsed: Shortcut = shortcut.parse().map_err(|e| e.to_string())?;
         self.app
             .global_shortcut()
-            .register(shortcut)
+            .register(parsed)
             .map_err(|e| e.to_string())
     }
 }
 
-fn load_state_impl(ctx: &impl CommandCtx, state: &AppState) -> CommandResult<(Vec<Task>, Settings)> {
+fn load_state_impl(
+    ctx: &impl CommandCtx,
+    state: &AppState,
+) -> CommandResult<(Vec<Task>, Settings)> {
     let root = match ctx.app_data_dir() {
         Ok(path) => path,
         Err(e) => return err(&format!("app_data_dir error: {e}")),
@@ -220,7 +230,11 @@ fn swap_sort_order_impl(
     ok(true)
 }
 
-fn complete_task_impl(ctx: &impl CommandCtx, state: &AppState, task_id: String) -> CommandResult<Task> {
+fn complete_task_impl(
+    ctx: &impl CommandCtx,
+    state: &AppState,
+    task_id: String,
+) -> CommandResult<Task> {
     let completed = match state.complete_task(&task_id) {
         Some(task) => task,
         None => return err("task not found"),
@@ -269,17 +283,14 @@ fn update_settings_impl(
     let mut shortcut_changed = false;
     if previous.shortcut != settings.shortcut {
         shortcut_changed = true;
-        let next_shortcut = match settings.shortcut.parse::<Shortcut>() {
-            Ok(value) => value,
-            Err(parse_err) => return err(&format!("invalid shortcut: {parse_err}")),
-        };
+        if let Err(parse_err) = ctx.shortcut_validate(&settings.shortcut) {
+            return err(&format!("invalid shortcut: {parse_err}"));
+        }
 
         ctx.shortcut_unregister_all();
-        if let Err(register_err) = ctx.shortcut_register(next_shortcut) {
+        if let Err(register_err) = ctx.shortcut_register(&settings.shortcut) {
             // Best-effort restore the previous shortcut so the user can still summon the quick window.
-            if let Ok(prev_shortcut) = previous.shortcut.parse::<Shortcut>() {
-                let _ = ctx.shortcut_register(prev_shortcut);
-            }
+            let _ = ctx.shortcut_register(&previous.shortcut);
             return err(&format!("failed to register shortcut: {register_err}"));
         }
     }
@@ -290,9 +301,7 @@ fn update_settings_impl(
         state.update_settings(previous.clone());
         if shortcut_changed {
             ctx.shortcut_unregister_all();
-            if let Ok(prev_shortcut) = previous.shortcut.parse::<Shortcut>() {
-                let _ = ctx.shortcut_register(prev_shortcut);
-            }
+            let _ = ctx.shortcut_register(&previous.shortcut);
         }
         return err(&format!("storage error: {error:?}"));
     }
@@ -318,7 +327,11 @@ fn snooze_task_impl(
     ok(true)
 }
 
-fn dismiss_forced_impl(ctx: &impl CommandCtx, state: &AppState, task_id: String) -> CommandResult<bool> {
+fn dismiss_forced_impl(
+    ctx: &impl CommandCtx,
+    state: &AppState,
+    task_id: String,
+) -> CommandResult<bool> {
     let mut tasks = state.tasks();
     if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) {
         task.reminder.forced_dismissed = true;
@@ -331,7 +344,11 @@ fn dismiss_forced_impl(ctx: &impl CommandCtx, state: &AppState, task_id: String)
     ok(true)
 }
 
-fn delete_task_impl(ctx: &impl CommandCtx, state: &AppState, task_id: String) -> CommandResult<bool> {
+fn delete_task_impl(
+    ctx: &impl CommandCtx,
+    state: &AppState,
+    task_id: String,
+) -> CommandResult<bool> {
     state.remove_task(&task_id);
     if let Err(error) = persist(ctx, state) {
         return err(&format!("storage error: {error:?}"));
@@ -351,28 +368,28 @@ fn delete_tasks_impl(
     ok(true)
 }
 
-#[cfg(not(test))]
+#[cfg(all(feature = "app", not(test)))]
 #[tauri::command]
 pub fn load_state(app: AppHandle, state: State<AppState>) -> CommandResult<(Vec<Task>, Settings)> {
     let ctx = TauriCommandCtx { app: &app };
     load_state_impl(&ctx, state.inner())
 }
 
-#[cfg(not(test))]
+#[cfg(all(feature = "app", not(test)))]
 #[tauri::command]
 pub fn create_task(app: AppHandle, state: State<AppState>, task: Task) -> CommandResult<Task> {
     let ctx = TauriCommandCtx { app: &app };
     create_task_impl(&ctx, state.inner(), task)
 }
 
-#[cfg(not(test))]
+#[cfg(all(feature = "app", not(test)))]
 #[tauri::command]
 pub fn update_task(app: AppHandle, state: State<AppState>, task: Task) -> CommandResult<Task> {
     let ctx = TauriCommandCtx { app: &app };
     update_task_impl(&ctx, state.inner(), task)
 }
 
-#[cfg(not(test))]
+#[cfg(all(feature = "app", not(test)))]
 #[tauri::command]
 pub fn swap_sort_order(
     app: AppHandle,
@@ -384,14 +401,18 @@ pub fn swap_sort_order(
     swap_sort_order_impl(&ctx, state.inner(), first_id, second_id)
 }
 
-#[cfg(not(test))]
+#[cfg(all(feature = "app", not(test)))]
 #[tauri::command]
-pub fn complete_task(app: AppHandle, state: State<AppState>, task_id: String) -> CommandResult<Task> {
+pub fn complete_task(
+    app: AppHandle,
+    state: State<AppState>,
+    task_id: String,
+) -> CommandResult<Task> {
     let ctx = TauriCommandCtx { app: &app };
     complete_task_impl(&ctx, state.inner(), task_id)
 }
 
-#[cfg(not(test))]
+#[cfg(all(feature = "app", not(test)))]
 #[tauri::command]
 pub fn update_settings(
     app: AppHandle,
@@ -402,7 +423,7 @@ pub fn update_settings(
     update_settings_impl(&ctx, state.inner(), settings)
 }
 
-#[cfg(not(test))]
+#[cfg(all(feature = "app", not(test)))]
 #[tauri::command]
 pub fn snooze_task(
     app: AppHandle,
@@ -414,23 +435,31 @@ pub fn snooze_task(
     snooze_task_impl(&ctx, state.inner(), task_id, until)
 }
 
-#[cfg(not(test))]
+#[cfg(all(feature = "app", not(test)))]
 #[tauri::command]
-pub fn dismiss_forced(app: AppHandle, state: State<AppState>, task_id: String) -> CommandResult<bool> {
+pub fn dismiss_forced(
+    app: AppHandle,
+    state: State<AppState>,
+    task_id: String,
+) -> CommandResult<bool> {
     let ctx = TauriCommandCtx { app: &app };
     dismiss_forced_impl(&ctx, state.inner(), task_id)
 }
 
-#[cfg(not(test))]
+#[cfg(all(feature = "app", not(test)))]
 #[tauri::command]
 pub fn delete_task(app: AppHandle, state: State<AppState>, task_id: String) -> CommandResult<bool> {
     let ctx = TauriCommandCtx { app: &app };
     delete_task_impl(&ctx, state.inner(), task_id)
 }
 
-#[cfg(not(test))]
+#[cfg(all(feature = "app", not(test)))]
 #[tauri::command]
-pub fn delete_tasks(app: AppHandle, state: State<AppState>, task_ids: Vec<String>) -> CommandResult<bool> {
+pub fn delete_tasks(
+    app: AppHandle,
+    state: State<AppState>,
+    task_ids: Vec<String>,
+) -> CommandResult<bool> {
     let ctx = TauriCommandCtx { app: &app };
     delete_tasks_impl(&ctx, state.inner(), task_ids)
 }
@@ -488,7 +517,11 @@ fn create_backup_impl(ctx: &impl CommandCtx, state: &AppState) -> CommandResult<
     ok(true)
 }
 
-fn restore_backup_impl(ctx: &impl CommandCtx, state: &AppState, filename: String) -> CommandResult<Vec<Task>> {
+fn restore_backup_impl(
+    ctx: &impl CommandCtx,
+    state: &AppState,
+    filename: String,
+) -> CommandResult<Vec<Task>> {
     let root = match ctx.app_data_dir() {
         Ok(path) => path,
         Err(e) => return err(&format!("app_data_dir error: {e}")),
@@ -511,7 +544,11 @@ fn restore_backup_impl(ctx: &impl CommandCtx, state: &AppState, filename: String
     ok(data.tasks)
 }
 
-fn import_backup_impl(ctx: &impl CommandCtx, state: &AppState, path: String) -> CommandResult<Vec<Task>> {
+fn import_backup_impl(
+    ctx: &impl CommandCtx,
+    state: &AppState,
+    path: String,
+) -> CommandResult<Vec<Task>> {
     let root = match ctx.app_data_dir() {
         Ok(path) => path,
         Err(e) => return err(&format!("app_data_dir error: {e}")),
@@ -534,30 +571,38 @@ fn import_backup_impl(ctx: &impl CommandCtx, state: &AppState, path: String) -> 
     ok(data.tasks)
 }
 
-#[cfg(not(test))]
+#[cfg(all(feature = "app", not(test)))]
 #[tauri::command]
 pub fn list_backups(app: AppHandle) -> CommandResult<Vec<BackupEntry>> {
     let ctx = TauriCommandCtx { app: &app };
     list_backups_impl(&ctx)
 }
 
-#[cfg(not(test))]
+#[cfg(all(feature = "app", not(test)))]
 #[tauri::command]
 pub fn create_backup(app: AppHandle, state: State<AppState>) -> CommandResult<bool> {
     let ctx = TauriCommandCtx { app: &app };
     create_backup_impl(&ctx, state.inner())
 }
 
-#[cfg(not(test))]
+#[cfg(all(feature = "app", not(test)))]
 #[tauri::command]
-pub fn restore_backup(app: AppHandle, state: State<AppState>, filename: String) -> CommandResult<Vec<Task>> {
+pub fn restore_backup(
+    app: AppHandle,
+    state: State<AppState>,
+    filename: String,
+) -> CommandResult<Vec<Task>> {
     let ctx = TauriCommandCtx { app: &app };
     restore_backup_impl(&ctx, state.inner(), filename)
 }
 
-#[cfg(not(test))]
+#[cfg(all(feature = "app", not(test)))]
 #[tauri::command]
-pub fn import_backup(app: AppHandle, state: State<AppState>, path: String) -> CommandResult<Vec<Task>> {
+pub fn import_backup(
+    app: AppHandle,
+    state: State<AppState>,
+    path: String,
+) -> CommandResult<Vec<Task>> {
     let ctx = TauriCommandCtx { app: &app };
     import_backup_impl(&ctx, state.inner(), path)
 }
@@ -636,7 +681,25 @@ mod tests {
             *self.shortcut_unregistered.lock().unwrap() += 1;
         }
 
-        fn shortcut_register(&self, _shortcut: Shortcut) -> Result<(), String> {
+        fn shortcut_validate(&self, shortcut: &str) -> Result<(), String> {
+            let shortcut = shortcut.trim();
+            if shortcut.is_empty() {
+                return Err("empty shortcut".to_string());
+            }
+
+            // A lightweight validator for unit tests. Production builds validate using the
+            // real Tauri shortcut parser (see `TauriCommandCtx`).
+            if shortcut.starts_with("CommandOrControl+Shift+")
+                && shortcut.len() > "CommandOrControl+Shift+".len()
+            {
+                return Ok(());
+            }
+
+            Err("parse error".to_string())
+        }
+
+        fn shortcut_register(&self, shortcut: &str) -> Result<(), String> {
+            self.shortcut_validate(shortcut)?;
             *self.shortcut_registered.lock().unwrap() += 1;
             if let Some(message) = self.shortcut_register_error.lock().unwrap().clone() {
                 return Err(message);
@@ -861,7 +924,10 @@ mod tests {
 
         // swap_sort_order persist failure path.
         let swap_ctx_fail = TestCtx::with_app_data_dir_error("nope");
-        let state_swap_fail = make_state(vec![tasks.iter().find(|t| t.id == "a").unwrap().clone(), tasks.iter().find(|t| t.id == "b").unwrap().clone()]);
+        let state_swap_fail = make_state(vec![
+            tasks.iter().find(|t| t.id == "a").unwrap().clone(),
+            tasks.iter().find(|t| t.id == "b").unwrap().clone(),
+        ]);
         let res = swap_sort_order_impl(&swap_ctx_fail, &state_swap_fail, "a".into(), "b".into());
         assert!(!res.ok);
     }
@@ -883,7 +949,9 @@ mod tests {
 
         // RepeatRule != None creates a new task instance.
         let mut task = make_task("r", 1000);
-        task.repeat = RepeatRule::Daily { workday_only: false };
+        task.repeat = RepeatRule::Daily {
+            workday_only: false,
+        };
         let state = make_state(vec![task]);
         let res = complete_task_impl(&ctx, &state, "r".into());
         assert!(res.ok);
@@ -903,7 +971,9 @@ mod tests {
         let ctx_fail_repeat = TestCtx::new();
         fs::write(ctx_fail_repeat.root_path().join("backups"), b"x").unwrap();
         let mut repeat_task = make_task("y", 1000);
-        repeat_task.repeat = RepeatRule::Daily { workday_only: false };
+        repeat_task.repeat = RepeatRule::Daily {
+            workday_only: false,
+        };
         let state_fail_repeat = make_state(vec![repeat_task]);
         let res = complete_task_impl(&ctx_fail_repeat, &state_fail_repeat, "y".into());
         assert!(!res.ok);
@@ -980,6 +1050,28 @@ mod tests {
     }
 
     #[test]
+    fn update_settings_rejects_empty_shortcut_without_side_effects() {
+        let ctx = TestCtx::new();
+        let state = make_state(Vec::new());
+
+        let mut settings = state.settings();
+        settings.shortcut = "   ".into();
+
+        let res = update_settings_impl(&ctx, &state, settings);
+        assert!(!res.ok);
+        assert!(res
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("empty shortcut"));
+
+        // Validation happens before any shortcut unregister/register calls.
+        assert_eq!(*ctx.shortcut_unregistered.lock().unwrap(), 0);
+        assert_eq!(*ctx.shortcut_registered.lock().unwrap(), 0);
+        assert_eq!(state.settings().shortcut, Settings::default().shortcut);
+    }
+
+    #[test]
     fn snooze_dismiss_and_delete_cover_found_not_found_and_persist_error() {
         let ctx = TestCtx::new();
         let state = make_state(vec![make_task("a", 1000), make_task("b", 2000)]);
@@ -1049,7 +1141,11 @@ mod tests {
         // list_backups Ok path with at least one entry.
         let ctx3 = TestCtx::new();
         fs::create_dir_all(ctx3.root_path().join("backups")).unwrap();
-        fs::write(ctx3.root_path().join("backups").join("data-test.json"), b"{}").unwrap();
+        fs::write(
+            ctx3.root_path().join("backups").join("data-test.json"),
+            b"{}",
+        )
+        .unwrap();
         let res = list_backups_impl(&ctx3);
         assert!(res.ok);
         assert!(res
@@ -1122,7 +1218,11 @@ mod tests {
         )
         .unwrap();
         let state_import_dst = make_state(Vec::new());
-        let res = import_backup_impl(&ctx_restore, &state_import_dst, external.to_string_lossy().to_string());
+        let res = import_backup_impl(
+            &ctx_restore,
+            &state_import_dst,
+            external.to_string_lossy().to_string(),
+        );
         assert!(res.ok);
         assert_eq!(state_import_dst.tasks().len(), 1);
         assert!(!import_backup_impl(&ctx_restore, &state_import_dst, "no-such-file".into()).ok);

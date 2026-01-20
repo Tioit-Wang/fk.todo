@@ -11,19 +11,7 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [
-      {
-        "label": "main",
-        "title": "Todo Tool",
-        "url": "/#/main",
-        "width": 1200,
-        "height": 980,
-        "minWidth": 960,
-        "minHeight": 980,
-        "resizable": false,
-        "decorations": false
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     }

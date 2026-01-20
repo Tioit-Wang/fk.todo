@@ -1,4 +1,4 @@
-use chrono::{Datelike, Duration, LocalResult, NaiveDate, TimeZone, Weekday, Utc};
+use chrono::{Datelike, Duration, LocalResult, NaiveDate, TimeZone, Utc, Weekday};
 
 use crate::models::RepeatRule;
 
@@ -11,15 +11,12 @@ where
     Tz: TimeZone,
     Tz::Offset: Copy,
 {
-    let base = tz
-        .timestamp_opt(due_at, 0)
-        .single()
-        .unwrap_or_else(|| {
-            // Fallback: if due_at is out of range, use "now" in the same timezone.
-            tz.timestamp_opt(Utc::now().timestamp(), 0)
-                .single()
-                .expect("current timestamp should be representable")
-        });
+    let base = tz.timestamp_opt(due_at, 0).single().unwrap_or_else(|| {
+        // Fallback: if due_at is out of range, use "now" in the same timezone.
+        tz.timestamp_opt(Utc::now().timestamp(), 0)
+            .single()
+            .expect("current timestamp should be representable")
+    });
 
     let base_date = base.date_naive();
     let next_date = match repeat {
@@ -153,13 +150,8 @@ mod tests {
             .single()
             .unwrap()
             .timestamp();
-        let out = next_due_timestamp_in_timezone(
-            tz,
-            due,
-            &RepeatRule::Daily {
-                workday_only: true,
-            },
-        );
+        let out =
+            next_due_timestamp_in_timezone(tz, due, &RepeatRule::Daily { workday_only: true });
         let expected = tz
             .with_ymd_and_hms(2024, 1, 8, 10, 0, 0)
             .single()
@@ -176,11 +168,8 @@ mod tests {
             .single()
             .unwrap()
             .timestamp();
-        let out_empty = next_due_timestamp_in_timezone(
-            tz,
-            base,
-            &RepeatRule::Weekly { days: vec![] },
-        );
+        let out_empty =
+            next_due_timestamp_in_timezone(tz, base, &RepeatRule::Weekly { days: vec![] });
         let expected_empty = tz
             .with_ymd_and_hms(2024, 1, 8, 10, 0, 0)
             .single()
@@ -189,11 +178,8 @@ mod tests {
         assert_eq!(out_empty, expected_empty);
 
         // 2024-01-01 is Monday; next Wednesday is 2024-01-03 (weekday=3).
-        let out_days = next_due_timestamp_in_timezone(
-            tz,
-            base,
-            &RepeatRule::Weekly { days: vec![3] },
-        );
+        let out_days =
+            next_due_timestamp_in_timezone(tz, base, &RepeatRule::Weekly { days: vec![3] });
         let expected_days = tz
             .with_ymd_and_hms(2024, 1, 3, 10, 0, 0)
             .single()
@@ -220,11 +206,8 @@ mod tests {
         assert_eq!(out, expected);
 
         // Yearly: invalid month/day should be clamped to month=12, day=1 on next year.
-        let out_year = next_due_timestamp_in_timezone(
-            tz,
-            due,
-            &RepeatRule::Yearly { month: 13, day: 0 },
-        );
+        let out_year =
+            next_due_timestamp_in_timezone(tz, due, &RepeatRule::Yearly { month: 13, day: 0 });
         let expected_year = tz
             .with_ymd_and_hms(2025, 12, 1, 9, 0, 0)
             .single()
@@ -281,7 +264,10 @@ mod tests {
 
         let out_weekly = next_due_timestamp(due, &RepeatRule::Weekly { days: vec![3] });
         let dt_weekly = chrono::Local.timestamp_opt(out_weekly, 0).single().unwrap();
-        assert_eq!(dt_weekly.date_naive(), NaiveDate::from_ymd_opt(2024, 1, 3).unwrap());
+        assert_eq!(
+            dt_weekly.date_naive(),
+            NaiveDate::from_ymd_opt(2024, 1, 3).unwrap()
+        );
 
         let due_monthly = chrono::Local
             .with_ymd_and_hms(2024, 1, 31, 9, 0, 0)
@@ -289,12 +275,21 @@ mod tests {
             .unwrap()
             .timestamp();
         let out_monthly = next_due_timestamp(due_monthly, &RepeatRule::Monthly { day: 31 });
-        let dt_monthly = chrono::Local.timestamp_opt(out_monthly, 0).single().unwrap();
-        assert_eq!(dt_monthly.date_naive(), NaiveDate::from_ymd_opt(2024, 2, 29).unwrap());
+        let dt_monthly = chrono::Local
+            .timestamp_opt(out_monthly, 0)
+            .single()
+            .unwrap();
+        assert_eq!(
+            dt_monthly.date_naive(),
+            NaiveDate::from_ymd_opt(2024, 2, 29).unwrap()
+        );
 
         let out_yearly = next_due_timestamp(due_monthly, &RepeatRule::Yearly { month: 13, day: 0 });
         let dt_yearly = chrono::Local.timestamp_opt(out_yearly, 0).single().unwrap();
-        assert_eq!(dt_yearly.date_naive(), NaiveDate::from_ymd_opt(2025, 12, 1).unwrap());
+        assert_eq!(
+            dt_yearly.date_naive(),
+            NaiveDate::from_ymd_opt(2025, 12, 1).unwrap()
+        );
     }
 
     #[test]
@@ -316,7 +311,10 @@ mod tests {
             },
         );
         let dt = tz.timestamp_opt(out, 0).single().unwrap();
-        assert_eq!(dt.date_naive(), NaiveDate::from_ymd_opt(2024, 3, 10).unwrap());
+        assert_eq!(
+            dt.date_naive(),
+            NaiveDate::from_ymd_opt(2024, 3, 10).unwrap()
+        );
         assert_eq!(dt.hour(), 3);
         assert_eq!(dt.minute(), 30);
 
@@ -334,7 +332,10 @@ mod tests {
             },
         );
         let dt = tz.timestamp_opt(out, 0).single().unwrap();
-        assert_eq!(dt.date_naive(), NaiveDate::from_ymd_opt(2024, 11, 3).unwrap());
+        assert_eq!(
+            dt.date_naive(),
+            NaiveDate::from_ymd_opt(2024, 11, 3).unwrap()
+        );
         assert_eq!(dt.hour(), 1);
         assert_eq!(dt.minute(), 30);
     }

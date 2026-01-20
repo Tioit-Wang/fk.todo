@@ -2,22 +2,23 @@ use chrono::{Local, TimeZone};
 
 use crate::models::Task;
 
-#[cfg(not(test))]
+#[cfg(all(feature = "app", not(test)))]
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     App, AppHandle, Manager, Runtime,
 };
 
-#[cfg(not(test))]
+#[cfg(all(feature = "app", not(test)))]
 const TRAY_ID: &str = "main";
 
-#[cfg(not(test))]
+#[cfg(all(feature = "app", not(test)))]
 pub fn init_tray(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     let show_quick = MenuItem::with_id(app, "show_quick", "打开快捷窗口", true, None::<&str>)?;
     let show_main = MenuItem::with_id(app, "show_main", "打开主界面", true, None::<&str>)?;
+    let show_settings = MenuItem::with_id(app, "show_settings", "设置", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show_quick, &show_main, &quit])?;
+    let menu = Menu::with_items(app, &[&show_quick, &show_main, &show_settings, &quit])?;
 
     let _tray = TrayIconBuilder::with_id(TRAY_ID)
         .icon(app.default_window_icon().unwrap().clone())
@@ -27,14 +28,26 @@ pub fn init_tray(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
             "quit" => app.exit(0),
             "show_quick" => {
                 if let Some(window) = app.get_webview_window("quick") {
+                    let _ = window.unminimize();
                     let _ = window.show();
                     let _ = window.set_focus();
                 }
             }
             "show_main" => {
                 if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.unminimize();
                     let _ = window.show();
                     let _ = window.set_focus();
+                    // Always bring the main window back to its primary view.
+                    let _ = window.eval("window.location.hash = '#/main'");
+                }
+            }
+            "show_settings" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                    let _ = window.eval("window.location.hash = '#/main/settings'");
                 }
             }
             _ => {}
@@ -48,6 +61,7 @@ pub fn init_tray(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
             {
                 let app = tray.app_handle();
                 if let Some(window) = app.get_webview_window("quick") {
+                    let _ = window.unminimize();
                     let _ = window.show();
                     let _ = window.set_focus();
                 }
@@ -58,7 +72,7 @@ pub fn init_tray(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(not(test))]
+#[cfg(all(feature = "app", not(test)))]
 pub fn update_tray_count<R: Runtime>(app: &AppHandle<R>, tasks: &[Task]) {
     let tooltip = tray_tooltip(tasks, Local::now());
 

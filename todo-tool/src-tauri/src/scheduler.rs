@@ -1,20 +1,20 @@
 use crate::models::{ReminderKind, Task};
 use crate::state::AppState;
 
-#[cfg(not(test))]
-use std::time::Duration;
-#[cfg(not(test))]
-use chrono::Utc;
-#[cfg(not(test))]
-use tauri::{AppHandle, Emitter, Manager};
-#[cfg(not(test))]
+#[cfg(all(feature = "app", not(test)))]
 use crate::events::{StatePayload, EVENT_REMINDER, EVENT_STATE_UPDATED};
-#[cfg(not(test))]
+#[cfg(all(feature = "app", not(test)))]
 use crate::storage::Storage;
-#[cfg(not(test))]
+#[cfg(all(feature = "app", not(test)))]
 use crate::windows::show_reminder_window;
+#[cfg(all(feature = "app", not(test)))]
+use chrono::Utc;
+#[cfg(all(feature = "app", not(test)))]
+use std::time::Duration;
+#[cfg(all(feature = "app", not(test)))]
+use tauri::{AppHandle, Emitter, Manager};
 
-#[cfg(not(test))]
+#[cfg(all(feature = "app", not(test)))]
 pub fn start_scheduler(app: AppHandle, state: AppState) {
     tauri::async_runtime::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(1));
@@ -40,7 +40,7 @@ pub fn start_scheduler(app: AppHandle, state: AppState) {
     });
 }
 
-#[cfg(not(test))]
+#[cfg(all(feature = "app", not(test)))]
 fn persist_reminder_state(app: &AppHandle, state: &AppState) {
     let root = match app.path().app_data_dir() {
         Ok(path) => path,

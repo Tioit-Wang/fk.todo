@@ -174,10 +174,7 @@ mod tests {
 
     #[test]
     fn new_fills_sort_order_when_zero() {
-        let tasks = vec![
-            make_task("a", 10, 0, 100),
-            make_task("b", 20, 777, 200),
-        ];
+        let tasks = vec![make_task("a", 10, 0, 100), make_task("b", 20, 777, 200)];
         let state = AppState::new(tasks, Settings::default());
         let out = state.tasks();
         let a = out.iter().find(|t| t.id == "a").unwrap();
@@ -195,7 +192,10 @@ mod tests {
 
         let settings_file = state.settings_file();
         assert_eq!(settings_file.schema_version, SCHEMA_VERSION);
-        assert_eq!(settings_file.settings.shortcut, Settings::default().shortcut);
+        assert_eq!(
+            settings_file.settings.shortcut,
+            Settings::default().shortcut
+        );
     }
 
     #[test]

@@ -18,16 +18,17 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 name = "todo-tool"
 path = "src/main.rs"
 test = false
+required-features = ["app"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
-tauri-plugin-opener = "2"
+tauri = { version = "2", default-features = false, optional = true , features = [] }
+tauri-plugin-opener = { version = "2", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tauri-plugin-notification = "2"
+tauri-plugin-notification = { version = "2", optional = true }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 tokio = { version = "1", features = ["time"] }
 
@@ -36,4 +37,21 @@ tempfile = "3"
 chrono-tz = "0.10"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
-tauri-plugin-global-shortcut = "2"
+tauri-plugin-global-shortcut = { version = "2", optional = true }
+
+[features]
+default = ["app"]
+# Enable the full desktop runtime stack for the actual application build.
+# Tests can run with `--no-default-features` to avoid pulling system GUI dependencies.
+app = [
+  "dep:tauri",
+  "dep:tauri-plugin-notification",
+  "dep:tauri-plugin-opener",
+  "dep:tauri-plugin-global-shortcut",
+  "tauri/wry",
+  "tauri/compression",
+  "tauri/common-controls-v6",
+  "tauri/dynamic-acl",
+  "tauri/tray-icon",
+  "tauri/x11",
+]
