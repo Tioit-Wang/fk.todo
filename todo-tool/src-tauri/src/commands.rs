@@ -158,7 +158,8 @@ impl<R: Runtime> CommandCtx for TauriCommandCtx<'_, R> {
     }
 
     fn shortcut_register(&self, shortcut: &str) -> Result<(), String> {
-        let parsed: Shortcut = shortcut.parse().map_err(|e| e.to_string())?;
+        // Help type inference for `FromStr` in older compilers / trait contexts.
+        let parsed = shortcut.parse::<Shortcut>().map_err(|e| e.to_string())?;
         self.app
             .global_shortcut()
             .register(parsed)
