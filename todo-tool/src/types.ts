@@ -16,6 +16,7 @@ export interface ReminderConfig {
 }
 
 export type CloseBehavior = "hide_to_tray" | "exit";
+export type MinimizeBehavior = "hide_to_tray" | "minimize";
 export type BackupSchedule = "none" | "daily" | "weekly" | "monthly";
 
 export interface WindowBounds {
@@ -55,6 +56,7 @@ export interface Settings {
   theme: string;
   sound_enabled: boolean;
   close_behavior: CloseBehavior;
+  minimize_behavior: MinimizeBehavior;
   quick_always_on_top: boolean;
   quick_blur_enabled: boolean;
   quick_bounds?: WindowBounds;

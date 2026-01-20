@@ -13,10 +13,12 @@ import { ForcedReminderOverlay } from "./components/ForcedReminderOverlay";
 import { TaskEditModal } from "./components/TaskEditModal";
 import { MainView } from "./views/MainView";
 import { QuickView } from "./views/QuickView";
+import { SettingsView } from "./views/SettingsView";
 
 import { completeTask, createTask, deleteTask, dismissForced, loadState, snoozeTask, updateSettings, updateTask } from "./api";
 import { formatDue } from "./date";
 import { newTask } from "./logic";
+import { detectPlatform } from "./platform";
 import { buildReminderConfig } from "./reminder";
 import type { Settings, Task } from "./types";
 
@@ -75,6 +77,7 @@ function App() {
   };
 
   const [view, setView] = useState<"quick" | "main" | "reminder">(getViewFromHash());
+  const [locationHash, setLocationHash] = useState(() => window.location.hash);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
 
@@ -89,7 +92,10 @@ function App() {
   const settingsRef = useRef<Settings | null>(null);
 
   useEffect(() => {
-    const onHash = () => setView(getViewFromHash());
+    const onHash = () => {
+      setLocationHash(window.location.hash);
+      setView(getViewFromHash());
+    };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
@@ -228,6 +234,21 @@ function App() {
   useEffect(() => {
     document.documentElement.dataset.view = view;
   }, [view]);
+
+  useEffect(() => {
+    const platform = document.documentElement.dataset.platform ?? detectPlatform();
+    document.documentElement.dataset.platform = platform;
+
+    // We use custom chrome + rounded UI in Windows (especially for transparent windows).
+    // Native window shadows can introduce a rectangular outline, so disable them and let the
+    // frontend render a consistent shadow instead.
+    //
+    // On macOS, the system window shadow/corners generally look correct already, and we avoid
+    // relying on `transparent` without enabling private APIs.
+    if (platform === "windows") {
+      void getCurrentWindow().setShadow(false).catch(() => {});
+    }
+  }, []);
 
   // Global Escape behavior:
   // - If a modal is open, close it (let modal components handle their own Escape when possible).
@@ -471,6 +492,28 @@ function App() {
     setNormalQueueIds((prev) => prev.filter((id) => id !== task.id));
   }
 
+  const mainPage = (() => {
+    const raw = locationHash.replace("#", "");
+    const path = raw.startsWith("/") ? raw.slice(1) : raw;
+    const parts = path.split("/").filter(Boolean);
+
+    // Supported routes for the main window:
+    // - #/main
+    // - #/main/settings
+    // - #/settings (handy when triggered from native code)
+    if (parts[0] === "settings") return "settings";
+    if (parts[0] === "main" && parts[1] === "settings") return "settings";
+    return "home";
+  })();
+
+  useEffect(() => {
+    // Settings is a dedicated page; ensure no task modals leak into it.
+    if (view !== "main") return;
+    if (mainPage !== "settings") return;
+    setEditingTaskId(null);
+    setConfirmDeleteTaskId(null);
+  }, [view, mainPage]);
+
   return (
     <div className="app-container">
       {view === "quick" && (
@@ -490,12 +533,22 @@ function App() {
         />
       )}
 
-      {view === "main" && (
+      {view === "main" && mainPage === "settings" && (
+        <SettingsView
+          tasks={tasks}
+          settings={settings}
+          onUpdateSettings={handleUpdateSettings}
+          onBack={() => {
+            window.location.hash = "#/main";
+          }}
+        />
+      )}
+
+      {view === "main" && mainPage === "home" && (
         <MainView
           tasks={tasks}
           settings={settings}
           normalTasks={normalTasks}
-          onUpdateSettings={handleUpdateSettings}
           onUpdateTask={handleUpdateTask}
           onRefreshState={refreshState}
           onCreateFromComposer={handleCreateFromComposer}

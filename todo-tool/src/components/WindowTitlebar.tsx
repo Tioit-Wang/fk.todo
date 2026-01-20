@@ -9,11 +9,12 @@ type WindowTitlebarProps = {
   // For the quick window we repurpose the green "zoom" button as a pin toggle.
   pinned?: boolean;
   onTogglePin?: () => void | Promise<void>;
+  onMinimize?: () => void | Promise<void>;
   // Extra controls (view tabs / settings, etc.)
   right?: ReactNode;
 };
 
-export function WindowTitlebar({ variant, title, pinned, onTogglePin, right }: WindowTitlebarProps) {
+export function WindowTitlebar({ variant, title, pinned, onTogglePin, onMinimize, right }: WindowTitlebarProps) {
   const showPin = variant === "quick";
   const appWindow = getCurrentWindow();
 
@@ -23,6 +24,11 @@ export function WindowTitlebar({ variant, title, pinned, onTogglePin, right }: W
     const target = event.target as HTMLElement | null;
     if (!target) return;
     if (target.closest("button, input, select, textarea")) return;
+
+    // The quick window auto-hides itself when it loses focus (launcher-like behavior).
+    // On Windows, starting a native drag can momentarily blur the webview. We emit a hint
+    // so the quick window can ignore that transient focus loss and avoid "minimize on drag".
+    window.dispatchEvent(new CustomEvent("fk.todo:window-drag-start"));
     void appWindow.startDragging();
   }
 
@@ -46,7 +52,11 @@ export function WindowTitlebar({ variant, title, pinned, onTogglePin, right }: W
             title="最小化"
             aria-label="最小化"
             onClick={() => {
-              void appWindow.minimize();
+              if (onMinimize) {
+                void onMinimize();
+              } else {
+                void appWindow.minimize();
+              }
             }}
           />
           {showPin && (

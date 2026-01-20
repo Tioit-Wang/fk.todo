@@ -1,8 +1,9 @@
 import { useMemo, useState, type DragEvent } from "react";
 
+import { getCurrentWindow } from "@tauri-apps/api/window";
+
 import { swapSortOrder } from "../api";
 import { NotificationBanner } from "../components/NotificationBanner";
-import { SettingsPanel } from "../components/SettingsPanel";
 import { TaskCard } from "../components/TaskCard";
 import { TaskComposer, type TaskComposerDraft } from "../components/TaskComposer";
 import { WindowTitlebar } from "../components/WindowTitlebar";
@@ -55,7 +56,6 @@ export function MainView({
   tasks,
   settings,
   normalTasks,
-  onUpdateSettings,
   onUpdateTask,
   onRefreshState,
   onCreateFromComposer,
@@ -69,7 +69,6 @@ export function MainView({
   tasks: Task[];
   settings: Settings | null;
   normalTasks: Task[];
-  onUpdateSettings: (next: Settings) => Promise<boolean>;
   onUpdateTask: (next: Task) => Promise<void> | void;
   onRefreshState: () => Promise<void>;
   onCreateFromComposer: (draft: TaskComposerDraft) => Promise<void> | void;
@@ -88,8 +87,6 @@ export function MainView({
   const [repeatFilter, setRepeatFilter] = useState<(typeof REPEAT_FILTER_OPTIONS)[number]["id"]>("all");
   const [reminderFilter, setReminderFilter] = useState<(typeof REMINDER_FILTER_OPTIONS)[number]["id"]>("all");
   const [mainSort, setMainSort] = useState<(typeof MAIN_SORT_OPTIONS)[number]["id"]>("due");
-
-  const [showSettings, setShowSettings] = useState(false);
 
   const filteredTasks = useMemo(() => {
     const now = new Date();
@@ -221,11 +218,22 @@ export function MainView({
     event.dataTransfer.setData("text/plain", task.id);
   }
 
+  async function handleMinimize() {
+    const appWindow = getCurrentWindow();
+    const behavior = settings?.minimize_behavior ?? "hide_to_tray";
+    if (behavior === "minimize") {
+      await appWindow.minimize();
+      return;
+    }
+    await appWindow.hide();
+  }
+
   return (
     <div className="main-window">
       <WindowTitlebar
         variant="main"
         title="Todo Tool"
+        onMinimize={handleMinimize}
         right={
           <div className="main-titlebar-actions">
             <div className="segment" role="tablist" aria-label="Main view">
@@ -249,7 +257,9 @@ export function MainView({
             <button
               type="button"
               className="icon-btn"
-              onClick={() => setShowSettings(true)}
+              onClick={() => {
+                window.location.hash = "#/main/settings";
+              }}
               title="设置"
               aria-label="设置"
             >
@@ -396,13 +406,6 @@ export function MainView({
           </div>
         )}
 
-        <SettingsPanel
-          open={showSettings}
-          tasks={tasks}
-          settings={settings}
-          onClose={() => setShowSettings(false)}
-          onUpdateSettings={onUpdateSettings}
-        />
       </div>
 
       <div className="main-input-bar">

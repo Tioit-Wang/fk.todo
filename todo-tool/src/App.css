@@ -141,19 +141,29 @@
     linear-gradient(160deg, rgba(33, 26, 22, 0.76), rgba(20, 16, 14, 0.72));
 }
 
-:root[data-view="quick"] body,
-:root[data-view="quick"] #root,
-:root[data-view="quick"] .app-container {
+:root[data-view="quick"]:not([data-platform="macos"]) body,
+:root[data-view="quick"]:not([data-platform="macos"]) #root,
+:root[data-view="quick"]:not([data-platform="macos"]) .app-container {
   background-color: transparent;
 }
 
-:root[data-view="reminder"] {
+:root[data-view="main"]:not([data-platform="macos"]) {
   background-color: transparent;
 }
 
-:root[data-view="reminder"] body,
-:root[data-view="reminder"] #root,
-:root[data-view="reminder"] .app-container {
+:root[data-view="main"]:not([data-platform="macos"]) body,
+:root[data-view="main"]:not([data-platform="macos"]) #root,
+:root[data-view="main"]:not([data-platform="macos"]) .app-container {
+  background-color: transparent;
+}
+
+:root[data-view="reminder"]:not([data-platform="macos"]) {
+  background-color: transparent;
+}
+
+:root[data-view="reminder"]:not([data-platform="macos"]) body,
+:root[data-view="reminder"]:not([data-platform="macos"]) #root,
+:root[data-view="reminder"]:not([data-platform="macos"]) .app-container {
   background-color: transparent;
 }
 
@@ -242,6 +252,11 @@ textarea:focus-visible {
 .app-container {
   height: 100%;
   color: var(--text);
+}
+
+:root[data-view="quick"]:not([data-platform="macos"]) .app-container,
+:root[data-view="main"]:not([data-platform="macos"]) .app-container {
+  padding: 10px;
 }
 
 /* Shared hover states (keep consistent across the app) */
@@ -1361,10 +1376,13 @@ textarea:focus-visible {
 .main-window {
   height: 100%;
   background: var(--main-bg);
+  border: 1px solid var(--border);
+  border-radius: 16px;
   color: var(--text);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  box-shadow: 0 24px 60px var(--shadow);
 }
 
 .main-content {
@@ -1815,6 +1833,31 @@ textarea:focus-visible {
   padding: 16px;
   display: grid;
   gap: 16px;
+}
+
+.main-content.settings-page {
+  overflow: auto;
+  padding: 16px;
+  display: grid;
+  align-content: start;
+}
+
+.settings-page-panel {
+  width: min(720px, 100%);
+  max-height: none;
+  margin: 0 auto;
+  overflow: visible;
+}
+
+.settings-empty {
+  color: var(--muted);
+  padding: 24px;
+}
+
+.settings-back-icon {
+  display: inline-grid;
+  place-items: center;
+  transform: rotate(180deg);
 }
 
 .settings-header {
