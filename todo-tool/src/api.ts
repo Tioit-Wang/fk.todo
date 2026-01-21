@@ -50,6 +50,10 @@ export async function listBackups() {
   return invoke<CommandResult<BackupEntry[]>>("list_backups");
 }
 
+export async function deleteBackup(filename: string) {
+  return invoke<CommandResult<boolean>>("delete_backup", { filename });
+}
+
 export async function createBackup() {
   return invoke<CommandResult<boolean>>("create_backup");
 }

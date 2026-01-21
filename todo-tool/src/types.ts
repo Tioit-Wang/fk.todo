@@ -47,6 +47,7 @@ export interface Task {
   quadrant: number;
   notes?: string;
   steps: Step[];
+  sample_tag?: string;
   reminder: ReminderConfig;
   repeat: RepeatRule;
 }

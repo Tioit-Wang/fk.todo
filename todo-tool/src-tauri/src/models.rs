@@ -79,6 +79,8 @@ pub struct Task {
     #[serde(default)]
     pub steps: Vec<Step>,
     #[serde(default)]
+    pub sample_tag: Option<String>,
+    #[serde(default)]
     pub reminder: ReminderConfig,
     #[serde(default)]
     pub repeat: RepeatRule,
@@ -386,6 +388,7 @@ mod tests {
         assert_eq!(task.sort_order, 0);
         assert_eq!(task.quadrant, 1);
         assert!(task.steps.is_empty());
+        assert_eq!(task.sample_tag, None);
         assert_eq!(task.notes, None);
         assert!(matches!(task.reminder.kind, ReminderKind::None));
         assert!(!task.reminder.forced_dismissed);

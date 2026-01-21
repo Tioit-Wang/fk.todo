@@ -66,7 +66,11 @@ impl AppState {
     pub fn update_task(&self, task: Task) {
         let mut guard = self.inner.lock().expect("state poisoned");
         if let Some(existing) = guard.tasks.iter_mut().find(|t| t.id == task.id) {
-            *existing = task;
+            let mut next = task;
+            if next.sample_tag.is_none() {
+                next.sample_tag = existing.sample_tag.clone();
+            }
+            *existing = next;
         }
     }
 
@@ -164,6 +168,7 @@ mod tests {
             quadrant: 1,
             notes: None,
             steps: Vec::new(),
+            sample_tag: None,
             reminder: ReminderConfig {
                 kind: ReminderKind::Normal,
                 ..ReminderConfig::default()
@@ -281,5 +286,20 @@ mod tests {
         next.theme = "dark".to_string();
         state.update_settings(next.clone());
         assert_eq!(state.settings().theme, "dark");
+    }
+
+    #[test]
+    fn update_task_preserves_sample_tag_when_missing_in_update() {
+        let mut task = make_task("sample", 1, 1, 10);
+        task.sample_tag = Some("ai-novel-assistant-v1".to_string());
+        let state = AppState::new(vec![task.clone()], Settings::default());
+
+        let mut edited = task.clone();
+        edited.title = "edited".to_string();
+        edited.sample_tag = None;
+        state.update_task(edited);
+
+        let updated = state.tasks().into_iter().find(|t| t.id == task.id).unwrap();
+        assert_eq!(updated.sample_tag.as_deref(), Some("ai-novel-assistant-v1"));
     }
 }

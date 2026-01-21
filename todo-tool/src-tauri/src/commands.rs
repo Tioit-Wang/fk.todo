@@ -519,6 +519,21 @@ fn list_backups_impl(ctx: &impl CommandCtx) -> CommandResult<Vec<BackupEntry>> {
         .collect())
 }
 
+fn delete_backup_impl(ctx: &impl CommandCtx, filename: String) -> CommandResult<bool> {
+    let root = match ctx.app_data_dir() {
+        Ok(path) => path,
+        Err(e) => return err(&format!("app_data_dir error: {e}")),
+    };
+    let storage = Storage::new(root);
+    if let Err(error) = storage.ensure_dirs() {
+        return err(&format!("storage error: {error:?}"));
+    }
+    if let Err(error) = storage.delete_backup(&filename) {
+        return err(&format!("storage error: {error:?}"));
+    }
+    ok(true)
+}
+
 fn create_backup_impl(ctx: &impl CommandCtx, state: &AppState) -> CommandResult<bool> {
     let root = match ctx.app_data_dir() {
         Ok(path) => path,
@@ -600,6 +615,13 @@ fn import_backup_impl(
 pub fn list_backups(app: AppHandle) -> CommandResult<Vec<BackupEntry>> {
     let ctx = TauriCommandCtx { app: &app };
     list_backups_impl(&ctx)
+}
+
+#[cfg(all(feature = "app", not(test)))]
+#[tauri::command]
+pub fn delete_backup(app: AppHandle, filename: String) -> CommandResult<bool> {
+    let ctx = TauriCommandCtx { app: &app };
+    delete_backup_impl(&ctx, filename)
 }
 
 #[cfg(all(feature = "app", not(test)))]
@@ -746,6 +768,7 @@ mod tests {
             quadrant: 1,
             notes: None,
             steps: Vec::new(),
+            sample_tag: None,
             reminder: ReminderConfig {
                 kind: ReminderKind::Normal,
                 ..ReminderConfig::default()
@@ -1195,6 +1218,24 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| entry.name == "data-test.json"));
+
+        // delete_backup covers error + success.
+        let bad_ctx = TestCtx::with_app_data_dir_error("nope");
+        assert!(!delete_backup_impl(&bad_ctx, "data-test.json".into()).ok);
+
+        let ctx_del_fail = TestCtx::new();
+        fs::write(ctx_del_fail.root_path().join("backups"), b"x").unwrap();
+        assert!(!delete_backup_impl(&ctx_del_fail, "data-test.json".into()).ok);
+
+        let ctx_del_ok = TestCtx::new();
+        fs::create_dir_all(ctx_del_ok.root_path().join("backups")).unwrap();
+        fs::write(
+            ctx_del_ok.root_path().join("backups").join("data-test.json"),
+            b"{}",
+        )
+        .unwrap();
+        let res = delete_backup_impl(&ctx_del_ok, "data-test.json".into());
+        assert!(res.ok);
 
         // create_backup covers error branches + success.
         let state = make_state(vec![make_task("a", 1000)]);

@@ -228,6 +228,7 @@ pub fn run() {
             delete_task,
             delete_tasks,
             list_backups,
+            delete_backup,
             create_backup,
             restore_backup,
             import_backup,

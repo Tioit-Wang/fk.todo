@@ -4,7 +4,16 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
-import { createBackup, createTask, importBackup, listBackups, restoreBackup, type BackupEntry } from "../api";
+import {
+  createBackup,
+  createTask,
+  deleteBackup,
+  deleteTasks,
+  importBackup,
+  listBackups,
+  restoreBackup,
+  type BackupEntry,
+} from "../api";
 import { useI18n } from "../i18n";
 import { buildAiNovelAssistantSampleTasks, taskIsAiNovelAssistantSample } from "../sampleData";
 import type { BackupSchedule, MinimizeBehavior, Settings, Task } from "../types";
@@ -32,6 +41,7 @@ export function SettingsView({
   const [importPath, setImportPath] = useState("");
   const [shortcutDraft, setShortcutDraft] = useState("");
   const [seedBusy, setSeedBusy] = useState(false);
+  const [sampleDeleteBusy, setSampleDeleteBusy] = useState(false);
 
   async function handleBack() {
     if (settings) {
@@ -90,8 +100,7 @@ export function SettingsView({
   async function refreshBackups() {
     const res = await listBackups();
     if (res.ok && res.data) {
-      const sorted = [...res.data].sort((a, b) => b.modified_at - a.modified_at);
-      setBackups(sorted);
+      setBackups(res.data);
     }
   }
 
@@ -103,6 +112,12 @@ export function SettingsView({
   async function handleRestoreBackup(name: string) {
     if (!confirm(t("settings.backup.restoreConfirm"))) return;
     await restoreBackup(name);
+  }
+
+  async function handleDeleteBackup(name: string) {
+    if (!confirm(t("settings.backup.deleteConfirm", { name }))) return;
+    await deleteBackup(name);
+    await refreshBackups();
   }
 
   async function handleImportBackup() {
@@ -155,6 +170,22 @@ export function SettingsView({
       }
     } finally {
       setSeedBusy(false);
+    }
+  }
+
+  async function handleDeleteAiNovelAssistantSamples() {
+    if (sampleDeleteBusy) return;
+    const sampleTasks = tasks.filter(taskIsAiNovelAssistantSample);
+    if (sampleTasks.length === 0) return;
+    const ok = confirm(
+      t("settings.samples.deleteConfirm", { count: sampleTasks.length }),
+    );
+    if (!ok) return;
+    setSampleDeleteBusy(true);
+    try {
+      await deleteTasks(sampleTasks.map((task) => task.id));
+    } finally {
+      setSampleDeleteBusy(false);
     }
   }
 
@@ -403,6 +434,9 @@ export function SettingsView({
                       <button type="button" className="pill" onClick={() => void handleRestoreBackup(backup.name)}>
                         {t("settings.backup.restore")}
                       </button>
+                      <button type="button" className="pill" onClick={() => void handleDeleteBackup(backup.name)}>
+                        {t("settings.backup.delete")}
+                      </button>
                     </div>
                   ))
                 )}
@@ -437,6 +471,15 @@ export function SettingsView({
                   title={t("settings.samples.tooltip")}
                 >
                   {seedBusy ? t("settings.samples.adding") : t("settings.samples.add")}
+                </button>
+                <button
+                  type="button"
+                  className="pill"
+                  onClick={() => void handleDeleteAiNovelAssistantSamples()}
+                  disabled={sampleDeleteBusy || tasks.every((task) => !taskIsAiNovelAssistantSample(task))}
+                  title={t("settings.samples.deleteTooltip")}
+                >
+                  {sampleDeleteBusy ? t("settings.samples.deleting") : t("settings.samples.delete")}
                 </button>
               </div>
             </div>

@@ -10,7 +10,7 @@ use crate::models::{SettingsFile, TasksFile};
 const DATA_FILE: &str = "data.json";
 const SETTINGS_FILE: &str = "settings.json";
 const BACKUP_DIR: &str = "backups";
-const BACKUP_LIMIT: usize = 5;
+const BACKUP_LIMIT: usize = 50;
 
 #[derive(Debug)]
 pub enum StorageError {
@@ -142,10 +142,7 @@ impl Storage {
     }
 
     pub fn create_backup(&self, path: &Path) -> Result<(), StorageError> {
-        // Use millisecond resolution to avoid filename collisions when multiple backups are created
-        // within the same second (common during tests or rapid manual triggers).
-        let timestamp_ms = chrono::Local::now().timestamp_millis();
-        let backup_name = format!("data-{timestamp_ms}.json");
+        let backup_name = self.next_backup_name()?;
         let backup_path = self.root.join(BACKUP_DIR).join(backup_name);
         fs::copy(path, backup_path)?;
         // Trimming is best-effort: a backup file was successfully created and should not be
@@ -154,11 +151,27 @@ impl Storage {
         Ok(())
     }
 
+    pub fn delete_backup(&self, filename: &str) -> Result<(), StorageError> {
+        let name = std::path::Path::new(filename)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| StorageError::Io(std::io::Error::other("invalid backup filename")))?;
+        if name != filename {
+            return Err(StorageError::Io(std::io::Error::other(
+                "invalid backup filename",
+            )));
+        }
+        let path = self.root.join(BACKUP_DIR).join(name);
+        fs::remove_file(path)?;
+        Ok(())
+    }
+
     pub fn list_backups(&self) -> Result<Vec<(String, i64)>, StorageError> {
         let mut entries: Vec<_> = fs::read_dir(self.root.join(BACKUP_DIR))?
             .filter_map(|entry| entry.ok())
             .collect();
         entries.sort_by_key(|entry| entry.metadata().and_then(|m| m.modified()).ok());
+        entries.reverse();
         let mut results = Vec::new();
         for entry in entries {
             let name = entry.file_name().to_string_lossy().to_string();
@@ -197,6 +210,24 @@ impl Storage {
             let _ = fs::remove_file(entry.path());
         }
         Ok(())
+    }
+
+    fn next_backup_name(&self) -> Result<String, StorageError> {
+        let date = chrono::Local::now().format("%Y-%m-%d").to_string();
+        for index in 1..=9999 {
+            let name = if index == 1 {
+                format!("data-{date}.json")
+            } else {
+                format!("data-{date}-{index}.json")
+            };
+            let path = self.root.join(BACKUP_DIR).join(&name);
+            if !path.exists() {
+                return Ok(name);
+            }
+        }
+        Err(StorageError::Io(std::io::Error::other(
+            "failed to generate backup filename",
+        )))
     }
 }
 
@@ -524,6 +555,43 @@ mod tests {
         let backups = storage.list_backups().unwrap();
         assert!(backups.len() <= BACKUP_LIMIT);
         assert!(backups.iter().all(|(name, _)| name.starts_with("data-")));
+    }
+
+    #[test]
+    fn create_backup_uses_date_names_and_suffixes() {
+        let root = tempfile::tempdir().unwrap();
+        let storage = Storage::new(root.path().to_path_buf());
+        storage.ensure_dirs().unwrap();
+
+        let data_path = root.path().join(DATA_FILE);
+        fs::write(&data_path, serde_json::to_string_pretty(&sample_tasks_file()).unwrap())
+            .unwrap();
+
+        storage.create_backup(&data_path).unwrap();
+        storage.create_backup(&data_path).unwrap();
+
+        let date = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let backups = storage.list_backups().unwrap();
+        let names: Vec<_> = backups.into_iter().map(|(name, _)| name).collect();
+        assert!(names.iter().any(|name| name == &format!("data-{date}.json")));
+        assert!(names.iter().any(|name| name == &format!("data-{date}-2.json")));
+    }
+
+    #[test]
+    fn delete_backup_removes_file_and_rejects_invalid_names() {
+        let root = tempfile::tempdir().unwrap();
+        let storage = Storage::new(root.path().to_path_buf());
+        storage.ensure_dirs().unwrap();
+
+        let backup_path = root.path().join(BACKUP_DIR).join("data-test.json");
+        fs::write(&backup_path, b"{}").unwrap();
+        storage.delete_backup("data-test.json").unwrap();
+        assert!(!backup_path.exists());
+
+        let err = storage
+            .delete_backup("../data-test.json")
+            .expect_err("should reject invalid filename");
+        assert!(is_io(&err));
     }
 
     #[test]

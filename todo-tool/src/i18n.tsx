@@ -239,6 +239,8 @@ const STRINGS: Record<AppLanguage, Record<string, string>> = {
     "settings.backup.list": "备份列表",
     "settings.backup.empty": "暂无备份",
     "settings.backup.restore": "恢复",
+    "settings.backup.delete": "删除",
+    "settings.backup.deleteConfirm": "确认删除备份：{name}？",
     "settings.backup.refresh": "刷新",
     "settings.backup.restoreConfirm": "恢复将覆盖当前任务数据（不影响设置），确认继续？",
     "settings.backup.import": "导入备份",
@@ -250,6 +252,10 @@ const STRINGS: Record<AppLanguage, Record<string, string>> = {
     "settings.samples.add": "添加 AI 小说助手示例任务",
     "settings.samples.adding": "添加中...",
     "settings.samples.tooltip": "向当前记录追加一批 AI 小说助手开发计划相关的示例任务",
+    "settings.samples.delete": "删除示例数据",
+    "settings.samples.deleting": "删除中...",
+    "settings.samples.deleteConfirm": "将删除 {count} 条示例任务，确认继续？",
+    "settings.samples.deleteTooltip": "删除已添加的示例任务",
     "settings.samples.confirm.duplicate":
       "检测到已有 AI 小说助手示例任务。\n继续添加将产生重复（共 {count} 条）。\n仍然继续吗？",
     "settings.samples.confirm.fresh":
@@ -493,6 +499,8 @@ const STRINGS: Record<AppLanguage, Record<string, string>> = {
     "settings.backup.list": "Backups",
     "settings.backup.empty": "No backups",
     "settings.backup.restore": "Restore",
+    "settings.backup.delete": "Delete",
+    "settings.backup.deleteConfirm": "Delete backup {name}?",
     "settings.backup.refresh": "Refresh",
     "settings.backup.restoreConfirm": "Restoring will overwrite task data (settings stay). Continue?",
     "settings.backup.import": "Import backup",
@@ -504,6 +512,10 @@ const STRINGS: Record<AppLanguage, Record<string, string>> = {
     "settings.samples.add": "Add AI Novel sample tasks",
     "settings.samples.adding": "Adding...",
     "settings.samples.tooltip": "Append a set of AI novel assistant sample tasks",
+    "settings.samples.delete": "Delete sample data",
+    "settings.samples.deleting": "Deleting...",
+    "settings.samples.deleteConfirm": "Delete {count} sample tasks? This cannot be undone.",
+    "settings.samples.deleteTooltip": "Remove previously added sample tasks",
     "settings.samples.confirm.duplicate":
       "AI Novel sample tasks already exist.\nAdding again will create duplicates ({count}).\nContinue?",
     "settings.samples.confirm.fresh":

@@ -1,6 +1,7 @@
 import { buildReminderConfig } from "./reminder";
 import type { ReminderKind, RepeatRule, Step, Task } from "./types";
 
+const AI_NOVEL_SAMPLE_TAG = "ai-novel-assistant-v1";
 const AI_NOVEL_SEED_MARKER = "seed:ai-novel-assistant-v1";
 const AI_NOVEL_TITLE_PREFIX = "AI小说助手 · ";
 
@@ -95,6 +96,7 @@ export function buildAiNovelAssistantSampleTasks(now: Date = new Date()): Task[]
       quadrant,
       notes,
       steps: makeSteps(created_at, stepItems),
+      sample_tag: AI_NOVEL_SAMPLE_TAG,
       reminder: reminderConfig,
       repeat,
     };
@@ -267,6 +269,7 @@ export function buildAiNovelAssistantSampleTasks(now: Date = new Date()): Task[]
 }
 
 export function taskIsAiNovelAssistantSample(task: Task): boolean {
+  if (task.sample_tag === AI_NOVEL_SAMPLE_TAG) return true;
   if (task.title.startsWith(AI_NOVEL_TITLE_PREFIX)) return true;
   return Boolean(task.notes && task.notes.includes(AI_NOVEL_SEED_MARKER));
 }
