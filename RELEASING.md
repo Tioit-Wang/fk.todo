@@ -31,11 +31,13 @@ Update the version in:
 ## 4) Create a tag and push
 
 ```bash
-git tag vX.Y.Z
-git push origin vX.Y.Z
+git tag V<version>
+git push origin V<version>
 ```
 
-This triggers `.github/workflows/release.yml`, which builds installers for Windows/macOS/Linux, uploads them to the Release, and also uploads `latest.json`.
+This triggers `.github/workflows/release.yml` (only `V*` tags), which builds installers for Windows/macOS/Linux, uploads them to the Release, and also uploads `latest.json`.
+
+Note: the tag must point to a commit that is on the release branch (`master`, or `main` if `master` doesn't exist).
 
 ## 5) Runtime updater endpoint
 
