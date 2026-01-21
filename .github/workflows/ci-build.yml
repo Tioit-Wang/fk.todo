@@ -2,10 +2,8 @@ name: ci-build
 
 on:
   push:
-    # Avoid running CI on direct pushes to the release branches.
-    branches-ignore: ["main", "master"]
-    # Also ignore tag pushes; releases are handled by release.yml.
-    tags-ignore: ["*"]
+    branches: ["**"]
+    tags: ["V*"]
   pull_request:
     branches: ["main", "master"]
   workflow_dispatch:
