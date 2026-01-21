@@ -1,6 +1,6 @@
 [package]
 name = "todo-tool"
-version = "20260121.1.0-bate"
+version = "20260121.1.0-bate.1"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
