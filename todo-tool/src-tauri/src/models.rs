@@ -417,7 +417,9 @@ mod tests {
         // Force failures at different points in the JSON stream so the `?` error paths in the
         // Serialize impl are exercised (serialize_struct + serialize_field calls).
         for remaining_ok_writes in 0..=256 {
-            let mut out = FailAfterNWrites { remaining_ok_writes };
+            let mut out = FailAfterNWrites {
+                remaining_ok_writes,
+            };
             // Use `to_writer` to go through serde_json's serializer implementation while still
             // exercising our `Serialize` impl and its `?` error paths.
             to_writer(&mut out, &bounds).unwrap_or_else(|_| ());

@@ -491,7 +491,10 @@ mod tests {
         // `WindowBounds::serialize` monomorphization for PrettyFormatter on the happy path.
         storage.save_settings(&data).unwrap();
         let loaded = storage.load_settings().unwrap();
-        let loaded_bounds = loaded.settings.quick_bounds.expect("bounds should roundtrip");
+        let loaded_bounds = loaded
+            .settings
+            .quick_bounds
+            .expect("bounds should roundtrip");
         assert_eq!(loaded_bounds.x, 12.5);
         assert_eq!(loaded_bounds.y, 34.0);
         assert_eq!(loaded_bounds.width, 800.0);

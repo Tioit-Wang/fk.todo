@@ -189,11 +189,8 @@ mod tests {
         assert_eq!(out_days, expected_days);
 
         // Invalid weekday values should not loop forever; fall back to the "empty days" behavior.
-        let out_invalid = next_due_timestamp_in_timezone(
-            tz,
-            base,
-            &RepeatRule::Weekly { days: vec![0, 42] },
-        );
+        let out_invalid =
+            next_due_timestamp_in_timezone(tz, base, &RepeatRule::Weekly { days: vec![0, 42] });
         assert_eq!(out_invalid, expected_empty);
     }
 

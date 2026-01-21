@@ -2,8 +2,24 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { PluginListener } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { currentMonitor, getCurrentWindow, LogicalPosition, LogicalSize } from "@tauri-apps/api/window";
-import { isPermissionGranted, onAction, registerActionTypes, sendNotification } from "@tauri-apps/plugin-notification";
+import {
+  currentMonitor,
+  getCurrentWindow,
+  LogicalPosition,
+  LogicalSize,
+} from "@tauri-apps/api/window";
+import {
+  isPermissionGranted,
+  onAction,
+  registerActionTypes,
+  sendNotification,
+} from "@tauri-apps/plugin-notification";
+import { relaunch } from "@tauri-apps/plugin-process";
+import {
+  check,
+  type DownloadEvent,
+  type Update,
+} from "@tauri-apps/plugin-updater";
 
 import "./App.css";
 
@@ -15,7 +31,16 @@ import { MainView } from "./views/MainView";
 import { QuickView } from "./views/QuickView";
 import { SettingsView } from "./views/SettingsView";
 
-import { completeTask, createTask, deleteTask, dismissForced, loadState, snoozeTask, updateSettings, updateTask } from "./api";
+import {
+  completeTask,
+  createTask,
+  deleteTask,
+  dismissForced,
+  loadState,
+  snoozeTask,
+  updateSettings,
+  updateTask,
+} from "./api";
 import { formatDue } from "./date";
 import { newTask } from "./logic";
 import { TAURI_NAVIGATE } from "./events";
@@ -72,22 +97,36 @@ function App() {
     const path = raw.startsWith("/") ? raw.slice(1) : raw;
     const view = path.split("/")[0];
     const label = getCurrentWindow().label;
-    if (label === "main" || label === "quick" || label === "reminder") return label;
+    if (label === "main" || label === "quick" || label === "reminder")
+      return label;
     if (view === "main" || view === "quick" || view === "reminder") return view;
     return "main";
   };
 
-  const [view, setView] = useState<"quick" | "main" | "reminder">(getViewFromHash());
+  const [view, setView] = useState<"quick" | "main" | "reminder">(
+    getViewFromHash(),
+  );
   const [locationHash, setLocationHash] = useState(() => window.location.hash);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
 
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
-  const [confirmDeleteTaskId, setConfirmDeleteTaskId] = useState<string | null>(null);
+  const [confirmDeleteTaskId, setConfirmDeleteTaskId] = useState<string | null>(
+    null,
+  );
   const [confirmDeleteBusy, setConfirmDeleteBusy] = useState(false);
 
   const [forcedQueueIds, setForcedQueueIds] = useState<string[]>([]);
   const [normalQueueIds, setNormalQueueIds] = useState<string[]>([]);
+
+  const [pendingUpdate, setPendingUpdate] = useState<Update | null>(null);
+  const [showUpdatePrompt, setShowUpdatePrompt] = useState(false);
+  const [updateBusy, setUpdateBusy] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState<{
+    downloaded: number;
+    total?: number;
+  } | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
 
   // Keep a mutable pointer for async callbacks so we can read latest settings without stale closures.
   const settingsRef = useRef<Settings | null>(null);
@@ -108,11 +147,14 @@ function App() {
     let unlisten: (() => void) | null = null;
 
     void (async () => {
-      const listener = await listen<{ hash: string }>(TAURI_NAVIGATE, ({ payload }) => {
-        const next = typeof payload?.hash === "string" ? payload.hash : "";
-        if (!next) return;
-        window.location.hash = next;
-      });
+      const listener = await listen<{ hash: string }>(
+        TAURI_NAVIGATE,
+        ({ payload }) => {
+          const next = typeof payload?.hash === "string" ? payload.hash : "";
+          if (!next) return;
+          window.location.hash = next;
+        },
+      );
 
       if (disposed) {
         listener();
@@ -124,6 +166,34 @@ function App() {
     return () => {
       disposed = true;
       if (unlisten) unlisten();
+    };
+  }, []);
+
+  // Check for app updates once per launch. Keep it scoped to the main window to avoid multi-window prompts.
+  useEffect(() => {
+    if (import.meta.env.DEV) return;
+    if (getCurrentWindow().label !== "main") return;
+
+    let disposed = false;
+    let updateHandle: Update | null = null;
+
+    void (async () => {
+      const update = await check();
+      if (disposed || !update) {
+        if (update) void update.close().catch(() => {});
+        return;
+      }
+
+      updateHandle = update;
+      setPendingUpdate(update);
+      setShowUpdatePrompt(true);
+    })().catch((err) => {
+      console.warn("updater check failed", err);
+    });
+
+    return () => {
+      disposed = true;
+      if (updateHandle) void updateHandle.close().catch(() => {});
     };
   }, []);
 
@@ -151,7 +221,10 @@ function App() {
           extra?: Record<string, unknown>;
         };
         const actionId = payload.actionId ?? payload.actionIdentifier ?? "";
-        const taskId = typeof payload.extra?.taskId === "string" ? payload.extra.taskId : null;
+        const taskId =
+          typeof payload.extra?.taskId === "string"
+            ? payload.extra.taskId
+            : null;
 
         if (taskId) {
           if (actionId === NOTIFICATION_ACTION_SNOOZE) {
@@ -200,7 +273,10 @@ function App() {
       }
 
       const stateListener = await listen("state_updated", (event) => {
-        const payload = event.payload as { tasks?: Task[]; settings?: Settings };
+        const payload = event.payload as {
+          tasks?: Task[];
+          settings?: Settings;
+        };
         if (payload.tasks) {
           setTasks(payload.tasks.map(normalizeTask));
         }
@@ -219,19 +295,36 @@ function App() {
         if (!Array.isArray(payload) || payload.length === 0) return;
 
         // Beep only from the quick window instance to avoid duplicate sounds.
-        if (settingsRef.current?.sound_enabled && getViewFromHash() === "quick") {
+        if (
+          settingsRef.current?.sound_enabled &&
+          getViewFromHash() === "quick"
+        ) {
           playBeep();
         }
 
-        const forced = payload.filter((task) => task.reminder.kind === "forced");
-        const normal = payload.filter((task) => task.reminder.kind === "normal");
+        const forced = payload.filter(
+          (task) => task.reminder.kind === "forced",
+        );
+        const normal = payload.filter(
+          (task) => task.reminder.kind === "normal",
+        );
 
         if (forced.length > 0) {
-          setForcedQueueIds((prev) => mergeUniqueIds(prev, forced.map((task) => task.id)));
+          setForcedQueueIds((prev) =>
+            mergeUniqueIds(
+              prev,
+              forced.map((task) => task.id),
+            ),
+          );
         }
 
         if (normal.length > 0) {
-          setNormalQueueIds((prev) => mergeUniqueIds(prev, normal.map((task) => task.id)));
+          setNormalQueueIds((prev) =>
+            mergeUniqueIds(
+              prev,
+              normal.map((task) => task.id),
+            ),
+          );
 
           // System-level notifications for normal reminders:
           // - Send from a single window instance to avoid duplicates (main window is always present).
@@ -254,7 +347,9 @@ function App() {
                     body: `${task.title} (${formatDue(task.due_at)})`,
                     actionTypeId: NOTIFICATION_ACTION_TYPE,
                     extra: { taskId: task.id },
-                    silent: settingsRef.current ? !settingsRef.current.sound_enabled : false,
+                    silent: settingsRef.current
+                      ? !settingsRef.current.sound_enabled
+                      : false,
                   }),
                 ).catch(() => {});
               });
@@ -287,7 +382,8 @@ function App() {
   }, [view]);
 
   useEffect(() => {
-    const platform = document.documentElement.dataset.platform ?? detectPlatform();
+    const platform =
+      document.documentElement.dataset.platform ?? detectPlatform();
     document.documentElement.dataset.platform = platform;
 
     // We use custom chrome + rounded UI in Windows (especially for transparent windows).
@@ -297,7 +393,9 @@ function App() {
     // On macOS, the system window shadow/corners generally look correct already, and we avoid
     // relying on `transparent` without enabling private APIs.
     if (platform === "windows") {
-      void getCurrentWindow().setShadow(false).catch(() => {});
+      void getCurrentWindow()
+        .setShadow(false)
+        .catch(() => {});
     }
   }, []);
 
@@ -313,7 +411,9 @@ function App() {
         return;
       }
       if (view === "quick") {
-        void getCurrentWindow().hide().catch(() => {});
+        void getCurrentWindow()
+          .hide()
+          .catch(() => {});
       }
     };
 
@@ -326,7 +426,12 @@ function App() {
     setForcedQueueIds((prev) =>
       prev.filter((id) => {
         const task = tasks.find((item) => item.id === id);
-        return task && !task.completed && task.reminder.kind === "forced" && !task.reminder.forced_dismissed;
+        return (
+          task &&
+          !task.completed &&
+          task.reminder.kind === "forced" &&
+          !task.reminder.forced_dismissed
+        );
       }),
     );
     setNormalQueueIds((prev) =>
@@ -380,7 +485,9 @@ function App() {
   // Reminder window: if the queue is empty, hide it.
   useEffect(() => {
     if (view === "reminder" && !reminderTask) {
-      void getCurrentWindow().hide().catch(() => {});
+      void getCurrentWindow()
+        .hide()
+        .catch(() => {});
     }
   }, [view, reminderTask]);
 
@@ -443,7 +550,11 @@ function App() {
     task.due_at = draft.due_at;
     task.important = draft.important;
     task.repeat = draft.repeat;
-    task.reminder = buildReminderConfig(draft.reminder_kind, draft.due_at, draft.reminder_offset_minutes);
+    task.reminder = buildReminderConfig(
+      draft.reminder_kind,
+      draft.due_at,
+      draft.reminder_offset_minutes,
+    );
     task.updated_at = Math.floor(Date.now() / 1000);
     await createTask(task);
   }
@@ -456,7 +567,9 @@ function App() {
     }
 
     if (task.repeat.type !== "none") {
-      const ok = confirm("该任务为循环任务，取消完成不会删除已经生成的下一期任务，仍要继续吗？");
+      const ok = confirm(
+        "该任务为循环任务，取消完成不会删除已经生成的下一期任务，仍要继续吗？",
+      );
       if (!ok) return;
     }
 
@@ -508,7 +621,10 @@ function App() {
     // Update UI first so the overlay reacts instantly (show next reminder or hide if none).
     setForcedQueueIds((prev) => {
       const next = prev.filter((id) => id !== taskId);
-      if (next.length === 0) void getCurrentWindow().hide().catch(() => {});
+      if (next.length === 0)
+        void getCurrentWindow()
+          .hide()
+          .catch(() => {});
       return next;
     });
 
@@ -521,7 +637,10 @@ function App() {
 
     setForcedQueueIds((prev) => {
       const next = prev.filter((id) => id !== taskId);
-      if (next.length === 0) void getCurrentWindow().hide().catch(() => {});
+      if (next.length === 0)
+        void getCurrentWindow()
+          .hide()
+          .catch(() => {});
       return next;
     });
 
@@ -534,7 +653,10 @@ function App() {
 
     setForcedQueueIds((prev) => {
       const next = prev.filter((id) => id !== taskId);
-      if (next.length === 0) void getCurrentWindow().hide().catch(() => {});
+      if (next.length === 0)
+        void getCurrentWindow()
+          .hide()
+          .catch(() => {});
       return next;
     });
 
@@ -550,6 +672,72 @@ function App() {
   async function handleNormalComplete(task: Task) {
     await completeTask(task.id);
     setNormalQueueIds((prev) => prev.filter((id) => id !== task.id));
+  }
+
+  function dismissUpdatePrompt() {
+    if (updateBusy) return;
+    setShowUpdatePrompt(false);
+    setUpdateProgress(null);
+
+    const update = pendingUpdate;
+    setPendingUpdate(null);
+    if (update) void update.close().catch(() => {});
+  }
+
+  async function handleUpdateConfirm() {
+    if (!pendingUpdate) return;
+
+    const update = pendingUpdate;
+    setUpdateBusy(true);
+    setUpdateError(null);
+    setUpdateProgress(null);
+
+    const onEvent = (event: DownloadEvent) => {
+      if (event.event === "Started") {
+        setUpdateProgress({ downloaded: 0, total: event.data.contentLength });
+        return;
+      }
+      if (event.event === "Progress") {
+        setUpdateProgress((prev) => ({
+          downloaded: (prev?.downloaded ?? 0) + event.data.chunkLength,
+          total: prev?.total,
+        }));
+        return;
+      }
+      if (event.event === "Finished") {
+        setUpdateProgress((prev) => prev ?? { downloaded: 0 });
+      }
+    };
+
+    try {
+      await update.downloadAndInstall(onEvent);
+      await relaunch();
+    } catch (err) {
+      console.error("update failed", err);
+      setUpdateError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUpdateBusy(false);
+      setUpdateProgress(null);
+      setShowUpdatePrompt(false);
+      setPendingUpdate(null);
+      void update.close().catch(() => {});
+    }
+  }
+
+  async function handleUpdateErrorRetry() {
+    if (import.meta.env.DEV) return;
+    if (getCurrentWindow().label !== "main") return;
+
+    setUpdateError(null);
+    try {
+      const update = await check();
+      if (!update) return;
+      setPendingUpdate(update);
+      setShowUpdatePrompt(true);
+    } catch (err) {
+      console.warn("updater check failed", err);
+      setUpdateError(err instanceof Error ? err.message : String(err));
+    }
   }
 
   const mainPage = (() => {
@@ -573,6 +761,49 @@ function App() {
     setEditingTaskId(null);
     setConfirmDeleteTaskId(null);
   }, [view, mainPage]);
+
+  const updatePercent =
+    updateProgress?.total && updateProgress.total > 0
+      ? Math.min(
+          100,
+          Math.floor((updateProgress.downloaded / updateProgress.total) * 100),
+        )
+      : null;
+
+  const updatePromptTitle = pendingUpdate
+    ? `发现新版本 v${pendingUpdate.version}`
+    : "发现新版本";
+  const updatePromptDescription = (() => {
+    if (!pendingUpdate) return undefined;
+
+    if (updateBusy) {
+      if (updatePercent !== null)
+        return `正在下载并安装更新... ${updatePercent}%`;
+      if (updateProgress?.downloaded) {
+        const mb = Math.max(
+          1,
+          Math.round(updateProgress.downloaded / 1024 / 1024),
+        );
+        return `正在下载并安装更新... (${mb}MB)`;
+      }
+      return "正在下载并安装更新...";
+    }
+
+    const versionLine = `当前版本 ${pendingUpdate.currentVersion} -> ${pendingUpdate.version}`;
+    const notes = (pendingUpdate.body ?? "")
+      .replace(/\r?\n/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!notes) return versionLine;
+    const shortNotes = notes.length > 200 ? `${notes.slice(0, 197)}...` : notes;
+    return `${versionLine}. ${shortNotes}`;
+  })();
+
+  const updateConfirmText = updateBusy
+    ? updatePercent === null
+      ? "更新中..."
+      : `更新中... ${updatePercent}%`
+    : "立即更新";
 
   return (
     <div className="app-container">
@@ -641,6 +872,27 @@ function App() {
           onClose={() => setEditingTaskId(null)}
         />
       )}
+
+      <ConfirmDialog
+        open={showUpdatePrompt && Boolean(pendingUpdate)}
+        title={updatePromptTitle}
+        description={updatePromptDescription}
+        confirmText={updateConfirmText}
+        cancelText="稍后"
+        busy={updateBusy}
+        onConfirm={handleUpdateConfirm}
+        onCancel={dismissUpdatePrompt}
+      />
+
+      <ConfirmDialog
+        open={Boolean(updateError)}
+        title="更新失败"
+        description={updateError ?? undefined}
+        confirmText="重试"
+        cancelText="关闭"
+        onConfirm={() => void handleUpdateErrorRetry()}
+        onCancel={() => setUpdateError(null)}
+      />
 
       <ConfirmDialog
         open={Boolean(deleteCandidate)}

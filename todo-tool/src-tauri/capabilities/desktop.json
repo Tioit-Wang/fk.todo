@@ -1,15 +1,7 @@
 {
   "identifier": "desktop-capability",
-  "platforms": [
-    "macOS",
-    "windows",
-    "linux"
-  ],
-  "windows": [
-    "main",
-    "quick",
-    "reminder"
-  ],
+  "platforms": ["macOS", "windows", "linux"],
+  "windows": ["main", "quick", "reminder"],
   "permissions": [
     "core:default",
     "core:window:default",
@@ -25,6 +17,8 @@
     "core:window:allow-start-dragging",
     "global-shortcut:default",
     "notification:default",
-    "opener:default"
+    "opener:default",
+    "process:default",
+    "updater:default"
   ]
 }

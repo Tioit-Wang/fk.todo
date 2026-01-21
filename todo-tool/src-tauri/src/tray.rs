@@ -17,7 +17,10 @@ const TRAY_ID: &str = "main";
 #[cfg(all(feature = "app", not(test)))]
 pub fn init_tray(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     let icon = app.default_window_icon().cloned().ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::NotFound, "default window icon is missing")
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "default window icon is missing",
+        )
     })?;
 
     let show_quick = MenuItem::with_id(app, "show_quick", "打开快捷窗口", true, None::<&str>)?;
