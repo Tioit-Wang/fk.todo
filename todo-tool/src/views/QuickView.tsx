@@ -58,11 +58,14 @@ export function QuickView({
   const { t } = useI18n();
   const [tab, setTab] = useState<QuickTab>("todo");
   const [quickSort, setQuickSort] = useState<QuickSortMode>("default");
+  const [now, setNow] = useState(() => new Date());
 
   const quickWindowApplied = useRef(false);
   const quickSaveTimer = useRef<number | null>(null);
   const settingsRef = useRef<Settings | null>(settings);
   const isModalOpenRef = useRef(isModalOpen);
+  const tabLockedRef = useRef(false);
+  const sortLockedRef = useRef(false);
   const ignoreFocusLossUntilRef = useRef(0);
   const focusLossCheckTimerRef = useRef<number | null>(null);
 
@@ -92,13 +95,19 @@ export function QuickView({
     isModalOpenRef.current = isModalOpen;
   }, [isModalOpen]);
 
+  useEffect(() => {
+    const tick = () => setNow(new Date());
+    const interval = window.setInterval(tick, 60_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
   // Load persisted quick view prefs (tab/sort) once settings arrive or change.
   useEffect(() => {
     if (!settings) return;
-    if (settings.quick_tab) {
+    if (settings.quick_tab && !tabLockedRef.current) {
       setTab(isQuickTab(settings.quick_tab) ? settings.quick_tab : "todo");
     }
-    if (settings.quick_sort) {
+    if (settings.quick_sort && !sortLockedRef.current) {
       setQuickSort(isQuickSort(settings.quick_sort) ? settings.quick_sort : "default");
     }
   }, [settings?.quick_tab, settings?.quick_sort, settings]);
@@ -347,7 +356,7 @@ export function QuickView({
     };
   }, []);
 
-  const quickTasks = useMemo(() => visibleQuickTasks(tasks, tab, new Date(), quickSort), [tasks, tab, quickSort]);
+  const quickTasks = useMemo(() => visibleQuickTasks(tasks, tab, now, quickSort), [tasks, tab, now, quickSort]);
 
   async function handleToggleAlwaysOnTop() {
     if (!settings) return;
@@ -370,7 +379,10 @@ export function QuickView({
             key={t.id}
             type="button"
             className={`quick-filter-tab ${tab === t.id ? "active" : ""}`}
-            onClick={() => setTab(t.id)}
+            onClick={() => {
+              tabLockedRef.current = true;
+              setTab(t.id);
+            }}
             aria-pressed={tab === t.id}
           >
             {t.label}
@@ -378,7 +390,13 @@ export function QuickView({
         ))}
         <div className="quick-sort">
           <Icons.Sort />
-          <select value={quickSort} onChange={(event) => setQuickSort(event.currentTarget.value as QuickSortMode)}>
+          <select
+            value={quickSort}
+            onChange={(event) => {
+              sortLockedRef.current = true;
+              setQuickSort(event.currentTarget.value as QuickSortMode);
+            }}
+          >
             {quickSortOptions.map((opt) => (
               <option key={opt.id} value={opt.id}>
                 {opt.label}

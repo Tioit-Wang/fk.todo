@@ -36,11 +36,11 @@ export function visibleQuickTasks(tasks: Task[], tab: QuickTab, now: Date, sortM
 
   let list = tasks;
   if (tab === "todo") {
-    // All incomplete tasks (do not restrict by due window).
-    list = tasks.filter((t) => !t.completed);
-  } else if (tab === "today") {
-    // Focused "today" list: due today + overdue (incomplete only).
+    // Focused list: overdue + due today (incomplete only).
     list = tasks.filter((t) => !t.completed && (isOverdue(t, ts) || isDueToday(t, now)));
+  } else if (tab === "today") {
+    // Due today only (incomplete).
+    list = tasks.filter((t) => !t.completed && isDueToday(t, now));
   } else if (tab === "done") {
     list = tasks.filter((t) => t.completed);
   }
@@ -48,6 +48,14 @@ export function visibleQuickTasks(tasks: Task[], tab: QuickTab, now: Date, sortM
   const sorted = list.slice();
   if (sortMode === "created") {
     return sorted.sort((a, b) => a.created_at - b.created_at);
+  }
+  if (tab === "done") {
+    return sorted.sort((a, b) => {
+      const aCompleted = a.completed_at ?? a.updated_at;
+      const bCompleted = b.completed_at ?? b.updated_at;
+      if (aCompleted !== bCompleted) return bCompleted - aCompleted;
+      return a.created_at - b.created_at;
+    });
   }
   // default: overdue first, then due asc, important first, created asc
   return sorted.sort((a, b) => {

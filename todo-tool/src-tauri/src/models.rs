@@ -11,7 +11,7 @@ pub enum ReminderKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", default)]
 pub struct ReminderConfig {
     pub kind: ReminderKind,
     pub remind_at: Option<Timestamp>,
@@ -42,6 +42,12 @@ pub enum RepeatRule {
     Yearly { month: u8, day: u8 },
 }
 
+impl Default for RepeatRule {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct Step {
@@ -58,17 +64,23 @@ pub struct Task {
     pub id: String,
     pub title: String,
     pub due_at: Timestamp,
+    #[serde(default)]
     pub important: bool,
+    #[serde(default)]
     pub completed: bool,
     pub completed_at: Option<Timestamp>,
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
     #[serde(default)]
     pub sort_order: Timestamp,
+    #[serde(default = "default_quadrant")]
     pub quadrant: u8,
     pub notes: Option<String>,
+    #[serde(default)]
     pub steps: Vec<Step>,
+    #[serde(default)]
     pub reminder: ReminderConfig,
+    #[serde(default)]
     pub repeat: RepeatRule,
 }
 
@@ -210,6 +222,10 @@ fn default_forced_color() -> String {
     "#C94D37".to_string()
 }
 
+fn default_quadrant() -> u8 {
+    1
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct TasksFile {
@@ -349,6 +365,48 @@ mod tests {
 
         let task: Task = serde_json::from_str(json).expect("task should deserialize");
         assert_eq!(task.sort_order, 0);
+    }
+
+    #[test]
+    fn task_serde_defaults_missing_fields_for_compatibility() {
+        let json = r#"
+        {
+          "id": "t2",
+          "title": "legacy",
+          "due_at": 123,
+          "created_at": 10,
+          "updated_at": 10
+        }
+        "#;
+
+        let task: Task = serde_json::from_str(json).expect("task should deserialize");
+        assert!(!task.important);
+        assert!(!task.completed);
+        assert_eq!(task.completed_at, None);
+        assert_eq!(task.sort_order, 0);
+        assert_eq!(task.quadrant, 1);
+        assert!(task.steps.is_empty());
+        assert_eq!(task.notes, None);
+        assert!(matches!(task.reminder.kind, ReminderKind::None));
+        assert!(!task.reminder.forced_dismissed);
+        assert!(matches!(task.repeat, RepeatRule::None));
+    }
+
+    #[test]
+    fn reminder_config_defaults_missing_fields() {
+        let json = r#"
+        {
+          "kind": "normal"
+        }
+        "#;
+
+        let config: ReminderConfig =
+            serde_json::from_str(json).expect("reminder config should deserialize");
+        assert_eq!(config.kind, ReminderKind::Normal);
+        assert_eq!(config.remind_at, None);
+        assert_eq!(config.snoozed_until, None);
+        assert!(!config.forced_dismissed);
+        assert_eq!(config.last_fired_at, None);
     }
 
     #[test]

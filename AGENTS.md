@@ -4,6 +4,7 @@
 
 如果你是自动化/AI 代理（agent），请先读这份全局说明，再按任务进入前端或后端的专用 AGENTS 文档：
 
+- 语言约束：自然语言使用中文。
 - 前端（React/TS + UI）：`todo-tool/AGENTS.md`
 - 后端（Rust/Tauri commands + storage/scheduler）：`todo-tool/src-tauri/AGENTS.md`
 
