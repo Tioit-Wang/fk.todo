@@ -30,7 +30,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENERjdBNDY2RkYyNkM5NTIKUldSU3lTYi9acVQzelFTVk9PZVMxcm1CVUhQcWNCOUxhcmUwUXlNY29xNXRZM1RnVmRzR1dPaHYK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDgxNTVBNzU4QzZGRDAzQkMKUldTOEEvM0dXS2RWZ1Qybkp1SkFWSGowbUhUREdiZFJSOGxVNGJvNnJuYS9tY2NDZ2R6c0hwdTIK",
       "endpoints": [
         "https://github.com/Tioit-Wang/fk.todo/releases/latest/download/latest.json"
       ],
