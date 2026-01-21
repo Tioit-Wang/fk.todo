@@ -4,53 +4,21 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import { swapSortOrder } from "../api";
 import { NotificationBanner } from "../components/NotificationBanner";
+import { IconButton } from "../components/IconButton";
 import { TaskCard } from "../components/TaskCard";
 import { TaskComposer, type TaskComposerDraft } from "../components/TaskComposer";
 import { WindowTitlebar } from "../components/WindowTitlebar";
 import { Icons } from "../components/icons";
+import { useI18n } from "../i18n";
 import { isDueInFuture, isDueToday, isDueTomorrow, isOverdue } from "../scheduler";
 import type { Settings, Task } from "../types";
 
-const MAIN_SORT_OPTIONS = [
-  { id: "due", label: "到期时间" },
-  { id: "created", label: "添加时间" },
-  { id: "manual", label: "手动排序" },
-] as const;
-
-const DUE_FILTER_OPTIONS = [
-  { id: "all", label: "全部" },
-  { id: "overdue", label: "逾期" },
-  { id: "today", label: "今天" },
-  { id: "tomorrow", label: "明天" },
-  { id: "future", label: "未来" },
-] as const;
-
-const IMPORTANCE_FILTER_OPTIONS = [
-  { id: "all", label: "全部" },
-  { id: "important", label: "重要" },
-  { id: "normal", label: "不重要" },
-] as const;
-
-const REPEAT_FILTER_OPTIONS = [
-  { id: "all", label: "全部" },
-  { id: "repeat", label: "循环" },
-  { id: "none", label: "不循环" },
-] as const;
-
-const REMINDER_FILTER_OPTIONS = [
-  { id: "all", label: "全部" },
-  { id: "remind", label: "有提醒" },
-  { id: "none", label: "不提醒" },
-  { id: "forced", label: "强制" },
-  { id: "normal", label: "普通" },
-] as const;
-
-const QUADRANTS = [
-  { id: 1, title: "重要且紧急", sublabel: "Do First", className: "quadrant-red" },
-  { id: 2, title: "重要不紧急", sublabel: "Schedule", className: "quadrant-amber" },
-  { id: 3, title: "紧急不重要", sublabel: "Delegate", className: "quadrant-blue" },
-  { id: 4, title: "不重要不紧急", sublabel: "Eliminate", className: "quadrant-gray" },
-] as const;
+type MainSortId = "due" | "created" | "manual";
+type DueFilterId = "all" | "overdue" | "today" | "tomorrow" | "future";
+type ImportanceFilterId = "all" | "important" | "normal";
+type RepeatFilterId = "all" | "repeat" | "none";
+type ReminderFilterId = "all" | "remind" | "none" | "forced" | "normal";
+type ListTabId = "all" | "overdue" | "today" | "tomorrow" | "future" | "completed";
 
 export function MainView({
   tasks,
@@ -79,14 +47,74 @@ export function MainView({
   onNormalSnooze: (task: Task) => Promise<void> | void;
   onNormalComplete: (task: Task) => Promise<void> | void;
 }) {
+  const { t } = useI18n();
   const [mainView, setMainView] = useState<"quadrant" | "list">("list");
-  const [listTab, setListTab] = useState<"all" | "overdue" | "today" | "tomorrow" | "future" | "completed">("today");
+  const [listTab, setListTab] = useState<ListTabId>("today");
 
-  const [dueFilter, setDueFilter] = useState<(typeof DUE_FILTER_OPTIONS)[number]["id"]>("all");
-  const [importanceFilter, setImportanceFilter] = useState<(typeof IMPORTANCE_FILTER_OPTIONS)[number]["id"]>("all");
-  const [repeatFilter, setRepeatFilter] = useState<(typeof REPEAT_FILTER_OPTIONS)[number]["id"]>("all");
-  const [reminderFilter, setReminderFilter] = useState<(typeof REMINDER_FILTER_OPTIONS)[number]["id"]>("all");
-  const [mainSort, setMainSort] = useState<(typeof MAIN_SORT_OPTIONS)[number]["id"]>("due");
+  const [dueFilter, setDueFilter] = useState<DueFilterId>("all");
+  const [importanceFilter, setImportanceFilter] = useState<ImportanceFilterId>("all");
+  const [repeatFilter, setRepeatFilter] = useState<RepeatFilterId>("all");
+  const [reminderFilter, setReminderFilter] = useState<ReminderFilterId>("all");
+  const [mainSort, setMainSort] = useState<MainSortId>("due");
+
+  const mainSortOptions = useMemo(
+    () => [
+      { id: "due", label: t("sort.due") },
+      { id: "created", label: t("sort.created") },
+      { id: "manual", label: t("sort.manual") },
+    ],
+    [t],
+  );
+
+  const dueFilterOptions = useMemo(
+    () => [
+      { id: "all", label: t("filter.all") },
+      { id: "overdue", label: t("filter.overdue") },
+      { id: "today", label: t("filter.today") },
+      { id: "tomorrow", label: t("filter.tomorrow") },
+      { id: "future", label: t("filter.future") },
+    ],
+    [t],
+  );
+
+  const importanceFilterOptions = useMemo(
+    () => [
+      { id: "all", label: t("filter.all") },
+      { id: "important", label: t("filter.important") },
+      { id: "normal", label: t("filter.normal") },
+    ],
+    [t],
+  );
+
+  const repeatFilterOptions = useMemo(
+    () => [
+      { id: "all", label: t("filter.all") },
+      { id: "repeat", label: t("filter.repeat") },
+      { id: "none", label: t("filter.noRepeat") },
+    ],
+    [t],
+  );
+
+  const reminderFilterOptions = useMemo(
+    () => [
+      { id: "all", label: t("filter.all") },
+      { id: "remind", label: t("filter.remindAny") },
+      { id: "none", label: t("filter.remindNone") },
+      { id: "forced", label: t("filter.remindForced") },
+      { id: "normal", label: t("filter.remindNormal") },
+    ],
+    [t],
+  );
+
+  const quadrants = useMemo(
+    () => [
+      { id: 1, title: t("quadrant.q1.title"), sublabel: t("quadrant.q1.sublabel"), className: "quadrant-red" },
+      { id: 2, title: t("quadrant.q2.title"), sublabel: t("quadrant.q2.sublabel"), className: "quadrant-amber" },
+      { id: 3, title: t("quadrant.q3.title"), sublabel: t("quadrant.q3.sublabel"), className: "quadrant-blue" },
+      { id: 4, title: t("quadrant.q4.title"), sublabel: t("quadrant.q4.sublabel"), className: "quadrant-gray" },
+    ],
+    [t],
+  );
 
   const filteredTasks = useMemo(() => {
     const now = new Date();
@@ -157,14 +185,14 @@ export function MainView({
     });
 
     return [
-      { id: "all", label: "全部", tasks: all },
-      { id: "overdue", label: "逾期", tasks: overdue },
-      { id: "today", label: "今天", tasks: today },
-      { id: "tomorrow", label: "明天", tasks: tomorrow },
-      { id: "future", label: "未来", tasks: future },
-      { id: "completed", label: "已完成", tasks: completed },
+      { id: "all", label: t("main.tab.all"), tasks: all },
+      { id: "overdue", label: t("main.tab.overdue"), tasks: overdue },
+      { id: "today", label: t("main.tab.today"), tasks: today },
+      { id: "tomorrow", label: t("main.tab.tomorrow"), tasks: tomorrow },
+      { id: "future", label: t("main.tab.future"), tasks: future },
+      { id: "completed", label: t("main.tab.completed"), tasks: completed },
     ];
-  }, [sortedTasks]);
+  }, [sortedTasks, t]);
 
   const activeListSection = useMemo(() => {
     return (
@@ -236,18 +264,18 @@ export function MainView({
     <div className="main-window">
       <WindowTitlebar
         variant="main"
-        title="Todo Tool"
+        title={t("app.name")}
         onMinimize={handleMinimize}
         right={
           <div className="main-titlebar-actions">
-            <div className="segment" role="tablist" aria-label="Main view">
+            <div className="segment" role="tablist" aria-label={t("main.view.label")}>
               <button
                 type="button"
                 className={`segment-btn ${mainView === "list" ? "active" : ""}`}
                 onClick={() => setMainView("list")}
                 aria-selected={mainView === "list"}
               >
-                列表
+                {t("main.view.list")}
               </button>
               <button
                 type="button"
@@ -255,20 +283,19 @@ export function MainView({
                 onClick={() => setMainView("quadrant")}
                 aria-selected={mainView === "quadrant"}
               >
-                四象限
+                {t("main.view.quadrant")}
               </button>
             </div>
-            <button
-              type="button"
+            <IconButton
               className="icon-btn"
               onClick={() => {
                 window.location.hash = "#/main/settings";
               }}
-              title="设置"
-              aria-label="设置"
+              title={t("main.settings")}
+              label={t("main.settings")}
             >
               <Icons.Settings />
-            </button>
+            </IconButton>
           </div>
         }
       />
@@ -279,29 +306,35 @@ export function MainView({
         <div className="main-filters">
           <div className="filter-group">
             <Icons.Filter />
-            <select value={dueFilter} onChange={(event) => setDueFilter(event.currentTarget.value as any)}>
-              {DUE_FILTER_OPTIONS.map((opt) => (
+            <select value={dueFilter} onChange={(event) => setDueFilter(event.currentTarget.value as DueFilterId)}>
+              {dueFilterOptions.map((opt) => (
                 <option key={opt.id} value={opt.id}>
                   {opt.label}
                 </option>
               ))}
             </select>
-            <select value={importanceFilter} onChange={(event) => setImportanceFilter(event.currentTarget.value as any)}>
-              {IMPORTANCE_FILTER_OPTIONS.map((opt) => (
+            <select
+              value={importanceFilter}
+              onChange={(event) => setImportanceFilter(event.currentTarget.value as ImportanceFilterId)}
+            >
+              {importanceFilterOptions.map((opt) => (
                 <option key={opt.id} value={opt.id}>
                   {opt.label}
                 </option>
               ))}
             </select>
-            <select value={repeatFilter} onChange={(event) => setRepeatFilter(event.currentTarget.value as any)}>
-              {REPEAT_FILTER_OPTIONS.map((opt) => (
+            <select value={repeatFilter} onChange={(event) => setRepeatFilter(event.currentTarget.value as RepeatFilterId)}>
+              {repeatFilterOptions.map((opt) => (
                 <option key={opt.id} value={opt.id}>
                   {opt.label}
                 </option>
               ))}
             </select>
-            <select value={reminderFilter} onChange={(event) => setReminderFilter(event.currentTarget.value as any)}>
-              {REMINDER_FILTER_OPTIONS.map((opt) => (
+            <select
+              value={reminderFilter}
+              onChange={(event) => setReminderFilter(event.currentTarget.value as ReminderFilterId)}
+            >
+              {reminderFilterOptions.map((opt) => (
                 <option key={opt.id} value={opt.id}>
                   {opt.label}
                 </option>
@@ -310,8 +343,8 @@ export function MainView({
           </div>
           <div className="filter-group">
             <Icons.Sort />
-            <select value={mainSort} onChange={(event) => setMainSort(event.currentTarget.value as any)}>
-              {MAIN_SORT_OPTIONS.map((opt) => (
+            <select value={mainSort} onChange={(event) => setMainSort(event.currentTarget.value as MainSortId)}>
+              {mainSortOptions.map((opt) => (
                 <option key={opt.id} value={opt.id}>
                   {opt.label}
                 </option>
@@ -322,7 +355,7 @@ export function MainView({
 
         {mainView === "quadrant" && (
           <div className="quadrant-grid">
-            {QUADRANTS.map((quad) => (
+            {quadrants.map((quad) => (
               <div
                 key={quad.id}
                 className={`quadrant ${quad.className}`}
@@ -343,7 +376,7 @@ export function MainView({
 
                 <div className="quadrant-list">
                   {tasksByQuadrant[quad.id].length === 0 ? (
-                    <div className="quadrant-empty">暂无任务</div>
+                    <div className="quadrant-empty">{t("common.emptyTasks")}</div>
                   ) : (
                     tasksByQuadrant[quad.id].map((task) => (
                       <TaskCard
@@ -370,13 +403,13 @@ export function MainView({
 
         {mainView === "list" && (
           <div className="list-view">
-            <div className="list-tabs" role="tablist" aria-label="列表分组">
+            <div className="list-tabs" role="tablist" aria-label={t("main.listTabs")}>
               {listSections.map((section) => (
                 <button
                   key={section.id}
                   type="button"
                   className={`list-tab ${listTab === section.id ? "active" : ""}`}
-                  onClick={() => setListTab(section.id as any)}
+                  onClick={() => setListTab(section.id as ListTabId)}
                   aria-selected={listTab === section.id}
                 >
                   <span>{section.label}</span>
@@ -387,7 +420,7 @@ export function MainView({
 
             <div className="list-panel" role="tabpanel">
               {activeListSection.tasks.length === 0 ? (
-                <div className="list-empty">暂无任务</div>
+                <div className="list-empty">{t("common.emptyTasks")}</div>
               ) : (
                 activeListSection.tasks.map((task) => (
                   <TaskCard

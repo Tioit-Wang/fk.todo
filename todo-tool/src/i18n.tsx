@@ -1,0 +1,574 @@
+import { createContext, useContext, useMemo, type ReactNode } from "react";
+
+export type AppLanguage = "zh" | "en";
+export type LanguagePreference = "auto" | AppLanguage;
+
+const STRINGS: Record<AppLanguage, Record<string, string>> = {
+  zh: {
+    "app.name": "必做清单",
+
+    "window.close": "关闭",
+    "window.minimize": "最小化",
+    "window.pin": "置顶",
+    "window.unpin": "取消置顶",
+    "window.controls": "窗口控制",
+
+    "common.back": "返回",
+    "common.cancel": "取消",
+    "common.close": "关闭",
+    "common.confirm": "确认",
+    "common.delete": "删除",
+    "common.deleting": "删除中...",
+    "common.edit": "编辑",
+    "common.refresh": "刷新",
+    "common.restore": "恢复",
+    "common.save": "保存",
+    "common.saving": "保存中...",
+    "common.reset": "重置",
+    "common.none": "无",
+    "common.on": "开启",
+    "common.off": "关闭",
+    "common.loading": "加载中...",
+    "common.emptyTasks": "暂无任务",
+
+    "main.view.list": "列表",
+    "main.view.quadrant": "四象限",
+    "main.view.label": "主视图",
+    "main.settings": "设置",
+    "main.listTabs": "列表分组",
+    "main.tab.all": "全部",
+    "main.tab.overdue": "逾期",
+    "main.tab.today": "今天",
+    "main.tab.tomorrow": "明天",
+    "main.tab.future": "未来",
+    "main.tab.completed": "已完成",
+
+    "sort.due": "到期时间",
+    "sort.created": "添加时间",
+    "sort.manual": "手动排序",
+
+    "filter.all": "全部",
+    "filter.overdue": "逾期",
+    "filter.today": "今天",
+    "filter.tomorrow": "明天",
+    "filter.future": "未来",
+    "filter.important": "重要",
+    "filter.normal": "不重要",
+    "filter.repeat": "循环",
+    "filter.noRepeat": "不循环",
+    "filter.remindAny": "有提醒",
+    "filter.remindNone": "不提醒",
+    "filter.remindForced": "强制",
+    "filter.remindNormal": "普通",
+
+    "quadrant.q1.title": "重要且紧急",
+    "quadrant.q2.title": "重要不紧急",
+    "quadrant.q3.title": "紧急不重要",
+    "quadrant.q4.title": "不重要不紧急",
+    "quadrant.q1.sublabel": "Do First",
+    "quadrant.q2.sublabel": "Schedule",
+    "quadrant.q3.sublabel": "Delegate",
+    "quadrant.q4.sublabel": "Eliminate",
+
+    "quick.tab.todo": "待完成",
+    "quick.tab.today": "今日",
+    "quick.tab.all": "全部",
+    "quick.tab.done": "已完成",
+    "quick.sort.default": "默认排序",
+    "quick.sort.created": "创建时间",
+
+    "composer.placeholder": "输入任务内容，回车添加",
+    "composer.options": "任务选项",
+    "composer.due": "到期时间",
+    "composer.reminder": "提醒",
+    "composer.repeat": "循环",
+    "composer.important": "重要",
+    "composer.popup.due": "到期时间设置",
+    "composer.popup.reminder": "提醒设置",
+    "composer.popup.repeat": "循环设置",
+    "composer.title.due": "到期时间",
+    "composer.title.reminder": "提醒",
+    "composer.title.repeat": "循环",
+    "composer.preset.today": "今天 18:00",
+    "composer.preset.tomorrow": "明天 18:00",
+    "composer.preset.dayAfter": "后天 18:00",
+    "composer.preset.sunday": "本周日 18:00",
+    "composer.preset.30m": "半小时后",
+    "composer.preset.1h": "1小时后",
+    "composer.preset.2h": "2小时后",
+    "composer.preset.4h": "4小时后",
+    "composer.preset.todayDisabled": "当前时间已超过 18:00",
+    "composer.section.relative": "相对时间",
+    "composer.relative.sinceNow": "从现在起 {label}",
+
+    "reminder.kind.none": "不提醒",
+    "reminder.kind.normal": "普通",
+    "reminder.kind.forced": "强制",
+    "reminder.offset.due": "到期时",
+    "reminder.offset.5m": "5分钟",
+    "reminder.offset.10m": "10分钟",
+    "reminder.offset.30m": "30分钟",
+    "reminder.offset.1h": "1小时",
+    "reminder.offset.2h": "2小时",
+    "reminder.offset.titleAtDue": "到期时提醒",
+    "reminder.offset.titleBefore": "提前 {label} 提醒",
+    "reminder.offset.before": "提前",
+    "reminder.offset.minutes": "分钟",
+
+    "repeat.none": "不循环",
+    "repeat.daily": "每日",
+    "repeat.weekly": "每周",
+    "repeat.monthly": "每月",
+    "repeat.yearly": "每年",
+    "repeat.workdayOnly": "仅工作日",
+    "repeat.weekdayPrefix": "周",
+    "repeat.monthUnit": "月",
+    "repeat.dayUnit": "号",
+    "weekday.1": "一",
+    "weekday.2": "二",
+    "weekday.3": "三",
+    "weekday.4": "四",
+    "weekday.5": "五",
+    "weekday.6": "六",
+    "weekday.7": "日",
+    "repeat.format.none": "不循环",
+    "repeat.format.daily": "每日",
+    "repeat.format.dailyWorkday": "每日(仅工作日)",
+    "repeat.format.weekly": "每周({days})",
+    "repeat.format.monthly": "每月({day}号)",
+    "repeat.format.yearly": "每年({month}-{day})",
+
+    "task.markComplete": "标记为完成",
+    "task.markIncomplete": "标记为未完成",
+    "task.moveUp": "上移",
+    "task.moveDown": "下移",
+    "task.markImportant": "标记为重要",
+    "task.unmarkImportant": "取消标记重要",
+    "task.delete": "删除任务",
+    "task.edit": "编辑任务",
+
+    "taskEdit.title": "编辑任务",
+    "taskEdit.titlePlaceholder": "任务标题",
+    "taskEdit.validation.titleRequired": "标题不能为空",
+    "taskEdit.section.reminder": "提醒",
+    "taskEdit.section.repeat": "循环",
+    "taskEdit.section.steps": "步骤",
+    "taskEdit.section.notes": "备注",
+    "taskEdit.stepPlaceholder": "添加步骤",
+    "taskEdit.stepAdd": "添加步骤",
+    "taskEdit.stepRequired": "请输入步骤内容",
+    "taskEdit.stepEmpty": "无步骤",
+    "taskEdit.stepDelete": "删除步骤",
+    "taskEdit.stepMarkComplete": "标记步骤为完成",
+    "taskEdit.stepMarkIncomplete": "标记步骤为未完成",
+    "taskEdit.close": "关闭编辑",
+
+    "banner.normalReminder": "普通提醒",
+    "banner.snooze5": "稍后 5 分钟",
+    "banner.complete": "完成",
+
+    "forced.title": "强制提醒",
+    "forced.queue": "提醒队列",
+    "forced.relative.now": "现在到期",
+    "forced.relative.soon": "即将到期",
+    "forced.relative.in": "还有 {span}",
+    "forced.relative.overdue": "已逾期 {span}",
+    "forced.tag.important": "重要",
+    "forced.action.dismiss": "关闭提醒",
+    "forced.action.snooze5": "稍后 5 分钟",
+    "forced.action.complete": "立即完成",
+    "forced.hint": "Enter 完成 · Esc 稍后 5 分钟",
+    "forced.time.days": "{days}天",
+    "forced.time.daysHours": "{days}天 {hours}小时",
+    "forced.time.hours": "{hours}小时",
+    "forced.time.hoursMins": "{hours}小时 {mins}分",
+    "forced.time.mins": "{mins}分",
+    "forced.time.lessThanMin": "不到 1 分钟",
+
+    "update.found": "发现新版本",
+    "update.foundWithVersion": "发现新版本 v{version}",
+    "update.downloading": "正在下载并安装更新...",
+    "update.downloadingPercent": "正在下载并安装更新... {percent}%",
+    "update.downloadingMb": "正在下载并安装更新... ({mb}MB)",
+    "update.versionLine": "当前版本 {current} -> {next}",
+    "update.updating": "更新中...",
+    "update.updatingPercent": "更新中... {percent}%",
+    "update.updateNow": "立即更新",
+    "update.later": "稍后",
+    "update.failed": "更新失败",
+    "update.retry": "重试",
+
+    "confirmDelete.title": "确认删除任务？",
+
+    "alert.deleteFailed": "删除失败",
+    "confirm.uncompleteRepeatTask":
+      "该任务为循环任务，取消完成不会删除已经生成的下一期任务，仍要继续吗？",
+
+    "settings.title": "设置",
+    "settings.shortcut": "快捷键",
+    "settings.shortcutInvalid": "快捷键无效，未保存。请修正后再返回。",
+    "settings.theme": "主题",
+    "settings.theme.light": "浅色",
+    "settings.theme.dark": "深色",
+    "settings.language": "语言",
+    "settings.language.auto": "跟随系统",
+    "settings.language.zh": "中文",
+    "settings.language.en": "English",
+    "settings.quickBlur": "快捷界面毛玻璃",
+    "settings.sound": "提示音",
+    "settings.closeBehavior": "关闭行为",
+    "settings.closeBehavior.hide": "隐藏到托盘",
+    "settings.closeBehavior.exit": "退出应用",
+    "settings.minimizeBehavior": "最小化行为",
+    "settings.minimizeBehavior.hide": "隐藏到托盘",
+    "settings.minimizeBehavior.minimize": "最小化到任务栏",
+    "settings.forcedColor": "强制提醒颜色",
+
+    "settings.notificationPermission": "通知权限",
+    "settings.permission.granted": "已授权",
+    "settings.permission.denied": "未授权",
+    "settings.permission.request": "请求权限",
+    "settings.permission.systemSettings": "系统设置",
+
+    "settings.backup": "自动备份",
+    "settings.backup.none": "不备份",
+    "settings.backup.daily": "每日",
+    "settings.backup.weekly": "每周",
+    "settings.backup.monthly": "每月",
+    "settings.backup.manual": "手动备份",
+    "settings.backup.list": "备份列表",
+    "settings.backup.empty": "暂无备份",
+    "settings.backup.restore": "恢复",
+    "settings.backup.refresh": "刷新",
+    "settings.backup.restoreConfirm": "恢复将覆盖当前任务数据（不影响设置），确认继续？",
+    "settings.backup.import": "导入备份",
+    "settings.backup.importPlaceholder": "输入备份文件路径",
+    "settings.backup.importAction": "导入恢复",
+    "settings.backup.importHintEmpty": "请输入备份文件路径",
+
+    "settings.samples": "示例数据",
+    "settings.samples.add": "添加 AI 小说助手示例任务",
+    "settings.samples.adding": "添加中...",
+    "settings.samples.tooltip": "向当前记录追加一批 AI 小说助手开发计划相关的示例任务",
+    "settings.samples.confirm.duplicate":
+      "检测到已有 AI 小说助手示例任务。\n继续添加将产生重复（共 {count} 条）。\n仍然继续吗？",
+    "settings.samples.confirm.fresh":
+      "将向当前数据添加 {count} 条示例任务（AI 小说助手开发计划）。\n建议：添加前会自动创建一次备份。\n继续吗？",
+    "settings.samples.result.partial":
+      "已添加 {created}/{total} 条示例任务。\n部分失败：\n{errors}",
+    "settings.samples.result.ok": "已添加 {created} 条示例任务。",
+  },
+  en: {
+    "app.name": "MustDo",
+
+    "window.close": "Close",
+    "window.minimize": "Minimize",
+    "window.pin": "Pin",
+    "window.unpin": "Unpin",
+    "window.controls": "Window controls",
+
+    "common.back": "Back",
+    "common.cancel": "Cancel",
+    "common.close": "Close",
+    "common.confirm": "OK",
+    "common.delete": "Delete",
+    "common.deleting": "Deleting...",
+    "common.edit": "Edit",
+    "common.refresh": "Refresh",
+    "common.restore": "Restore",
+    "common.save": "Save",
+    "common.saving": "Saving...",
+    "common.reset": "Reset",
+    "common.none": "None",
+    "common.on": "On",
+    "common.off": "Off",
+    "common.loading": "Loading...",
+    "common.emptyTasks": "No tasks",
+
+    "main.view.list": "List",
+    "main.view.quadrant": "Quadrant",
+    "main.view.label": "Main view",
+    "main.settings": "Settings",
+    "main.listTabs": "List tabs",
+    "main.tab.all": "All",
+    "main.tab.overdue": "Overdue",
+    "main.tab.today": "Today",
+    "main.tab.tomorrow": "Tomorrow",
+    "main.tab.future": "Future",
+    "main.tab.completed": "Done",
+
+    "sort.due": "Due",
+    "sort.created": "Created",
+    "sort.manual": "Manual",
+
+    "filter.all": "All",
+    "filter.overdue": "Overdue",
+    "filter.today": "Today",
+    "filter.tomorrow": "Tomorrow",
+    "filter.future": "Future",
+    "filter.important": "Important",
+    "filter.normal": "Normal",
+    "filter.repeat": "Repeats",
+    "filter.noRepeat": "No repeat",
+    "filter.remindAny": "Has reminder",
+    "filter.remindNone": "No reminder",
+    "filter.remindForced": "Forced",
+    "filter.remindNormal": "Normal",
+
+    "quadrant.q1.title": "Important & Urgent",
+    "quadrant.q2.title": "Important, Not Urgent",
+    "quadrant.q3.title": "Urgent, Not Important",
+    "quadrant.q4.title": "Not Important, Not Urgent",
+    "quadrant.q1.sublabel": "Do First",
+    "quadrant.q2.sublabel": "Schedule",
+    "quadrant.q3.sublabel": "Delegate",
+    "quadrant.q4.sublabel": "Eliminate",
+
+    "quick.tab.todo": "To do",
+    "quick.tab.today": "Today",
+    "quick.tab.all": "All",
+    "quick.tab.done": "Done",
+    "quick.sort.default": "Default",
+    "quick.sort.created": "Created",
+
+    "composer.placeholder": "Type a task and press Enter",
+    "composer.options": "Task options",
+    "composer.due": "Due",
+    "composer.reminder": "Reminder",
+    "composer.repeat": "Repeat",
+    "composer.important": "Important",
+    "composer.popup.due": "Due time",
+    "composer.popup.reminder": "Reminder",
+    "composer.popup.repeat": "Repeat",
+    "composer.title.due": "Due time",
+    "composer.title.reminder": "Reminder",
+    "composer.title.repeat": "Repeat",
+    "composer.preset.today": "Today 18:00",
+    "composer.preset.tomorrow": "Tomorrow 18:00",
+    "composer.preset.dayAfter": "Day after 18:00",
+    "composer.preset.sunday": "Sunday 18:00",
+    "composer.preset.30m": "In 30m",
+    "composer.preset.1h": "In 1h",
+    "composer.preset.2h": "In 2h",
+    "composer.preset.4h": "In 4h",
+    "composer.preset.todayDisabled": "It's past 18:00",
+    "composer.section.relative": "Relative time",
+    "composer.relative.sinceNow": "From now {label}",
+
+    "reminder.kind.none": "Off",
+    "reminder.kind.normal": "Normal",
+    "reminder.kind.forced": "Forced",
+    "reminder.offset.due": "At due",
+    "reminder.offset.5m": "5m",
+    "reminder.offset.10m": "10m",
+    "reminder.offset.30m": "30m",
+    "reminder.offset.1h": "1h",
+    "reminder.offset.2h": "2h",
+    "reminder.offset.titleAtDue": "Remind at due time",
+    "reminder.offset.titleBefore": "Remind {label} before due",
+    "reminder.offset.before": "Before",
+    "reminder.offset.minutes": "min",
+
+    "repeat.none": "None",
+    "repeat.daily": "Daily",
+    "repeat.weekly": "Weekly",
+    "repeat.monthly": "Monthly",
+    "repeat.yearly": "Yearly",
+    "repeat.workdayOnly": "Weekdays",
+    "repeat.weekdayPrefix": "",
+    "repeat.monthUnit": "mo",
+    "repeat.dayUnit": "day",
+    "weekday.1": "Mon",
+    "weekday.2": "Tue",
+    "weekday.3": "Wed",
+    "weekday.4": "Thu",
+    "weekday.5": "Fri",
+    "weekday.6": "Sat",
+    "weekday.7": "Sun",
+    "repeat.format.none": "None",
+    "repeat.format.daily": "Daily",
+    "repeat.format.dailyWorkday": "Daily (wkdays)",
+    "repeat.format.weekly": "Weekly ({days})",
+    "repeat.format.monthly": "Monthly ({day})",
+    "repeat.format.yearly": "Yearly ({month}-{day})",
+
+    "task.markComplete": "Mark complete",
+    "task.markIncomplete": "Mark incomplete",
+    "task.moveUp": "Move up",
+    "task.moveDown": "Move down",
+    "task.markImportant": "Mark important",
+    "task.unmarkImportant": "Unmark important",
+    "task.delete": "Delete task",
+    "task.edit": "Edit task",
+
+    "taskEdit.title": "Edit task",
+    "taskEdit.titlePlaceholder": "Task title",
+    "taskEdit.validation.titleRequired": "Title is required",
+    "taskEdit.section.reminder": "Reminder",
+    "taskEdit.section.repeat": "Repeat",
+    "taskEdit.section.steps": "Steps",
+    "taskEdit.section.notes": "Notes",
+    "taskEdit.stepPlaceholder": "Add a step",
+    "taskEdit.stepAdd": "Add step",
+    "taskEdit.stepRequired": "Enter step text",
+    "taskEdit.stepEmpty": "No steps",
+    "taskEdit.stepDelete": "Delete step",
+    "taskEdit.stepMarkComplete": "Mark step complete",
+    "taskEdit.stepMarkIncomplete": "Mark step incomplete",
+    "taskEdit.close": "Close editor",
+
+    "banner.normalReminder": "Reminder",
+    "banner.snooze5": "Snooze 5m",
+    "banner.complete": "Complete",
+
+    "forced.title": "Forced alert",
+    "forced.queue": "Queue",
+    "forced.relative.now": "Due now",
+    "forced.relative.soon": "Due soon",
+    "forced.relative.in": "{span} left",
+    "forced.relative.overdue": "{span} overdue",
+    "forced.tag.important": "Important",
+    "forced.action.dismiss": "Dismiss",
+    "forced.action.snooze5": "Snooze 5m",
+    "forced.action.complete": "Complete",
+    "forced.hint": "Enter complete · Esc snooze 5m",
+    "forced.time.days": "{days}d",
+    "forced.time.daysHours": "{days}d {hours}h",
+    "forced.time.hours": "{hours}h",
+    "forced.time.hoursMins": "{hours}h {mins}m",
+    "forced.time.mins": "{mins}m",
+    "forced.time.lessThanMin": "< 1m",
+
+    "update.found": "Update available",
+    "update.foundWithVersion": "Update available v{version}",
+    "update.downloading": "Downloading and installing...",
+    "update.downloadingPercent": "Downloading and installing... {percent}%",
+    "update.downloadingMb": "Downloading and installing... ({mb}MB)",
+    "update.versionLine": "Version {current} -> {next}",
+    "update.updating": "Updating...",
+    "update.updatingPercent": "Updating... {percent}%",
+    "update.updateNow": "Update now",
+    "update.later": "Later",
+    "update.failed": "Update failed",
+    "update.retry": "Retry",
+
+    "confirmDelete.title": "Delete this task?",
+
+    "alert.deleteFailed": "Delete failed",
+    "confirm.uncompleteRepeatTask":
+      "This is a repeating task. Un-completing it won't remove the next instance already created. Continue?",
+
+    "settings.title": "Settings",
+    "settings.shortcut": "Shortcut",
+    "settings.shortcutInvalid": "Invalid shortcut. Fix it before leaving.",
+    "settings.theme": "Theme",
+    "settings.theme.light": "Light",
+    "settings.theme.dark": "Dark",
+    "settings.language": "Language",
+    "settings.language.auto": "System",
+    "settings.language.zh": "Chinese",
+    "settings.language.en": "English",
+    "settings.quickBlur": "Quick blur",
+    "settings.sound": "Sound",
+    "settings.closeBehavior": "Close behavior",
+    "settings.closeBehavior.hide": "Hide to tray",
+    "settings.closeBehavior.exit": "Exit app",
+    "settings.minimizeBehavior": "Minimize behavior",
+    "settings.minimizeBehavior.hide": "Hide to tray",
+    "settings.minimizeBehavior.minimize": "Minimize to taskbar",
+    "settings.forcedColor": "Forced color",
+
+    "settings.notificationPermission": "Notifications",
+    "settings.permission.granted": "Granted",
+    "settings.permission.denied": "Not granted",
+    "settings.permission.request": "Request",
+    "settings.permission.systemSettings": "System settings",
+
+    "settings.backup": "Auto backup",
+    "settings.backup.none": "Off",
+    "settings.backup.daily": "Daily",
+    "settings.backup.weekly": "Weekly",
+    "settings.backup.monthly": "Monthly",
+    "settings.backup.manual": "Backup now",
+    "settings.backup.list": "Backups",
+    "settings.backup.empty": "No backups",
+    "settings.backup.restore": "Restore",
+    "settings.backup.refresh": "Refresh",
+    "settings.backup.restoreConfirm": "Restoring will overwrite task data (settings stay). Continue?",
+    "settings.backup.import": "Import backup",
+    "settings.backup.importPlaceholder": "Backup file path",
+    "settings.backup.importAction": "Import & restore",
+    "settings.backup.importHintEmpty": "Enter a backup file path",
+
+    "settings.samples": "Sample data",
+    "settings.samples.add": "Add AI Novel sample tasks",
+    "settings.samples.adding": "Adding...",
+    "settings.samples.tooltip": "Append a set of AI novel assistant sample tasks",
+    "settings.samples.confirm.duplicate":
+      "AI Novel sample tasks already exist.\nAdding again will create duplicates ({count}).\nContinue?",
+    "settings.samples.confirm.fresh":
+      "Add {count} sample tasks (AI novel assistant plan).\nTip: a backup will be created first.\nContinue?",
+    "settings.samples.result.partial":
+      "Added {created}/{total} sample tasks.\nSome failed:\n{errors}",
+    "settings.samples.result.ok": "Added {created} sample tasks.",
+  },
+};
+
+function formatTemplate(template: string, params?: Record<string, string | number>): string {
+  if (!params) return template;
+  return template.replace(/\{(\w+)\}/g, (_match, key: string) => String(params[key] ?? ""));
+}
+
+export function detectSystemLanguage(): AppLanguage {
+  const candidates: string[] = [];
+  if (Array.isArray(navigator.languages)) {
+    candidates.push(...navigator.languages);
+  }
+  if (navigator.language) candidates.push(navigator.language);
+  const lowered = candidates
+    .map((value) => (value ?? "").toString().trim().toLowerCase())
+    .filter(Boolean);
+  return lowered.some((value) => value.startsWith("zh")) ? "zh" : "en";
+}
+
+export function normalizeLanguagePreference(value: unknown): LanguagePreference {
+  if (typeof value !== "string") return "auto";
+  const v = value.trim().toLowerCase();
+  if (v === "zh" || v === "en" || v === "auto") return v;
+  return "auto";
+}
+
+export function resolveAppLanguage(preference: unknown): AppLanguage {
+  const pref = normalizeLanguagePreference(preference);
+  if (pref === "zh" || pref === "en") return pref;
+  return detectSystemLanguage();
+}
+
+export type Translator = (key: string, params?: Record<string, string | number>) => string;
+
+export function makeTranslator(lang: AppLanguage): Translator {
+  return (key: string, params?: Record<string, string | number>) => {
+    const dict = STRINGS[lang];
+    const template = dict[key] ?? STRINGS.en[key] ?? key;
+    return formatTemplate(template, params);
+  };
+}
+
+type I18nContextValue = {
+  lang: AppLanguage;
+  t: Translator;
+};
+
+const I18nContext = createContext<I18nContextValue>({
+  lang: "en",
+  t: (key) => STRINGS.en[key] ?? key,
+});
+
+export function I18nProvider({ lang, children }: { lang: AppLanguage; children: ReactNode }) {
+  const value = useMemo<I18nContextValue>(() => ({ lang, t: makeTranslator(lang) }), [lang]);
+  return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
+}
+
+export function useI18n() {
+  return useContext(I18nContext);
+}

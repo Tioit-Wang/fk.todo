@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 
+import { useI18n } from "../i18n";
+import { IconButton } from "./IconButton";
 import { Icons } from "./icons";
 
 type ConfirmTone = "default" | "danger";
@@ -8,8 +10,8 @@ export function ConfirmDialog({
   open,
   title,
   description,
-  confirmText = "确认",
-  cancelText = "取消",
+  confirmText,
+  cancelText,
   tone = "default",
   busy = false,
   onConfirm,
@@ -25,7 +27,10 @@ export function ConfirmDialog({
   onConfirm: () => void | Promise<void>;
   onCancel: () => void;
 }) {
+  const { t } = useI18n();
   const confirmRef = useRef<HTMLButtonElement | null>(null);
+  const confirmLabel = confirmText ?? t("common.confirm");
+  const cancelLabel = cancelText ?? t("common.cancel");
 
   const icon = useMemo(() => {
     if (tone === "danger") return <Icons.Trash />;
@@ -70,14 +75,14 @@ export function ConfirmDialog({
             <div className="confirm-title-text">{title}</div>
             {description && <div className="confirm-description">{description}</div>}
           </div>
-          <button type="button" className="icon-btn" onClick={onCancel} aria-label="关闭" title="关闭">
+          <IconButton className="icon-btn" onClick={onCancel} label={t("common.close")} title={t("common.close")}>
             <Icons.X />
-          </button>
+          </IconButton>
         </div>
 
         <div className="confirm-actions">
           <button type="button" className="confirm-btn ghost" onClick={onCancel} disabled={busy}>
-            {cancelText}
+            {cancelLabel}
           </button>
           <button
             ref={confirmRef}
@@ -86,7 +91,7 @@ export function ConfirmDialog({
             onClick={() => void onConfirm()}
             disabled={busy}
           >
-            {confirmText}
+            {confirmLabel}
           </button>
         </div>
       </div>

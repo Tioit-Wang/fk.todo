@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { formatDue, fromDateTimeLocal, toDateTimeLocal } from "../date";
-import { buildReminderConfig, getReminderOffsetMinutes, REMINDER_KIND_OPTIONS, REMINDER_OFFSET_PRESETS } from "../reminder";
-import { defaultRepeatRule, REPEAT_TYPE_OPTIONS, WEEKDAY_OPTIONS } from "../repeat";
+import { useI18n } from "../i18n";
+import { buildReminderConfig, getReminderOffsetMinutes, buildReminderKindOptions, buildReminderOffsetPresets } from "../reminder";
+import { defaultRepeatRule, buildRepeatTypeOptions, buildWeekdayOptions } from "../repeat";
 import type { ReminderKind, RepeatRule, Task } from "../types";
 
+import { IconButton } from "./IconButton";
 import { Icons } from "./icons";
 
 // Edit modal for an existing task. This stays as a controlled component (props in, callbacks out)
@@ -20,6 +22,7 @@ export function TaskEditModal({
   onSave: (next: Task) => Promise<void> | void;
   onClose: () => void;
 }) {
+  const { t } = useI18n();
   const [draftTitle, setDraftTitle] = useState(task.title);
   const [draftDueAt, setDraftDueAt] = useState(task.due_at);
   const [draftReminderKind, setDraftReminderKind] = useState<ReminderKind>(task.reminder.kind);
@@ -29,6 +32,11 @@ export function TaskEditModal({
   const [draftSteps, setDraftSteps] = useState(task.steps);
   const [newStepTitle, setNewStepTitle] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const reminderKindOptions = useMemo(() => buildReminderKindOptions(t), [t]);
+  const reminderOffsetPresets = useMemo(() => buildReminderOffsetPresets(t), [t]);
+  const repeatTypeOptions = useMemo(() => buildRepeatTypeOptions(t), [t]);
+  const weekdayOptions = useMemo(() => buildWeekdayOptions(t), [t]);
 
   useEffect(() => {
     setDraftTitle(task.title);
@@ -112,16 +120,16 @@ export function TaskEditModal({
   }
 
   return (
-    <div className="task-modal-overlay" role="dialog" aria-modal="true" aria-label="编辑任务" onClick={onClose}>
+    <div className="task-modal-overlay" role="dialog" aria-modal="true" aria-label={t("taskEdit.title")} onClick={onClose}>
       <div className="task-modal" onClick={(event) => event.stopPropagation()}>
         <div className="task-modal-header">
           <div className="task-modal-title">
-            <span>编辑任务</span>
+            <span>{t("taskEdit.title")}</span>
             <span className="task-modal-subtitle">{formatDue(task.due_at)}</span>
           </div>
-          <button type="button" className="icon-btn" onClick={onClose} aria-label="关闭编辑" title="关闭">
+          <IconButton className="icon-btn" onClick={onClose} label={t("taskEdit.close")} title={t("common.close")}>
             <Icons.X />
-          </button>
+          </IconButton>
         </div>
 
         <div className="task-modal-body">
@@ -130,7 +138,7 @@ export function TaskEditModal({
               className="task-edit-title"
               value={draftTitle}
               onChange={(event) => setDraftTitle(event.currentTarget.value)}
-              placeholder="任务标题"
+              placeholder={t("taskEdit.titlePlaceholder")}
             />
             <input
               className="task-edit-due"
@@ -145,29 +153,29 @@ export function TaskEditModal({
 
           <div className="task-modal-actions">
             <button type="button" className="task-edit-btn ghost" onClick={handleReset} disabled={saving}>
-              重置
+              {t("common.reset")}
             </button>
             <div className="task-modal-actions-right">
               <button type="button" className="task-edit-btn ghost" onClick={onClose} disabled={saving}>
-                取消
+                {t("common.cancel")}
               </button>
               <button
                 type="button"
                 className="task-edit-btn"
                 onClick={() => void handleSave()}
                 disabled={saving || !draftTitle.trim()}
-                title={!draftTitle.trim() ? "标题不能为空" : "保存"}
+                title={!draftTitle.trim() ? t("taskEdit.validation.titleRequired") : t("common.save")}
               >
-                保存
+                {t("common.save")}
               </button>
             </div>
           </div>
 
           <div className="inline-config">
             <div className="inline-config-group">
-              <span className="inline-config-label">提醒</span>
+              <span className="inline-config-label">{t("taskEdit.section.reminder")}</span>
               <div className="inline-config-buttons">
-                {REMINDER_KIND_OPTIONS.map((opt) => (
+                {reminderKindOptions.map((opt) => (
                   <button
                     key={opt.id}
                     type="button"
@@ -185,8 +193,8 @@ export function TaskEditModal({
               </div>
               {draftReminderKind !== "none" && (
                 <>
-                  <div className="inline-config-buttons" aria-label="提醒快捷时间">
-                    {REMINDER_OFFSET_PRESETS.map((preset) => (
+                  <div className="inline-config-buttons" aria-label={t("taskEdit.section.reminder")}>
+                    {reminderOffsetPresets.map((preset) => (
                       <button
                         key={preset.id}
                         type="button"
@@ -194,14 +202,18 @@ export function TaskEditModal({
                         onClick={() => setDraftReminderOffset(preset.minutes)}
                         aria-pressed={draftReminderOffset === preset.minutes}
                         disabled={saving}
-                        title={preset.minutes === 0 ? "到期时提醒" : `提前 ${preset.label} 提醒`}
+                        title={
+                          preset.minutes === 0
+                            ? t("reminder.offset.titleAtDue")
+                            : t("reminder.offset.titleBefore", { label: preset.label })
+                        }
                       >
                         {preset.label}
                       </button>
                     ))}
                   </div>
                   <div className="inline-config-extra">
-                    <span>提前</span>
+                    <span>{t("reminder.offset.before")}</span>
                     <input
                       type="number"
                       min={0}
@@ -210,16 +222,16 @@ export function TaskEditModal({
                       onChange={(event) => setDraftReminderOffset(Number(event.currentTarget.value) || 0)}
                       disabled={saving}
                     />
-                    <span>分钟</span>
+                    <span>{t("reminder.offset.minutes")}</span>
                   </div>
                 </>
               )}
             </div>
 
             <div className="inline-config-group">
-              <span className="inline-config-label">循环</span>
+              <span className="inline-config-label">{t("taskEdit.section.repeat")}</span>
               <div className="inline-config-buttons">
-                {REPEAT_TYPE_OPTIONS.map((opt) => (
+                {repeatTypeOptions.map((opt) => (
                   <button
                     key={opt.id}
                     type="button"
@@ -246,14 +258,15 @@ export function TaskEditModal({
                     aria-pressed={draftRepeat.workday_only}
                     disabled={saving}
                   >
-                    仅工作日
+                    {t("repeat.workdayOnly")}
                   </button>
                 </div>
               )}
               {draftRepeat.type === "weekly" && (
                 <div className="inline-config-buttons">
-                  {WEEKDAY_OPTIONS.map((day) => {
+                  {weekdayOptions.map((day) => {
                     const selected = draftRepeat.days.includes(day.id);
+                    const prefix = t("repeat.weekdayPrefix");
                     return (
                       <button
                         key={day.id}
@@ -269,7 +282,7 @@ export function TaskEditModal({
                         aria-pressed={selected}
                         disabled={saving}
                       >
-                        周{day.label}
+                        {prefix ? `${prefix}${day.label}` : day.label}
                       </button>
                     );
                   })}
@@ -277,7 +290,7 @@ export function TaskEditModal({
               )}
               {draftRepeat.type === "monthly" && (
                 <div className="inline-config-extra">
-                  <span>每月</span>
+                  <span>{t("repeat.monthly")}</span>
                   <input
                     className="inline-input"
                     type="number"
@@ -292,12 +305,12 @@ export function TaskEditModal({
                     }
                     disabled={saving}
                   />
-                  <span>号</span>
+                  <span>{t("repeat.dayUnit")}</span>
                 </div>
               )}
               {draftRepeat.type === "yearly" && (
                 <div className="inline-config-extra">
-                  <span>每年</span>
+                  <span>{t("repeat.yearly")}</span>
                   <input
                     className="inline-input"
                     type="number"
@@ -313,7 +326,7 @@ export function TaskEditModal({
                     }
                     disabled={saving}
                   />
-                  <span>月</span>
+                  <span>{t("repeat.monthUnit")}</span>
                   <input
                     className="inline-input"
                     type="number"
@@ -329,7 +342,7 @@ export function TaskEditModal({
                     }
                     disabled={saving}
                   />
-                  <span>号</span>
+                  <span>{t("repeat.dayUnit")}</span>
                 </div>
               )}
             </div>
@@ -337,11 +350,11 @@ export function TaskEditModal({
 
           <div className="steps-section">
             <div className="steps-header">
-              <span>步骤</span>
+              <span>{t("taskEdit.section.steps")}</span>
               <div className="steps-add">
                 <input
                   className="steps-input"
-                  placeholder="添加步骤"
+                  placeholder={t("taskEdit.stepPlaceholder")}
                   value={newStepTitle}
                   onChange={(event) => setNewStepTitle(event.currentTarget.value)}
                   onKeyDown={(event) => {
@@ -354,15 +367,15 @@ export function TaskEditModal({
                   className="step-add-btn"
                   onClick={handleAddStep}
                   disabled={saving || !newStepTitle.trim()}
-                  title={!newStepTitle.trim() ? "请输入步骤内容" : "添加步骤"}
-                  aria-label="添加步骤"
+                  title={!newStepTitle.trim() ? t("taskEdit.stepRequired") : t("taskEdit.stepAdd")}
+                  aria-label={t("taskEdit.stepAdd")}
                 >
                   <Icons.Plus />
                 </button>
               </div>
             </div>
             {draftSteps.length === 0 ? (
-              <div className="steps-empty">无步骤</div>
+              <div className="steps-empty">{t("taskEdit.stepEmpty")}</div>
             ) : (
               draftSteps.map((step) => (
                 <div key={step.id} className={`step-item ${step.completed ? "completed" : ""}`}>
@@ -370,7 +383,7 @@ export function TaskEditModal({
                     type="button"
                     className="step-checkbox"
                     onClick={() => toggleStep(step.id)}
-                    aria-label={step.completed ? "标记步骤为未完成" : "标记步骤为完成"}
+                    aria-label={step.completed ? t("taskEdit.stepMarkIncomplete") : t("taskEdit.stepMarkComplete")}
                     aria-pressed={step.completed}
                     disabled={saving}
                   >
@@ -381,8 +394,8 @@ export function TaskEditModal({
                     type="button"
                     className="step-delete"
                     onClick={() => removeStep(step.id)}
-                    title="删除步骤"
-                    aria-label="删除步骤"
+                    title={t("taskEdit.stepDelete")}
+                    aria-label={t("taskEdit.stepDelete")}
                     disabled={saving}
                   >
                     <Icons.X />
@@ -394,7 +407,7 @@ export function TaskEditModal({
 
           {showNotes && (
             <div className="notes-section">
-              <div className="notes-header">备注</div>
+              <div className="notes-header">{t("taskEdit.section.notes")}</div>
               <textarea
                 className="notes-input"
                 rows={4}

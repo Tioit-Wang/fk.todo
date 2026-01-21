@@ -1,26 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { IconButton } from "./IconButton";
 import { Icons } from "./icons";
 
 import { fromDateTimeLocal, toDateTimeLocal } from "../date";
-import { REMINDER_KIND_OPTIONS, REMINDER_OFFSET_PRESETS } from "../reminder";
+import { useI18n } from "../i18n";
+import { buildReminderKindOptions, buildReminderOffsetPresets } from "../reminder";
 import { defaultDueAt } from "../scheduler";
-import { defaultRepeatRule, REPEAT_TYPE_OPTIONS, WEEKDAY_OPTIONS } from "../repeat";
+import { defaultRepeatRule, buildRepeatTypeOptions, buildWeekdayOptions } from "../repeat";
 import type { ReminderKind, RepeatRule } from "../types";
-
-const QUICK_DUE_PRESETS = [
-  { id: "today", label: "今天 18:00", offsetDays: 0 },
-  { id: "tomorrow", label: "明天 18:00", offsetDays: 1 },
-  { id: "dayAfter", label: "后天 18:00", offsetDays: 2 },
-] as const;
-
-// Relative shortcuts are handy for short-lived tasks (e.g. "call back in 30m").
-const QUICK_DUE_RELATIVE_PRESETS = [
-  { id: "30m", label: "半小时后", minutes: 30 },
-  { id: "1h", label: "1小时后", minutes: 60 },
-  { id: "2h", label: "2小时后", minutes: 120 },
-  { id: "4h", label: "4小时后", minutes: 240 },
-] as const;
 
 export type TaskComposerDraft = {
   title: string;
@@ -32,12 +20,13 @@ export type TaskComposerDraft = {
 };
 
 export function TaskComposer({
-  placeholder = "输入任务内容，回车添加",
+  placeholder,
   onSubmit,
 }: {
   placeholder?: string;
   onSubmit: (draft: TaskComposerDraft) => Promise<void> | void;
 }) {
+  const { t } = useI18n();
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [title, setTitle] = useState("");
   const [activePopup, setActivePopup] = useState<"due" | "reminder" | "repeat" | null>(null);
@@ -53,6 +42,32 @@ export function TaskComposer({
   const [reminderOffset, setReminderOffset] = useState<number>(10);
 
   const initialDueAtRef = useRef<number>(dueAt);
+  const placeholderText = placeholder ?? t("composer.placeholder");
+
+  const quickDuePresets = useMemo(
+    () => [
+      { id: "today", label: t("composer.preset.today"), offsetDays: 0 },
+      { id: "tomorrow", label: t("composer.preset.tomorrow"), offsetDays: 1 },
+      { id: "dayAfter", label: t("composer.preset.dayAfter"), offsetDays: 2 },
+    ],
+    [t],
+  );
+
+  // Relative shortcuts are handy for short-lived tasks (e.g. "call back in 30m").
+  const quickDueRelativePresets = useMemo(
+    () => [
+      { id: "30m", label: t("composer.preset.30m"), minutes: 30 },
+      { id: "1h", label: t("composer.preset.1h"), minutes: 60 },
+      { id: "2h", label: t("composer.preset.2h"), minutes: 120 },
+      { id: "4h", label: t("composer.preset.4h"), minutes: 240 },
+    ],
+    [t],
+  );
+
+  const reminderKindOptions = useMemo(() => buildReminderKindOptions(t), [t]);
+  const reminderOffsetPresets = useMemo(() => buildReminderOffsetPresets(t), [t]);
+  const repeatTypeOptions = useMemo(() => buildRepeatTypeOptions(t), [t]);
+  const weekdayOptions = useMemo(() => buildWeekdayOptions(t), [t]);
 
   const quickDueSunday = useMemo(() => {
     const now = new Date();
@@ -127,7 +142,7 @@ export function TaskComposer({
         <input
           type="text"
           className="composer-input"
-          placeholder={placeholder}
+          placeholder={placeholderText}
           value={title}
           onChange={(e) => setTitle(e.currentTarget.value)}
           onKeyDown={(e) => {
@@ -135,55 +150,51 @@ export function TaskComposer({
           }}
         />
 
-        <div className="composer-actions" aria-label="Task options">
-          <button
-            type="button"
+        <div className="composer-actions" aria-label={t("composer.options")}>
+          <IconButton
             className={`composer-action-btn ${activePopup === "due" || isDueCustomized ? "active" : ""}`}
             onClick={() => togglePopup("due")}
-            title="到期时间"
-            aria-label="到期时间"
+            title={t("composer.due")}
+            label={t("composer.due")}
             aria-expanded={activePopup === "due"}
           >
             <Icons.Calendar />
-          </button>
-          <button
-            type="button"
+          </IconButton>
+          <IconButton
             className={`composer-action-btn ${activePopup === "reminder" || isReminderActive ? "active" : ""}`}
             onClick={() => togglePopup("reminder")}
-            title="提醒"
-            aria-label="提醒"
+            title={t("composer.reminder")}
+            label={t("composer.reminder")}
             aria-expanded={activePopup === "reminder"}
           >
             <Icons.Bell />
-          </button>
-          <button
-            type="button"
+          </IconButton>
+          <IconButton
             className={`composer-action-btn ${activePopup === "repeat" || isRepeatActive ? "active" : ""}`}
             onClick={() => togglePopup("repeat")}
-            title="循环"
-            aria-label="循环"
+            title={t("composer.repeat")}
+            label={t("composer.repeat")}
             aria-expanded={activePopup === "repeat"}
           >
             <Icons.Repeat />
-          </button>
-          <button
-            type="button"
+          </IconButton>
+          <IconButton
             className={`composer-action-btn ${important ? "active" : ""}`}
             onClick={() => setImportant((prev) => !prev)}
-            title={important ? "取消重要" : "标记重要"}
-            aria-label={important ? "取消标记重要" : "标记为重要"}
+            title={important ? t("task.unmarkImportant") : t("task.markImportant")}
+            label={important ? t("task.unmarkImportant") : t("task.markImportant")}
             aria-pressed={important}
           >
             <Icons.Star />
-          </button>
+          </IconButton>
         </div>
 
         {activePopup === "due" && (
-          <div className="composer-popup" role="dialog" aria-label="到期时间设置">
+          <div className="composer-popup" role="dialog" aria-label={t("composer.popup.due")}>
             <div className="composer-popup-section">
-              <div className="composer-popup-title">到期时间</div>
+              <div className="composer-popup-title">{t("composer.title.due")}</div>
               <div className="composer-popup-row">
-                {QUICK_DUE_PRESETS.map((preset) => {
+                {quickDuePresets.map((preset) => {
                   const target = new Date(nowForPresets);
                   target.setDate(target.getDate() + preset.offsetDays);
                   target.setHours(18, 0, 0, 0);
@@ -197,7 +208,7 @@ export function TaskComposer({
                       type="button"
                       className="pill"
                       disabled={disabled}
-                      title={disabled ? "当前时间已超过 18:00" : undefined}
+                      title={disabled ? t("composer.preset.todayDisabled") : undefined}
                       onClick={() => {
                         if (disabled) return;
                         setDueAt(Math.floor(target.getTime() / 1000));
@@ -208,13 +219,13 @@ export function TaskComposer({
                   );
                 })}
                 <button type="button" className="pill" onClick={() => setDueAt(quickDueSunday)}>
-                  本周日 18:00
+                  {t("composer.preset.sunday")}
                 </button>
               </div>
 
-              <div className="composer-popup-title">相对时间</div>
+              <div className="composer-popup-title">{t("composer.section.relative")}</div>
               <div className="composer-popup-row">
-                {QUICK_DUE_RELATIVE_PRESETS.map((preset) => (
+                {quickDueRelativePresets.map((preset) => (
                   <button
                     key={preset.id}
                     type="button"
@@ -225,7 +236,7 @@ export function TaskComposer({
                       now.setMinutes(now.getMinutes() + preset.minutes);
                       setDueAt(Math.floor(now.getTime() / 1000));
                     }}
-                    title={`从现在起 ${preset.label}`}
+                    title={t("composer.relative.sinceNow", { label: preset.label })}
                   >
                     {preset.label}
                   </button>
@@ -245,11 +256,11 @@ export function TaskComposer({
         )}
 
         {activePopup === "reminder" && (
-          <div className="composer-popup" role="dialog" aria-label="提醒设置">
+          <div className="composer-popup" role="dialog" aria-label={t("composer.popup.reminder")}>
             <div className="composer-popup-section">
-              <div className="composer-popup-title">提醒</div>
+              <div className="composer-popup-title">{t("composer.title.reminder")}</div>
               <div className="composer-popup-row">
-                {REMINDER_KIND_OPTIONS.map((opt) => (
+                {reminderKindOptions.map((opt) => (
                   <button
                     key={opt.id}
                     type="button"
@@ -266,15 +277,19 @@ export function TaskComposer({
               </div>
 
               {reminderKind !== "none" && (
-                <div className="composer-popup-row" aria-label="提醒快捷时间">
-                  {REMINDER_OFFSET_PRESETS.map((preset) => (
+                <div className="composer-popup-row" aria-label={t("composer.title.reminder")}>
+                  {reminderOffsetPresets.map((preset) => (
                     <button
                       key={preset.id}
                       type="button"
                       className={`pill ${reminderOffset === preset.minutes ? "active" : ""}`}
                       onClick={() => setReminderOffset(preset.minutes)}
                       aria-pressed={reminderOffset === preset.minutes}
-                      title={preset.minutes === 0 ? "到期时提醒" : `提前 ${preset.label} 提醒`}
+                      title={
+                        preset.minutes === 0
+                          ? t("reminder.offset.titleAtDue")
+                          : t("reminder.offset.titleBefore", { label: preset.label })
+                      }
                     >
                       {preset.label}
                     </button>
@@ -283,7 +298,7 @@ export function TaskComposer({
               )}
               {reminderKind !== "none" && (
                 <div className="composer-popup-inline">
-                  <span>提前</span>
+                  <span>{t("reminder.offset.before")}</span>
                   <input
                     type="number"
                     min={0}
@@ -291,7 +306,7 @@ export function TaskComposer({
                     value={reminderOffset}
                     onChange={(event) => setReminderOffset(Number(event.currentTarget.value) || 0)}
                   />
-                  <span>分钟</span>
+                  <span>{t("reminder.offset.minutes")}</span>
                 </div>
               )}
             </div>
@@ -299,11 +314,11 @@ export function TaskComposer({
         )}
 
         {activePopup === "repeat" && (
-          <div className="composer-popup" role="dialog" aria-label="循环设置">
+          <div className="composer-popup" role="dialog" aria-label={t("composer.popup.repeat")}>
             <div className="composer-popup-section">
-              <div className="composer-popup-title">循环</div>
+              <div className="composer-popup-title">{t("composer.title.repeat")}</div>
               <div className="composer-popup-row">
-                {REPEAT_TYPE_OPTIONS.map((opt) => (
+                {repeatTypeOptions.map((opt) => (
                   <button
                     key={opt.id}
                     type="button"
@@ -329,15 +344,16 @@ export function TaskComposer({
                     }
                     aria-pressed={repeat.workday_only}
                   >
-                    仅工作日
+                    {t("repeat.workdayOnly")}
                   </button>
                 </div>
               )}
 
               {repeat.type === "weekly" && (
                 <div className="composer-popup-row">
-                  {WEEKDAY_OPTIONS.map((day) => {
+                  {weekdayOptions.map((day) => {
                     const selected = repeat.days.includes(day.id);
+                    const prefix = t("repeat.weekdayPrefix");
                     return (
                       <button
                         key={day.id}
@@ -352,7 +368,7 @@ export function TaskComposer({
                         }}
                         aria-pressed={selected}
                       >
-                        周{day.label}
+                        {prefix ? `${prefix}${day.label}` : day.label}
                       </button>
                     );
                   })}
@@ -361,7 +377,7 @@ export function TaskComposer({
 
               {repeat.type === "monthly" && (
                 <div className="composer-popup-inline">
-                  <span>每月</span>
+                  <span>{t("repeat.monthly")}</span>
                   <input
                     className="composer-popup-number"
                     type="number"
@@ -375,13 +391,13 @@ export function TaskComposer({
                       })
                     }
                   />
-                  <span>号</span>
+                  <span>{t("repeat.dayUnit")}</span>
                 </div>
               )}
 
               {repeat.type === "yearly" && (
                 <div className="composer-popup-inline">
-                  <span>每年</span>
+                  <span>{t("repeat.yearly")}</span>
                   <input
                     className="composer-popup-number"
                     type="number"
@@ -396,7 +412,7 @@ export function TaskComposer({
                       })
                     }
                   />
-                  <span>月</span>
+                  <span>{t("repeat.monthUnit")}</span>
                   <input
                     className="composer-popup-number"
                     type="number"
@@ -411,7 +427,7 @@ export function TaskComposer({
                       })
                     }
                   />
-                  <span>号</span>
+                  <span>{t("repeat.dayUnit")}</span>
                 </div>
               )}
             </div>

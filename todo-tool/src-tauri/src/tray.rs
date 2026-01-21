@@ -1,6 +1,10 @@
 use chrono::{Local, TimeZone};
+#[cfg(all(feature = "app", not(test)))]
+use sys_locale::get_locale;
 
 use crate::models::Task;
+#[cfg(all(feature = "app", not(test)))]
+use crate::models::Settings;
 
 #[cfg(all(feature = "app", not(test)))]
 use crate::events::{NavigatePayload, EVENT_NAVIGATE};
@@ -14,8 +18,79 @@ use tauri::{
 #[cfg(all(feature = "app", not(test)))]
 const TRAY_ID: &str = "main";
 
+#[derive(Clone, Copy)]
+enum TrayLanguage {
+    Zh,
+    En,
+}
+
+#[allow(dead_code)]
+struct TrayLabels {
+    show_quick: &'static str,
+    show_main: &'static str,
+    show_settings: &'static str,
+    quit: &'static str,
+    tooltip_prefix: &'static str,
+}
+
 #[cfg(all(feature = "app", not(test)))]
-pub fn init_tray(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
+fn resolve_tray_language(language: &str) -> TrayLanguage {
+    let normalized = language.trim().to_lowercase();
+    match normalized.as_str() {
+        "zh" => TrayLanguage::Zh,
+        "en" => TrayLanguage::En,
+        _ => detect_system_language(),
+    }
+}
+
+#[cfg(all(feature = "app", not(test)))]
+fn detect_system_language() -> TrayLanguage {
+    let locale = get_locale().unwrap_or_default().to_lowercase();
+    if locale.starts_with("zh") {
+        TrayLanguage::Zh
+    } else {
+        TrayLanguage::En
+    }
+}
+
+fn tray_labels(lang: TrayLanguage) -> TrayLabels {
+    match lang {
+        TrayLanguage::Zh => TrayLabels {
+            show_quick: "打开快捷窗口",
+            show_main: "打开主界面",
+            show_settings: "设置",
+            quit: "退出",
+            tooltip_prefix: "待办",
+        },
+        TrayLanguage::En => TrayLabels {
+            show_quick: "Open quick window",
+            show_main: "Open main window",
+            show_settings: "Settings",
+            quit: "Quit",
+            tooltip_prefix: "Pending",
+        },
+    }
+}
+
+#[cfg(all(feature = "app", not(test)))]
+fn build_tray_menu<R: Runtime, M: Manager<R>>(
+    app: &M,
+    lang: TrayLanguage,
+) -> Result<Menu<R>, Box<dyn std::error::Error>> {
+    let labels = tray_labels(lang);
+    let show_quick = MenuItem::with_id(app, "show_quick", labels.show_quick, true, None::<&str>)?;
+    let show_main = MenuItem::with_id(app, "show_main", labels.show_main, true, None::<&str>)?;
+    let show_settings =
+        MenuItem::with_id(app, "show_settings", labels.show_settings, true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", labels.quit, true, None::<&str>)?;
+    Ok(Menu::with_items(
+        app,
+        &[&show_quick, &show_main, &show_settings, &quit],
+    )?)
+}
+
+#[cfg(all(feature = "app", not(test)))]
+pub fn init_tray(app: &mut App, settings: &Settings) -> Result<(), Box<dyn std::error::Error>> {
     let icon = app.default_window_icon().cloned().ok_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::NotFound,
@@ -23,11 +98,8 @@ pub fn init_tray(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
         )
     })?;
 
-    let show_quick = MenuItem::with_id(app, "show_quick", "打开快捷窗口", true, None::<&str>)?;
-    let show_main = MenuItem::with_id(app, "show_main", "打开主界面", true, None::<&str>)?;
-    let show_settings = MenuItem::with_id(app, "show_settings", "设置", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show_quick, &show_main, &show_settings, &quit])?;
+    let lang = resolve_tray_language(&settings.language);
+    let menu = build_tray_menu(app, lang)?;
 
     let _tray = TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon)
@@ -92,14 +164,18 @@ pub fn init_tray(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(all(feature = "app", not(test)))]
-pub fn update_tray_count<R: Runtime>(app: &AppHandle<R>, tasks: &[Task]) {
-    let tooltip = tray_tooltip(tasks, Local::now());
+pub fn update_tray_count<R: Runtime>(app: &AppHandle<R>, tasks: &[Task], settings: &Settings) {
+    let lang = resolve_tray_language(&settings.language);
+    let tooltip = tray_tooltip(tasks, Local::now(), lang);
 
     // In production we update the real tray icon. In tests we avoid touching platform tray APIs
     // (and keep coverage focused on the tooltip computation logic).
     {
         if let Some(tray) = app.tray_by_id(TRAY_ID) {
             let _ = tray.set_tooltip(Some(tooltip));
+            if let Ok(menu) = build_tray_menu(app, lang) {
+                let _ = tray.set_menu(Some(menu));
+            }
         }
     }
 }
@@ -123,9 +199,10 @@ fn pending_count_at(tasks: &[Task], now: chrono::DateTime<Local>) -> usize {
         .count()
 }
 
-fn tray_tooltip(tasks: &[Task], now: chrono::DateTime<Local>) -> String {
+fn tray_tooltip(tasks: &[Task], now: chrono::DateTime<Local>, lang: TrayLanguage) -> String {
     let count = pending_count_at(tasks, now);
-    format!("待办: {count}")
+    let labels = tray_labels(lang);
+    format!("{}: {count}", labels.tooltip_prefix)
 }
 
 #[cfg(test)]
@@ -173,7 +250,10 @@ mod tests {
         let count = pending_count_at(&tasks, now);
         assert_eq!(count, 2);
 
-        let tooltip = tray_tooltip(&tasks, now);
+        let tooltip = tray_tooltip(&tasks, now, TrayLanguage::Zh);
         assert_eq!(tooltip, "待办: 2");
+
+        let tooltip_en = tray_tooltip(&tasks, now, TrayLanguage::En);
+        assert_eq!(tooltip_en, "Pending: 2");
     }
 }

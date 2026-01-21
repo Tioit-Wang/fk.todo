@@ -2,6 +2,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { ReactNode } from "react";
 
 import { DOM_WINDOW_DRAG_START } from "../events";
+import { useI18n } from "../i18n";
 
 type Variant = "quick" | "main";
 
@@ -17,6 +18,7 @@ type WindowTitlebarProps = {
 };
 
 export function WindowTitlebar({ variant, title, pinned, onTogglePin, onMinimize, right }: WindowTitlebarProps) {
+  const { t } = useI18n();
   const showPin = variant === "quick";
   const appWindow = getCurrentWindow();
 
@@ -37,12 +39,12 @@ export function WindowTitlebar({ variant, title, pinned, onTogglePin, onMinimize
   return (
     <div className={`window-titlebar ${variant}`} onPointerDown={handlePointerDown}>
       <div className="window-titlebar-left">
-        <div className="traffic-lights" aria-label="Window controls">
+        <div className="traffic-lights" aria-label={t("window.controls")}>
           <button
             type="button"
             className="traffic-light red"
-            title="关闭"
-            aria-label="关闭"
+            title={t("window.close")}
+            aria-label={t("window.close")}
             onClick={() => {
               // Use close() to respect backend close-behavior hooks.
               void appWindow.close().catch(() => {});
@@ -51,8 +53,8 @@ export function WindowTitlebar({ variant, title, pinned, onTogglePin, onMinimize
           <button
             type="button"
             className="traffic-light yellow"
-            title="最小化"
-            aria-label="最小化"
+            title={t("window.minimize")}
+            aria-label={t("window.minimize")}
             onClick={() => {
               if (onMinimize) {
                 void Promise.resolve(onMinimize()).catch(() => {});
@@ -65,8 +67,8 @@ export function WindowTitlebar({ variant, title, pinned, onTogglePin, onMinimize
             <button
               type="button"
               className={`traffic-light green ${pinned ? "active" : ""}`}
-              title={pinned ? "取消置顶" : "置顶"}
-              aria-label={pinned ? "取消置顶" : "置顶"}
+              title={pinned ? t("window.unpin") : t("window.pin")}
+              aria-label={pinned ? t("window.unpin") : t("window.pin")}
               aria-pressed={Boolean(pinned)}
               onClick={() => {
                 void Promise.resolve(onTogglePin?.()).catch(() => {});

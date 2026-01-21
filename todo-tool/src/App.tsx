@@ -42,6 +42,7 @@ import {
   updateTask,
 } from "./api";
 import { formatDue } from "./date";
+import { I18nProvider, makeTranslator, resolveAppLanguage } from "./i18n";
 import { newTask } from "./logic";
 import { TAURI_NAVIGATE } from "./events";
 import { detectPlatform } from "./platform";
@@ -128,6 +129,9 @@ function App() {
   } | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
 
+  const appLang = resolveAppLanguage(settings?.language);
+  const t = useMemo(() => makeTranslator(appLang), [appLang]);
+
   // Keep a mutable pointer for async callbacks so we can read latest settings without stale closures.
   const settingsRef = useRef<Settings | null>(null);
 
@@ -207,8 +211,8 @@ function App() {
       {
         id: NOTIFICATION_ACTION_TYPE,
         actions: [
-          { id: NOTIFICATION_ACTION_SNOOZE, title: "稍后 5 分钟" },
-          { id: NOTIFICATION_ACTION_COMPLETE, title: "完成" },
+          { id: NOTIFICATION_ACTION_SNOOZE, title: t("banner.snooze5") },
+          { id: NOTIFICATION_ACTION_COMPLETE, title: t("banner.complete") },
         ],
       },
     ]).catch(() => {});
@@ -256,7 +260,7 @@ function App() {
         actionListener.unregister();
       }
     };
-  }, []);
+  }, [t]);
 
   // Load initial state and subscribe to backend events.
   useEffect(() => {
@@ -343,7 +347,7 @@ function App() {
                 // so we can safely catch (whether it throws synchronously or returns a Promise).
                 void Promise.resolve(
                   sendNotification({
-                    title: "普通提醒",
+                    title: t("banner.normalReminder"),
                     body: `${task.title} (${formatDue(task.due_at)})`,
                     actionTypeId: NOTIFICATION_ACTION_TYPE,
                     extra: { taskId: task.id },
@@ -369,13 +373,17 @@ function App() {
       if (unlistenState) unlistenState();
       if (unlistenReminder) unlistenReminder();
     };
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     settingsRef.current = settings;
     if (!settings) return;
     document.documentElement.dataset.theme = settings.theme;
   }, [settings]);
+
+  useEffect(() => {
+    document.documentElement.lang = appLang;
+  }, [appLang]);
 
   useEffect(() => {
     document.documentElement.dataset.view = view;
@@ -387,8 +395,7 @@ function App() {
     document.documentElement.dataset.platform = platform;
 
     // We use custom chrome + rounded UI in Windows (especially for transparent windows).
-    // Native window shadows can introduce a rectangular outline, so disable them and let the
-    // frontend render a consistent shadow instead.
+    // Disable native window shadows to keep the UI flat and consistent with our CSS.
     //
     // On macOS, the system window shadow/corners generally look correct already, and we avoid
     // relying on `transparent` without enabling private APIs.
@@ -568,7 +575,7 @@ function App() {
 
     if (task.repeat.type !== "none") {
       const ok = confirm(
-        "该任务为循环任务，取消完成不会删除已经生成的下一期任务，仍要继续吗？",
+        t("confirm.uncompleteRepeatTask"),
       );
       if (!ok) return;
     }
@@ -596,7 +603,7 @@ function App() {
     try {
       const result = await deleteTask(deleteCandidate.id);
       if (!result.ok) {
-        alert(result.error ?? "删除失败");
+        alert(result.error ?? t("alert.deleteFailed"));
         return;
       }
       setConfirmDeleteTaskId(null);
@@ -771,25 +778,28 @@ function App() {
       : null;
 
   const updatePromptTitle = pendingUpdate
-    ? `发现新版本 v${pendingUpdate.version}`
-    : "发现新版本";
+    ? t("update.foundWithVersion", { version: pendingUpdate.version })
+    : t("update.found");
   const updatePromptDescription = (() => {
     if (!pendingUpdate) return undefined;
 
     if (updateBusy) {
       if (updatePercent !== null)
-        return `正在下载并安装更新... ${updatePercent}%`;
+        return t("update.downloadingPercent", { percent: updatePercent });
       if (updateProgress?.downloaded) {
         const mb = Math.max(
           1,
           Math.round(updateProgress.downloaded / 1024 / 1024),
         );
-        return `正在下载并安装更新... (${mb}MB)`;
+        return t("update.downloadingMb", { mb });
       }
-      return "正在下载并安装更新...";
+      return t("update.downloading");
     }
 
-    const versionLine = `当前版本 ${pendingUpdate.currentVersion} -> ${pendingUpdate.version}`;
+    const versionLine = t("update.versionLine", {
+      current: pendingUpdate.currentVersion,
+      next: pendingUpdate.version,
+    });
     const notes = (pendingUpdate.body ?? "")
       .replace(/\r?\n/g, " ")
       .replace(/\s+/g, " ")
@@ -801,12 +811,13 @@ function App() {
 
   const updateConfirmText = updateBusy
     ? updatePercent === null
-      ? "更新中..."
-      : `更新中... ${updatePercent}%`
-    : "立即更新";
+      ? t("update.updating")
+      : t("update.updatingPercent", { percent: updatePercent })
+    : t("update.updateNow");
 
   return (
-    <div className="app-container">
+    <I18nProvider lang={appLang}>
+      <div className="app-container">
       {view === "quick" && (
         <QuickView
           tasks={tasks}
@@ -878,7 +889,7 @@ function App() {
         title={updatePromptTitle}
         description={updatePromptDescription}
         confirmText={updateConfirmText}
-        cancelText="稍后"
+        cancelText={t("update.later")}
         busy={updateBusy}
         onConfirm={handleUpdateConfirm}
         onCancel={dismissUpdatePrompt}
@@ -886,20 +897,20 @@ function App() {
 
       <ConfirmDialog
         open={Boolean(updateError)}
-        title="更新失败"
+        title={t("update.failed")}
         description={updateError ?? undefined}
-        confirmText="重试"
-        cancelText="关闭"
+        confirmText={t("update.retry")}
+        cancelText={t("common.close")}
         onConfirm={() => void handleUpdateErrorRetry()}
         onCancel={() => setUpdateError(null)}
       />
 
       <ConfirmDialog
         open={Boolean(deleteCandidate)}
-        title="确认删除任务？"
+        title={t("confirmDelete.title")}
         description={deleteCandidate ? deleteCandidate.title : undefined}
-        confirmText={confirmDeleteBusy ? "删除中..." : "删除"}
-        cancelText="取消"
+        confirmText={confirmDeleteBusy ? t("common.deleting") : t("common.delete")}
+        cancelText={t("common.cancel")}
         tone="danger"
         busy={confirmDeleteBusy}
         onConfirm={handleConfirmDelete}
@@ -908,7 +919,8 @@ function App() {
           setConfirmDeleteTaskId(null);
         }}
       />
-    </div>
+      </div>
+    </I18nProvider>
   );
 }
 

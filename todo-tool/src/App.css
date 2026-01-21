@@ -249,6 +249,17 @@ textarea:focus-visible {
   height: 16px;
 }
 
+.icon-button {
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  line-height: 0;
+}
+
+.icon-button .icon {
+  display: block;
+}
+
 .app-container {
   height: 100%;
   color: var(--text);
@@ -351,7 +362,9 @@ textarea:focus-visible {
 }
 
 .traffic-light.green.active {
-  box-shadow: 0 0 0 3px rgba(40, 200, 64, 0.28);
+  /* Use an outline instead of an outer shadow to keep the UI flat. */
+  outline: 3px solid rgba(40, 200, 64, 0.28);
+  outline-offset: 0;
 }
 
 .traffic-light:hover:not(:disabled) {
@@ -415,6 +428,7 @@ textarea:focus-visible {
   height: 100%;
   display: flex;
   flex-direction: column;
+  position: relative;
   /* Match main window styling; quick adds transparency + optional blur on top. */
   background: var(--main-bg);
   border: 1px solid var(--border);
@@ -422,7 +436,6 @@ textarea:focus-visible {
   overflow: hidden;
   backdrop-filter: blur(24px) saturate(160%);
   -webkit-backdrop-filter: blur(24px) saturate(160%);
-  box-shadow: 0 24px 60px var(--shadow);
 }
 
 .quick-window.blur-off {
@@ -984,7 +997,6 @@ textarea:focus-visible {
   background: var(--panel-strong);
   padding: 12px;
   z-index: 20;
-  box-shadow: 0 24px 60px var(--shadow);
 }
 
 .composer-popup-section {
@@ -1184,7 +1196,6 @@ textarea:focus-visible {
   border: 1px solid var(--border-strong);
   overflow: hidden;
   background: var(--panel-strong);
-  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.35);
   backdrop-filter: blur(22px) saturate(160%);
   -webkit-backdrop-filter: blur(22px) saturate(160%);
   animation: forced-reminder-pop 0.18s ease-out;
@@ -1248,7 +1259,9 @@ textarea:focus-visible {
   width: 10px;
   height: 10px;
   border-radius: 999px;
-  box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.08);
+  /* Use an outline instead of an outer shadow to keep the UI flat. */
+  outline: 4px solid rgba(0, 0, 0, 0.08);
+  outline-offset: 0;
 }
 
 .forced-reminder-queue {
@@ -1382,7 +1395,6 @@ textarea:focus-visible {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: 0 24px 60px var(--shadow);
 }
 
 .main-content {
@@ -1659,7 +1671,6 @@ textarea:focus-visible {
   background: var(--panel-strong);
   border: 1px solid var(--border);
   border-radius: 16px;
-  box-shadow: 0 24px 60px var(--shadow);
 }
 
 .task-modal-header {
@@ -1721,7 +1732,6 @@ textarea:focus-visible {
   background: var(--panel-strong);
   border: 1px solid var(--border);
   border-radius: 16px;
-  box-shadow: 0 24px 60px var(--shadow);
   padding: 16px;
   display: grid;
   gap: 14px;

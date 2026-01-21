@@ -54,6 +54,7 @@ export interface Task {
 export interface Settings {
   shortcut: string;
   theme: string;
+  language: "auto" | "zh" | "en";
   sound_enabled: boolean;
   close_behavior: CloseBehavior;
   minimize_behavior: MinimizeBehavior;

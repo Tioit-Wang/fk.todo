@@ -1,24 +1,32 @@
+import type { Translator } from "./i18n";
 import type { RepeatRule } from "./types";
 
 // Repeat rules are edited in multiple places (composer + edit modal) and shown on task cards.
 // Keeping option lists + helpers in one module avoids drift across the UI.
-export const REPEAT_TYPE_OPTIONS = [
-  { id: "none", label: "不循环" },
-  { id: "daily", label: "每日" },
-  { id: "weekly", label: "每周" },
-  { id: "monthly", label: "每月" },
-  { id: "yearly", label: "每年" },
-] as const;
+export type RepeatTypeOption = { id: RepeatRule["type"]; label: string };
+export type WeekdayOption = { id: number; label: string };
 
-export const WEEKDAY_OPTIONS = [
-  { id: 1, label: "一" },
-  { id: 2, label: "二" },
-  { id: 3, label: "三" },
-  { id: 4, label: "四" },
-  { id: 5, label: "五" },
-  { id: 6, label: "六" },
-  { id: 7, label: "日" },
-] as const;
+export function buildRepeatTypeOptions(t: Translator): RepeatTypeOption[] {
+  return [
+    { id: "none", label: t("repeat.none") },
+    { id: "daily", label: t("repeat.daily") },
+    { id: "weekly", label: t("repeat.weekly") },
+    { id: "monthly", label: t("repeat.monthly") },
+    { id: "yearly", label: t("repeat.yearly") },
+  ];
+}
+
+export function buildWeekdayOptions(t: Translator): WeekdayOption[] {
+  return [
+    { id: 1, label: t("weekday.1") },
+    { id: 2, label: t("weekday.2") },
+    { id: 3, label: t("weekday.3") },
+    { id: 4, label: t("weekday.4") },
+    { id: 5, label: t("weekday.5") },
+    { id: 6, label: t("weekday.6") },
+    { id: 7, label: t("weekday.7") },
+  ];
+}
 
 export function defaultRepeatRule(type: RepeatRule["type"]): RepeatRule {
   const now = new Date();
@@ -37,19 +45,22 @@ export function defaultRepeatRule(type: RepeatRule["type"]): RepeatRule {
   }
 }
 
-export function formatRepeatRule(rule: RepeatRule): string {
+export function formatRepeatRule(rule: RepeatRule, t: Translator): string {
+  const weekdayOptions = buildWeekdayOptions(t);
   switch (rule.type) {
     case "none":
-      return "不循环";
+      return t("repeat.format.none");
     case "daily":
-      return rule.workday_only ? "每日(仅工作日)" : "每日";
+      return rule.workday_only ? t("repeat.format.dailyWorkday") : t("repeat.format.daily");
     case "weekly":
-      return `每周(${rule.days
-        .map((day) => WEEKDAY_OPTIONS.find((opt) => opt.id === day)?.label ?? day)
-        .join(",")})`;
+      return t("repeat.format.weekly", {
+        days: rule.days
+          .map((day) => weekdayOptions.find((opt) => opt.id === day)?.label ?? String(day))
+          .join(", "),
+      });
     case "monthly":
-      return `每月(${rule.day}号)`;
+      return t("repeat.format.monthly", { day: rule.day });
     case "yearly":
-      return `每年(${rule.month}-${rule.day})`;
+      return t("repeat.format.yearly", { month: rule.month, day: rule.day });
   }
 }

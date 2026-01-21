@@ -4,7 +4,9 @@ import { formatDue } from "../date";
 import { formatRepeatRule } from "../repeat";
 import { isOverdue } from "../scheduler";
 import type { Task } from "../types";
+import { useI18n } from "../i18n";
 
+import { IconButton } from "./IconButton";
 import { Icons } from "./icons";
 
 export function TaskCard({
@@ -32,6 +34,7 @@ export function TaskCard({
   onDelete: () => void;
   onEdit: () => void;
 }) {
+  const { t } = useI18n();
   const now = Math.floor(Date.now() / 1000);
   const overdue = isOverdue(task, now);
 
@@ -46,8 +49,8 @@ export function TaskCard({
           type="button"
           className="task-checkbox"
           onClick={onToggleComplete}
-          title={task.completed ? "标记为未完成" : "标记为完成"}
-          aria-label={task.completed ? "标记为未完成" : "标记为完成"}
+          title={task.completed ? t("task.markIncomplete") : t("task.markComplete")}
+          aria-label={task.completed ? t("task.markIncomplete") : t("task.markComplete")}
           aria-pressed={task.completed}
         >
           {task.completed && <Icons.Check />}
@@ -66,7 +69,7 @@ export function TaskCard({
               </span>
             )}
             {task.repeat.type !== "none" && (
-              <span className="task-chip" title={formatRepeatRule(task.repeat)}>
+              <span className="task-chip" title={formatRepeatRule(task.repeat, t)}>
                 <Icons.Repeat />
               </span>
             )}
@@ -81,30 +84,29 @@ export function TaskCard({
         <div className="task-icons">
           {showMove && (
             <>
-              <button type="button" className="task-icon-btn" onClick={onMoveUp} title="上移" aria-label="上移">
+              <IconButton className="task-icon-btn" onClick={onMoveUp} title={t("task.moveUp")} label={t("task.moveUp")}>
                 <Icons.ArrowUp />
-              </button>
-              <button type="button" className="task-icon-btn" onClick={onMoveDown} title="下移" aria-label="下移">
+              </IconButton>
+              <IconButton className="task-icon-btn" onClick={onMoveDown} title={t("task.moveDown")} label={t("task.moveDown")}>
                 <Icons.ArrowDown />
-              </button>
+              </IconButton>
             </>
           )}
-          <button
-            type="button"
+          <IconButton
             className={`task-icon-btn important ${task.important ? "active" : ""}`}
             onClick={onToggleImportant}
-            title={task.important ? "取消重要" : "标记重要"}
-            aria-label={task.important ? "取消标记重要" : "标记为重要"}
+            title={task.important ? t("task.unmarkImportant") : t("task.markImportant")}
+            label={task.important ? t("task.unmarkImportant") : t("task.markImportant")}
             aria-pressed={task.important}
           >
             <Icons.Star />
-          </button>
-          <button type="button" className="task-icon-btn" onClick={onDelete} title="删除" aria-label="删除任务">
+          </IconButton>
+          <IconButton className="task-icon-btn" onClick={onDelete} title={t("common.delete")} label={t("task.delete")}>
             <Icons.Trash />
-          </button>
-          <button type="button" className="task-icon-btn" onClick={onEdit} title="编辑" aria-label="编辑任务">
+          </IconButton>
+          <IconButton className="task-icon-btn" onClick={onEdit} title={t("common.edit")} label={t("task.edit")}>
             <Icons.Edit />
-          </button>
+          </IconButton>
         </div>
       </div>
     </div>

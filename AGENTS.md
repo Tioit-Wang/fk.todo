@@ -1,6 +1,6 @@
-# fk.todo / Todo Tool - Agent Guide (Global)
+# fk.todo / MustDo（必做清单） - Agent Guide (Global)
 
-本仓库是一个「桌面级 Todo 工具」项目：Tauri v2（Rust）+ React + TypeScript（Vite）。
+本仓库是一个「桌面级 Todo 工具」项目（品牌：MustDo / 必做清单）：Tauri v2（Rust）+ React + TypeScript（Vite）。
 
 如果你是自动化/AI 代理（agent），请先读这份全局说明，再按任务进入前端或后端的专用 AGENTS 文档：
 

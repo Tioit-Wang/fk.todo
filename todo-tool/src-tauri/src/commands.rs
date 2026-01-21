@@ -26,7 +26,7 @@ pub struct CommandResult<T> {
 trait CommandCtx {
     fn app_data_dir(&self) -> Result<PathBuf, StorageError>;
     fn emit_state_updated(&self, payload: StatePayload);
-    fn update_tray_count(&self, tasks: &[Task]);
+    fn update_tray_count(&self, tasks: &[Task], settings: &Settings);
     fn shortcut_unregister_all(&self);
     fn shortcut_validate(&self, shortcut: &str) -> Result<(), String>;
     fn shortcut_register(&self, shortcut: &str) -> Result<(), String>;
@@ -61,7 +61,7 @@ fn persist(ctx: &impl CommandCtx, state: &AppState) -> Result<(), StorageError> 
     }
     storage.save_tasks(&state.tasks_file(), should_backup)?;
     storage.save_settings(&state.settings_file())?;
-    ctx.update_tray_count(&state.tasks());
+    ctx.update_tray_count(&state.tasks(), &settings);
     let payload = StatePayload {
         tasks: state.tasks(),
         settings: state.settings(),
@@ -142,8 +142,8 @@ impl<R: Runtime> CommandCtx for TauriCommandCtx<'_, R> {
         let _ = self.app.emit(EVENT_STATE_UPDATED, payload);
     }
 
-    fn update_tray_count(&self, tasks: &[Task]) {
-        update_tray_count(self.app, tasks);
+    fn update_tray_count(&self, tasks: &[Task], settings: &Settings) {
+        update_tray_count(self.app, tasks, settings);
     }
 
     fn shortcut_unregister_all(&self) {
@@ -287,9 +287,15 @@ fn update_settings_impl(
     let previous = state.settings();
     let previous_shortcut = previous.shortcut.trim().to_string();
     let next_shortcut = settings.shortcut.trim().to_string();
+    let previous_language = previous.language.trim().to_lowercase();
+    let next_language = settings.language.trim().to_lowercase();
 
     // Normalize user input so tests/production behave the same and the persisted config is stable.
     settings.shortcut = next_shortcut.clone();
+    settings.language = match next_language.as_str() {
+        "auto" | "zh" | "en" => next_language.clone(),
+        _ => Settings::default().language,
+    };
 
     // Shortcut validation/registration is the #1 place users can lock themselves out:
     // if we unregister the old one and fail to register the new one, the app becomes unreachable
@@ -308,6 +314,10 @@ fn update_settings_impl(
             return err(&format!("failed to register shortcut: {register_err}"));
         }
     }
+
+    // Currently language is a UI concern (and must never brick the app). We normalize above and
+    // keep persistence best-effort only through the usual `persist()` path.
+    let _language_changed = previous_language != settings.language;
 
     state.update_settings(settings.clone());
     if let Err(error) = persist(ctx, state) {
@@ -549,7 +559,7 @@ fn restore_backup_impl(
         Err(error) => return err(&format!("storage error: {error:?}")),
     };
     state.replace_tasks(data.tasks.clone());
-    ctx.update_tray_count(&state.tasks());
+    ctx.update_tray_count(&state.tasks(), &state.settings());
     let payload = StatePayload {
         tasks: state.tasks(),
         settings: state.settings(),
@@ -576,7 +586,7 @@ fn import_backup_impl(
         Err(error) => return err(&format!("storage error: {error:?}")),
     };
     state.replace_tasks(data.tasks.clone());
-    ctx.update_tray_count(&state.tasks());
+    ctx.update_tray_count(&state.tasks(), &state.settings());
     let payload = StatePayload {
         tasks: state.tasks(),
         settings: state.settings(),
@@ -687,7 +697,7 @@ mod tests {
             self.emitted.lock().unwrap().push(payload);
         }
 
-        fn update_tray_count(&self, _tasks: &[Task]) {
+        fn update_tray_count(&self, _tasks: &[Task], _settings: &Settings) {
             *self.tray_updates.lock().unwrap() += 1;
         }
 

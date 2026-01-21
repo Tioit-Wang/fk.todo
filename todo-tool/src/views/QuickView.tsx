@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { getCurrentWindow, LogicalPosition, LogicalSize } from "@tauri-apps/api/window";
+import {
+  availableMonitors,
+  currentMonitor,
+  getCurrentWindow,
+  PhysicalPosition,
+  PhysicalSize,
+} from "@tauri-apps/api/window";
 
 import { TaskComposer, type TaskComposerDraft } from "../components/TaskComposer";
 import { NotificationBanner } from "../components/NotificationBanner";
@@ -8,6 +14,7 @@ import { TaskCard } from "../components/TaskCard";
 import { WindowTitlebar } from "../components/WindowTitlebar";
 import { Icons } from "../components/icons";
 import { DOM_WINDOW_DRAG_START } from "../events";
+import { useI18n } from "../i18n";
 import { visibleQuickTasks, type QuickSortMode, type QuickTab } from "../logic";
 import type { Settings, Task } from "../types";
 
@@ -19,17 +26,7 @@ function isQuickSort(value: string): value is QuickSortMode {
   return value === "default" || value === "created";
 }
 
-const QUICK_TABS = [
-  { id: "todo", label: "待完成" },
-  { id: "today", label: "今日" },
-  { id: "all", label: "全部" },
-  { id: "done", label: "已完成" },
-] as const;
-
-const QUICK_SORT_OPTIONS = [
-  { id: "default", label: "默认排序" },
-  { id: "created", label: "创建时间" },
-] as const;
+const QUICK_WINDOW_INNER = { width: 500, height: 650 } as const;
 
 export function QuickView({
   tasks,
@@ -58,6 +55,7 @@ export function QuickView({
   onNormalSnooze: (task: Task) => Promise<void> | void;
   onNormalComplete: (task: Task) => Promise<void> | void;
 }) {
+  const { t } = useI18n();
   const [tab, setTab] = useState<QuickTab>("todo");
   const [quickSort, setQuickSort] = useState<QuickSortMode>("default");
 
@@ -67,6 +65,24 @@ export function QuickView({
   const isModalOpenRef = useRef(isModalOpen);
   const ignoreFocusLossUntilRef = useRef(0);
   const focusLossCheckTimerRef = useRef<number | null>(null);
+
+  const quickTabs = useMemo<{ id: QuickTab; label: string }[]>(
+    () => [
+      { id: "todo", label: t("quick.tab.todo") },
+      { id: "today", label: t("quick.tab.today") },
+      { id: "all", label: t("quick.tab.all") },
+      { id: "done", label: t("quick.tab.done") },
+    ],
+    [t],
+  );
+
+  const quickSortOptions = useMemo(
+    () => [
+      { id: "default", label: t("quick.sort.default") },
+      { id: "created", label: t("quick.sort.created") },
+    ],
+    [t],
+  );
 
   useEffect(() => {
     settingsRef.current = settings;
@@ -105,24 +121,91 @@ export function QuickView({
     const appWindow = getCurrentWindow();
 
     if (!quickWindowApplied.current) {
-      if (settings.quick_bounds) {
-        const bounds = settings.quick_bounds;
-        void appWindow.setSize(new LogicalSize(bounds.width, bounds.height)).catch(() => {});
-        void appWindow.setPosition(new LogicalPosition(bounds.x, bounds.y)).catch(() => {});
-      } else {
-        void appWindow
-          .outerSize()
-          .then((size) => {
-            const availableWidth = window.screen.availWidth || window.screen.width;
-            const availableHeight = window.screen.availHeight || window.screen.height;
-            const centerX = Math.max(0, Math.round((availableWidth - size.width) / 2));
-            const centerY = Math.max(0, Math.round((availableHeight - size.height) / 2));
-            const offsetY = Math.round(availableHeight * 0.15);
-            void appWindow.setPosition(new LogicalPosition(centerX, centerY + offsetY)).catch(() => {});
-          })
-          .catch(() => {});
-      }
       quickWindowApplied.current = true;
+      void (async () => {
+        try {
+          const saved = settings.quick_bounds;
+          const hasSaved =
+            Boolean(saved) &&
+            [saved?.x, saved?.y].every((value) => typeof value === "number" && Number.isFinite(value));
+
+          const monitor = await currentMonitor().catch(() => null);
+          const workArea = monitor?.workArea;
+          const areaX = workArea?.position.x ?? monitor?.position.x ?? 0;
+          const areaY = workArea?.position.y ?? monitor?.position.y ?? 0;
+          const logicalAreaW = window.screen.availWidth || window.screen.width || window.innerWidth;
+          const logicalAreaH = window.screen.availHeight || window.screen.height || window.innerHeight;
+          const scale =
+            monitor?.scaleFactor ?? (await appWindow.scaleFactor().catch(() => window.devicePixelRatio || 1));
+          const areaW = workArea?.size.width ?? monitor?.size.width ?? Math.round(logicalAreaW * scale);
+          const areaH = workArea?.size.height ?? monitor?.size.height ?? Math.round(logicalAreaH * scale);
+
+          const width = Math.round(QUICK_WINDOW_INNER.width * scale);
+          const height = Math.round(QUICK_WINDOW_INNER.height * scale);
+
+          await appWindow.setSize(new PhysicalSize(width, height)).catch(() => {});
+
+          const shouldApplySaved = hasSaved
+            ? await (async () => {
+                try {
+                  const monitors = await availableMonitors();
+                  if (monitors.length === 0) return true;
+                  const minVisiblePx = 40;
+                  const rect = {
+                    x: saved!.x,
+                    y: saved!.y,
+                    width,
+                    height,
+                  };
+                  return monitors.some((monitor) => {
+                    const mx = monitor.workArea.position.x;
+                    const my = monitor.workArea.position.y;
+                    const mw = monitor.workArea.size.width;
+                    const mh = monitor.workArea.size.height;
+                    const ix = Math.max(rect.x, mx);
+                    const iy = Math.max(rect.y, my);
+                    const ax = Math.min(rect.x + rect.width, mx + mw);
+                    const ay = Math.min(rect.y + rect.height, my + mh);
+                    const iw = Math.max(0, ax - ix);
+                    const ih = Math.max(0, ay - iy);
+                    return iw >= minVisiblePx && ih >= minVisiblePx;
+                  });
+                } catch {
+                  // Best-effort: if monitor APIs fail, trust persisted bounds.
+                  return true;
+                }
+              })()
+            : false;
+
+          if (hasSaved && shouldApplySaved) {
+            await appWindow.setPosition(new PhysicalPosition(saved!.x, saved!.y)).catch(() => {});
+            return;
+          }
+
+          const centerX = areaX + Math.round((areaW - width) / 2);
+          const centerY = areaY + Math.round((areaH - height) / 2);
+          const offsetY = Math.round(areaH * 0.15);
+          const y = Math.min(areaY + areaH - height, Math.max(areaY, centerY + offsetY));
+          await appWindow.setPosition(new PhysicalPosition(centerX, y)).catch(() => {});
+
+          // If the saved bounds are off-screen, persist the corrected position so the quick window
+          // remains reachable after monitor/layout changes.
+          if (hasSaved && !shouldApplySaved) {
+            const base = settingsRef.current ?? settings;
+            void onUpdateSettings({
+              ...base,
+              quick_bounds: {
+                x: centerX,
+                y,
+                width,
+                height,
+              },
+            }).catch(() => {});
+          }
+        } catch {
+          // Best-effort: if window APIs fail, keep the quick window usable with default bounds.
+        }
+      })();
     }
 
     // Some platforms lose the always-on-top state after hide()/show() cycles.
@@ -142,7 +225,7 @@ export function QuickView({
       }
       quickSaveTimer.current = window.setTimeout(async () => {
         try {
-          const [pos, size] = await Promise.all([appWindow.outerPosition(), appWindow.outerSize()]);
+          const [pos, size] = await Promise.all([appWindow.outerPosition(), appWindow.innerSize()]);
 
           // Use the latest settings snapshot to avoid overwriting newer changes (theme/sound/etc)
           // with a stale closure while we're only trying to persist window bounds.
@@ -164,7 +247,6 @@ export function QuickView({
 
     let disposed = false;
     let unlistenMoved: (() => void) | null = null;
-    let unlistenResized: (() => void) | null = null;
     let unlistenFocus: (() => void) | null = null;
 
     (async () => {
@@ -174,13 +256,6 @@ export function QuickView({
         return;
       }
       unlistenMoved = moved;
-
-      const resized = await appWindow.onResized(scheduleSave);
-      if (disposed) {
-        resized();
-        return;
-      }
-      unlistenResized = resized;
 
       const focused = await appWindow.onFocusChanged(({ payload }) => {
         if (!payload) return;
@@ -196,7 +271,6 @@ export function QuickView({
     return () => {
       disposed = true;
       if (unlistenMoved) unlistenMoved();
-      if (unlistenResized) unlistenResized();
       if (unlistenFocus) unlistenFocus();
       if (quickSaveTimer.current) {
         window.clearTimeout(quickSaveTimer.current);
@@ -291,7 +365,7 @@ export function QuickView({
       <NotificationBanner tasks={normalTasks} onSnooze={onNormalSnooze} onComplete={onNormalComplete} />
 
       <div className="quick-filter-tabs">
-        {QUICK_TABS.map((t) => (
+        {quickTabs.map((t) => (
           <button
             key={t.id}
             type="button"
@@ -305,7 +379,7 @@ export function QuickView({
         <div className="quick-sort">
           <Icons.Sort />
           <select value={quickSort} onChange={(event) => setQuickSort(event.currentTarget.value as QuickSortMode)}>
-            {QUICK_SORT_OPTIONS.map((opt) => (
+            {quickSortOptions.map((opt) => (
               <option key={opt.id} value={opt.id}>
                 {opt.label}
               </option>

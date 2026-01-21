@@ -4,9 +4,11 @@ import { isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notif
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 import { createBackup, createTask, importBackup, listBackups, restoreBackup, type BackupEntry } from "../api";
+import { useI18n } from "../i18n";
 import { buildAiNovelAssistantSampleTasks, taskIsAiNovelAssistantSample } from "../sampleData";
 import type { BackupSchedule, Settings, Task } from "../types";
 
+import { IconButton } from "./IconButton";
 import { Icons } from "./icons";
 
 type PermissionStatus = "unknown" | "granted" | "denied";
@@ -32,6 +34,7 @@ export function SettingsPanel({
   onClose: () => void;
   onUpdateSettings: (next: Settings) => Promise<boolean>;
 }) {
+  const { t } = useI18n();
   const [permissionStatus, setPermissionStatus] = useState<PermissionStatus>("unknown");
   const [backups, setBackups] = useState<BackupEntry[]>([]);
   const [importPath, setImportPath] = useState("");
@@ -89,13 +92,13 @@ export function SettingsPanel({
   }
 
   async function handleRestoreBackup(name: string) {
-    if (!confirm("恢复将覆盖当前数据，确认继续？")) return;
+    if (!confirm(t("settings.backup.restoreConfirm"))) return;
     await restoreBackup(name);
   }
 
   async function handleImportBackup() {
     if (!importPath.trim()) return;
-    if (!confirm("恢复将覆盖当前数据，确认继续？")) return;
+    if (!confirm(t("settings.backup.restoreConfirm"))) return;
     await importBackup(importPath.trim());
     setImportPath("");
   }
@@ -106,8 +109,8 @@ export function SettingsPanel({
     const alreadySeeded = tasks.some(taskIsAiNovelAssistantSample);
 
     const ok = alreadySeeded
-      ? confirm(`检测到已有 AI 小说助手示例任务。\n继续添加将产生重复（共 ${samples.length} 条）。\n仍然继续吗？`)
-      : confirm(`将向当前数据添加 ${samples.length} 条示例任务（AI 小说助手开发计划）。\n建议：添加前会自动创建一次备份。\n继续吗？`);
+      ? confirm(t("settings.samples.confirm.duplicate", { count: samples.length }))
+      : confirm(t("settings.samples.confirm.fresh", { count: samples.length }));
     if (!ok) return;
 
     setSeedBusy(true);
@@ -128,9 +131,17 @@ export function SettingsPanel({
       }
 
       if (errors.length > 0) {
-        alert(`已添加 ${created}/${samples.length} 条示例任务。\n部分失败：\n${errors.slice(0, 5).join("\n")}${errors.length > 5 ? "\n..." : ""}`);
+        const errorLines =
+          errors.slice(0, 5).join("\n") + (errors.length > 5 ? "\n..." : "");
+        alert(
+          t("settings.samples.result.partial", {
+            created,
+            total: samples.length,
+            errors: errorLines,
+          }),
+        );
       } else {
-        alert(`已添加 ${created} 条示例任务。`);
+        alert(t("settings.samples.result.ok", { created }));
       }
     } finally {
       setSeedBusy(false);
@@ -164,17 +175,17 @@ export function SettingsPanel({
 
   return (
     <div className="settings-overlay" onClick={onClose}>
-      <div className="settings-panel" onClick={(event) => event.stopPropagation()}>
-        <div className="settings-header">
-          <h2>设置</h2>
-          <button type="button" className="task-icon-btn" onClick={onClose} aria-label="关闭设置" title="关闭">
-            <Icons.X />
-          </button>
-        </div>
+        <div className="settings-panel" onClick={(event) => event.stopPropagation()}>
+          <div className="settings-header">
+            <h2>{t("settings.title")}</h2>
+            <IconButton className="task-icon-btn" onClick={onClose} label={t("common.close")} title={t("common.close")}>
+              <Icons.X />
+            </IconButton>
+          </div>
 
         <div className="settings-section">
           <div className="settings-row">
-            <label>快捷键</label>
+            <label>{t("settings.shortcut")}</label>
             <input
               value={shortcutDraft}
               onChange={(event) => setShortcutDraft(event.currentTarget.value)}
@@ -188,7 +199,7 @@ export function SettingsPanel({
             />
           </div>
           <div className="settings-row">
-            <label>主题</label>
+            <label>{t("settings.theme")}</label>
             <select
               value={settings.theme}
               onChange={(event) =>
@@ -198,12 +209,28 @@ export function SettingsPanel({
                 })
               }
             >
-              <option value="light">浅色</option>
-              <option value="dark">深色</option>
+              <option value="light">{t("settings.theme.light")}</option>
+              <option value="dark">{t("settings.theme.dark")}</option>
             </select>
           </div>
           <div className="settings-row">
-            <label>快捷界面毛玻璃</label>
+            <label>{t("settings.language")}</label>
+            <select
+              value={settings.language}
+              onChange={(event) =>
+                void onUpdateSettings({
+                  ...settings,
+                  language: event.currentTarget.value as Settings["language"],
+                })
+              }
+            >
+              <option value="auto">{t("settings.language.auto")}</option>
+              <option value="zh">{t("settings.language.zh")}</option>
+              <option value="en">{t("settings.language.en")}</option>
+            </select>
+          </div>
+          <div className="settings-row">
+            <label>{t("settings.quickBlur")}</label>
             <button
               type="button"
               className={`pill ${settings.quick_blur_enabled ? "active" : ""}`}
@@ -215,11 +242,11 @@ export function SettingsPanel({
               }
               aria-pressed={settings.quick_blur_enabled}
             >
-              {settings.quick_blur_enabled ? "开启" : "关闭"}
+              {settings.quick_blur_enabled ? t("common.on") : t("common.off")}
             </button>
           </div>
           <div className="settings-row">
-            <label>提示音</label>
+            <label>{t("settings.sound")}</label>
             <button
               type="button"
               className={`pill ${settings.sound_enabled ? "active" : ""}`}
@@ -231,11 +258,11 @@ export function SettingsPanel({
               }
               aria-pressed={settings.sound_enabled}
             >
-              {settings.sound_enabled ? "开启" : "关闭"}
+              {settings.sound_enabled ? t("common.on") : t("common.off")}
             </button>
           </div>
           <div className="settings-row">
-            <label>关闭行为</label>
+            <label>{t("settings.closeBehavior")}</label>
             <select
               value={settings.close_behavior}
               onChange={(event) =>
@@ -245,12 +272,12 @@ export function SettingsPanel({
                 })
               }
             >
-              <option value="hide_to_tray">隐藏到托盘</option>
-              <option value="exit">退出应用</option>
+              <option value="hide_to_tray">{t("settings.closeBehavior.hide")}</option>
+              <option value="exit">{t("settings.closeBehavior.exit")}</option>
             </select>
           </div>
           <div className="settings-row">
-            <label>强制提醒颜色</label>
+            <label>{t("settings.forcedColor")}</label>
             <input
               type="color"
               value={settings.forced_reminder_color}
@@ -266,15 +293,17 @@ export function SettingsPanel({
 
         <div className="settings-section">
           <div className="settings-row">
-            <label>通知权限</label>
-            <span className="settings-status">{permissionStatus === "granted" ? "已授权" : "未授权"}</span>
+            <label>{t("settings.notificationPermission")}</label>
+            <span className="settings-status">
+              {permissionStatus === "granted" ? t("settings.permission.granted") : t("settings.permission.denied")}
+            </span>
             <button type="button" className="pill" onClick={() => void requestNotificationPermission()}>
-              请求权限
+              {t("settings.permission.request")}
             </button>
             {permissionStatus !== "granted" && (
               <button type="button" className="pill" onClick={() => void openNotificationSettings()}>
                 <Icons.ExternalLink />
-                系统设置
+                {t("settings.permission.systemSettings")}
               </button>
             )}
           </div>
@@ -282,7 +311,7 @@ export function SettingsPanel({
 
         <div className="settings-section">
           <div className="settings-row">
-            <label>自动备份</label>
+            <label>{t("settings.backup")}</label>
             <select
               value={settings.backup_schedule}
               onChange={(event) =>
@@ -292,39 +321,39 @@ export function SettingsPanel({
                 })
               }
             >
-              <option value="none">不备份</option>
-              <option value="daily">每日</option>
-              <option value="weekly">每周</option>
-              <option value="monthly">每月</option>
+              <option value="none">{t("settings.backup.none")}</option>
+              <option value="daily">{t("settings.backup.daily")}</option>
+              <option value="weekly">{t("settings.backup.weekly")}</option>
+              <option value="monthly">{t("settings.backup.monthly")}</option>
             </select>
             <button type="button" className="pill" onClick={() => void handleCreateBackup()}>
-              手动备份
+              {t("settings.backup.manual")}
             </button>
           </div>
           <div className="settings-row">
-            <label>备份列表</label>
+            <label>{t("settings.backup.list")}</label>
             <button type="button" className="pill" onClick={() => void refreshBackups()}>
-              刷新
+              {t("common.refresh")}
             </button>
           </div>
           <div className="backup-list">
             {backups.length === 0 ? (
-              <div className="backup-empty">暂无备份</div>
+              <div className="backup-empty">{t("settings.backup.empty")}</div>
             ) : (
               backups.map((backup) => (
                 <div key={backup.name} className="backup-item">
                   <span>{backup.name}</span>
                   <button type="button" className="pill" onClick={() => void handleRestoreBackup(backup.name)}>
-                    恢复
+                    {t("settings.backup.restore")}
                   </button>
                 </div>
               ))
             )}
           </div>
           <div className="settings-row">
-            <label>导入备份</label>
+            <label>{t("settings.backup.import")}</label>
             <input
-              placeholder="输入备份文件路径"
+              placeholder={t("settings.backup.importPlaceholder")}
               value={importPath}
               onChange={(event) => setImportPath(event.currentTarget.value)}
             />
@@ -333,24 +362,24 @@ export function SettingsPanel({
               className="pill"
               onClick={() => void handleImportBackup()}
               disabled={!importPath.trim()}
-              title={!importPath.trim() ? "请输入备份文件路径" : "导入恢复"}
+              title={!importPath.trim() ? t("settings.backup.importHintEmpty") : t("settings.backup.importAction")}
             >
-              导入恢复
+              {t("settings.backup.importAction")}
             </button>
           </div>
         </div>
 
         <div className="settings-section">
           <div className="settings-row">
-            <label>示例数据</label>
+            <label>{t("settings.samples")}</label>
             <button
               type="button"
               className="pill"
               onClick={() => void handleAddAiNovelAssistantSamples()}
               disabled={seedBusy}
-              title="向当前记录追加一批 AI 小说助手开发计划相关的示例任务"
+              title={t("settings.samples.tooltip")}
             >
-              {seedBusy ? "添加中..." : "添加 AI 小说助手示例任务"}
+              {seedBusy ? t("settings.samples.adding") : t("settings.samples.add")}
             </button>
           </div>
         </div>

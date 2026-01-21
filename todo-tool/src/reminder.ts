@@ -1,22 +1,30 @@
+import type { Translator } from "./i18n";
 import type { ReminderKind, Task } from "./types";
 
 // Reminder helpers are shared by composer + edit modal (and need to match backend semantics).
-export const REMINDER_KIND_OPTIONS = [
-  { id: "none", label: "不提醒" },
-  { id: "normal", label: "普通" },
-  { id: "forced", label: "强制" },
-] as const;
+export type ReminderKindOption = { id: ReminderKind; label: string };
+export type ReminderOffsetPreset = { id: string; label: string; minutes: number };
+
+export function buildReminderKindOptions(t: Translator): ReminderKindOption[] {
+  return [
+    { id: "none", label: t("reminder.kind.none") },
+    { id: "normal", label: t("reminder.kind.normal") },
+    { id: "forced", label: t("reminder.kind.forced") },
+  ];
+}
 
 // UI-oriented presets for "minutes before due". These work for both normal + forced reminders.
 // (If a task is due sooner than the offset, the backend/logic will effectively fire "as soon as possible".)
-export const REMINDER_OFFSET_PRESETS = [
-  { id: "due", label: "到期时", minutes: 0 },
-  { id: "5m", label: "5分钟", minutes: 5 },
-  { id: "10m", label: "10分钟", minutes: 10 },
-  { id: "30m", label: "30分钟", minutes: 30 },
-  { id: "1h", label: "1小时", minutes: 60 },
-  { id: "2h", label: "2小时", minutes: 120 },
-] as const;
+export function buildReminderOffsetPresets(t: Translator): ReminderOffsetPreset[] {
+  return [
+    { id: "due", label: t("reminder.offset.due"), minutes: 0 },
+    { id: "5m", label: t("reminder.offset.5m"), minutes: 5 },
+    { id: "10m", label: t("reminder.offset.10m"), minutes: 10 },
+    { id: "30m", label: t("reminder.offset.30m"), minutes: 30 },
+    { id: "1h", label: t("reminder.offset.1h"), minutes: 60 },
+    { id: "2h", label: t("reminder.offset.2h"), minutes: 120 },
+  ];
+}
 
 export function getReminderOffsetMinutes(task: Task): number {
   if (task.reminder.kind === "none") return 0;

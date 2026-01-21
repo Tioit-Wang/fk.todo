@@ -1,13 +1,14 @@
 import { useEffect, useMemo } from "react";
 
 import { formatDue } from "../date";
+import { useI18n } from "../i18n";
 import { formatRepeatRule } from "../repeat";
 import { isOverdue } from "../scheduler";
 import type { Task } from "../types";
 
 import { Icons } from "./icons";
 
-function formatSpan(seconds: number) {
+function formatSpan(seconds: number, t: (key: string, params?: Record<string, string | number>) => string) {
   const abs = Math.max(0, Math.floor(Math.abs(seconds)));
   const mins = Math.floor(abs / 60);
   const hours = Math.floor(mins / 60);
@@ -17,15 +18,15 @@ function formatSpan(seconds: number) {
   const remMins = mins % 60;
 
   if (days > 0) {
-    if (remHours > 0) return `${days}天 ${remHours}小时`;
-    return `${days}天`;
+    if (remHours > 0) return t("forced.time.daysHours", { days, hours: remHours });
+    return t("forced.time.days", { days });
   }
   if (hours > 0) {
-    if (remMins > 0) return `${hours}小时 ${remMins}分`;
-    return `${hours}小时`;
+    if (remMins > 0) return t("forced.time.hoursMins", { hours, mins: remMins });
+    return t("forced.time.hours", { hours });
   }
-  if (mins > 0) return `${mins}分`;
-  return "不到 1 分钟";
+  if (mins > 0) return t("forced.time.mins", { mins });
+  return t("forced.time.lessThanMin");
 }
 
 export function ForcedReminderOverlay({
@@ -45,19 +46,20 @@ export function ForcedReminderOverlay({
   onSnooze5: () => void;
   onComplete: () => void;
 }) {
+  const { t } = useI18n();
   const now = Math.floor(Date.now() / 1000);
   const overdue = task ? isOverdue(task, now) : false;
 
   const relative = useMemo(() => {
     if (!task) return "";
     const delta = task.due_at - now;
-    if (delta === 0) return "现在到期";
+    if (delta === 0) return t("forced.relative.now");
     if (delta > 0) {
-      if (delta < 60) return "即将到期";
-      return `还有 ${formatSpan(delta)}`;
+      if (delta < 60) return t("forced.relative.soon");
+      return t("forced.relative.in", { span: formatSpan(delta, t) });
     }
-    return `已逾期 ${formatSpan(delta)}`;
-  }, [task, now]);
+    return t("forced.relative.overdue", { span: formatSpan(delta, t) });
+  }, [task, now, t]);
 
   useEffect(() => {
     if (!task) return;
@@ -83,7 +85,7 @@ export function ForcedReminderOverlay({
     <div className="forced-reminder" style={{ ["--forced-color" as any]: color }}>
       <div className="forced-reminder-scrim" aria-hidden="true" />
 
-      <div className="forced-reminder-sheet" role="alertdialog" aria-label="强制提醒">
+      <div className="forced-reminder-sheet" role="alertdialog" aria-label={t("forced.title")}>
         <div className="forced-reminder-accent" style={{ backgroundColor: color }} />
 
         <div className="forced-reminder-inner">
@@ -95,10 +97,10 @@ export function ForcedReminderOverlay({
             <div className="forced-reminder-toprow">
               <span className="forced-reminder-badge">
                 <span className="forced-reminder-dot" style={{ backgroundColor: color }} />
-                强制提醒
+                {t("forced.title")}
               </span>
               {queueTotal > 1 && (
-                <span className="forced-reminder-queue" title="提醒队列">
+                <span className="forced-reminder-queue" title={t("forced.queue")}>
                   {queueIndex}/{queueTotal}
                 </span>
               )}
@@ -117,13 +119,13 @@ export function ForcedReminderOverlay({
               {task.important && (
                 <span className="forced-reminder-chip important">
                   <Icons.Star />
-                  重要
+                  {t("forced.tag.important")}
                 </span>
               )}
               {task.repeat.type !== "none" && (
                 <span className="forced-reminder-chip">
                   <Icons.Repeat />
-                  {formatRepeatRule(task.repeat)}
+                  {formatRepeatRule(task.repeat, t)}
                 </span>
               )}
             </div>
@@ -131,17 +133,17 @@ export function ForcedReminderOverlay({
 
           <div className="forced-reminder-actions">
             <button type="button" className="forced-btn ghost" onClick={onDismiss}>
-              关闭提醒
+              {t("forced.action.dismiss")}
             </button>
             <button type="button" className="forced-btn secondary" onClick={onSnooze5}>
               <Icons.Snooze />
-              稍后 5 分钟
+              {t("forced.action.snooze5")}
             </button>
             <button type="button" className="forced-btn primary" onClick={onComplete}>
               <Icons.Check />
-              立即完成
+              {t("forced.action.complete")}
             </button>
-            <div className="forced-reminder-hint">Enter 完成 · Esc 稍后 5 分钟</div>
+            <div className="forced-reminder-hint">{t("forced.hint")}</div>
           </div>
         </div>
       </div>

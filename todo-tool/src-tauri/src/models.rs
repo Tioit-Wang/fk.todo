@@ -97,6 +97,8 @@ impl Default for MinimizeBehavior {
 pub struct Settings {
     pub shortcut: String,
     pub theme: String,
+    #[serde(default = "default_language")]
+    pub language: String,
     pub sound_enabled: bool,
     pub close_behavior: CloseBehavior,
     #[serde(default)]
@@ -124,6 +126,7 @@ impl Default for Settings {
         Self {
             shortcut: "CommandOrControl+Shift+T".to_string(),
             theme: "light".to_string(),
+            language: default_language(),
             sound_enabled: true,
             close_behavior: CloseBehavior::HideToTray,
             minimize_behavior: MinimizeBehavior::HideToTray,
@@ -194,6 +197,10 @@ fn default_quick_sort() -> String {
     "default".to_string()
 }
 
+fn default_language() -> String {
+    "auto".to_string()
+}
+
 fn default_quick_blur_enabled() -> bool {
     true
 }
@@ -236,6 +243,7 @@ mod tests {
         let settings = Settings::default();
         assert_eq!(settings.shortcut, "CommandOrControl+Shift+T");
         assert_eq!(settings.theme, "light");
+        assert_eq!(settings.language, "auto");
         assert!(settings.sound_enabled);
         assert_eq!(
             serde_json::to_value(&settings.close_behavior).expect("serialize close_behavior"),
@@ -283,6 +291,7 @@ mod tests {
             serde_json::to_value(&settings.minimize_behavior).expect("serialize minimize_behavior"),
             serde_json::json!("hide_to_tray")
         );
+        assert_eq!(settings.language, "auto");
         assert!(!settings.quick_always_on_top);
         assert!(settings.quick_blur_enabled);
         assert!(settings.quick_bounds.is_none());

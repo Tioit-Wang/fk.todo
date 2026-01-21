@@ -73,6 +73,22 @@ pub fn run() {
                 settings_dirty = true;
             }
 
+            let trimmed_language = settings.language.trim().to_lowercase();
+            let normalized_language = match trimmed_language.as_str() {
+                "auto" | "zh" | "en" => trimmed_language,
+                _ => {
+                    let fallback = crate::models::Settings::default().language;
+                    if fallback != settings.language {
+                        settings_dirty = true;
+                    }
+                    fallback
+                }
+            };
+            if normalized_language != settings.language {
+                settings.language = normalized_language;
+                settings_dirty = true;
+            }
+
             let shortcut = match settings.shortcut.parse::<Shortcut>() {
                 Ok(shortcut) => Some(shortcut),
                 Err(parse_err) => {
@@ -99,7 +115,7 @@ pub fn run() {
             // without requiring macOS private APIs.
             let main_builder =
                 WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("/#/main".into()))
-                    .title("Todo Tool")
+                    .title("MustDo")
                     .inner_size(1200.0, 980.0)
                     .min_inner_size(960.0, 980.0)
                     .resizable(false)
@@ -113,11 +129,13 @@ pub fn run() {
 
             let quick_builder =
                 WebviewWindowBuilder::new(app, "quick", tauri::WebviewUrl::App("/#/quick".into()))
-                    .title("Todo Quick")
-                    .inner_size(420.0, 520.0)
-                    .min_inner_size(300.0, 200.0)
-                    .resizable(true)
-                    .decorations(false);
+                    .title("MustDo")
+                    .inner_size(500.0, 650.0)
+                    .min_inner_size(500.0, 650.0)
+                    .max_inner_size(500.0, 650.0)
+                    .resizable(false)
+                    .decorations(false)
+                    .skip_taskbar(true);
 
             // macOS builds skip `transparent` because Tauri gates it behind `macos-private-api`.
             #[cfg(not(target_os = "macos"))]
@@ -130,7 +148,7 @@ pub fn run() {
                 "reminder",
                 tauri::WebviewUrl::App("/#/reminder".into()),
             )
-            .title("Reminder")
+            .title("MustDo")
             .decorations(false)
             .resizable(false)
             // The reminder overlay looks best with a transparent window background, but on macOS
@@ -157,8 +175,8 @@ pub fn run() {
                 let _ = window.set_maximizable(false);
             }
 
-            init_tray(app)?;
-            update_tray_count(app.handle(), &state.tasks());
+            init_tray(app, &state.settings())?;
+            update_tray_count(app.handle(), &state.tasks(), &state.settings());
 
             if let Some(shortcut) = shortcut {
                 if let Err(err) = app.handle().global_shortcut().register(shortcut) {
