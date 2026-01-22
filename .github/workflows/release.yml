@@ -262,23 +262,37 @@ jobs:
             const linuxExe = must(`MustDo_${version}_amd64.AppImage`);
             const linuxSig = must(`MustDo_${version}_amd64.AppImage.sig`);
 
-            const fetchBase64 = async (url) => {
-              const res = await fetch(url, {
+            const assetDownloadUrlForPublishedRelease = (asset) =>
+              `https://github.com/${owner}/${repo}/releases/download/${tag}/${asset.name}`;
+
+            const fetchAssetBase64 = async (asset) => {
+              // IMPORTANT:
+              // Draft release assets are not downloadable via `browser_download_url` (404).
+              // Use the authenticated API download instead.
+              const { data } = await github.rest.repos.getReleaseAsset({
+                owner,
+                repo,
+                asset_id: asset.id,
                 headers: {
-                  // GitHub sometimes requires a UA for raw downloads.
-                  "User-Agent": "fk.todo-release-finalize",
+                  accept: "application/octet-stream",
                 },
-                redirect: "follow",
               });
-              if (!res.ok) {
-                throw new Error(`failed to download ${url}: ${res.status} ${res.statusText}`);
-              }
-              const buf = Buffer.from(await res.arrayBuffer());
+
+              const buf = (() => {
+                if (Buffer.isBuffer(data)) return data;
+                if (data instanceof ArrayBuffer) return Buffer.from(data);
+                if (ArrayBuffer.isView(data)) {
+                  return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+                }
+                if (typeof data === "string") return Buffer.from(data, "binary");
+                return Buffer.from(data);
+              })();
+
               return buf.toString("base64");
             };
 
-            const winSigB64 = await fetchBase64(winSig.browser_download_url);
-            const linuxSigB64 = await fetchBase64(linuxSig.browser_download_url);
+            const winSigB64 = await fetchAssetBase64(winSig);
+            const linuxSigB64 = await fetchAssetBase64(linuxSig);
 
             const publishedAt = release.published_at || new Date().toISOString();
             const notes = (release.body && String(release.body).trim()) || "See the assets to download this version and install.";
@@ -289,11 +303,11 @@ jobs:
               pub_date: publishedAt,
               platforms: {
                 "windows-x86_64": {
-                  url: winExe.browser_download_url,
+                  url: assetDownloadUrlForPublishedRelease(winExe),
                   signature: winSigB64,
                 },
                 "linux-x86_64": {
-                  url: linuxExe.browser_download_url,
+                  url: assetDownloadUrlForPublishedRelease(linuxExe),
                   signature: linuxSigB64,
                 },
               },
