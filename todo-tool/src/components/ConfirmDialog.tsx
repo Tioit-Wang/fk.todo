@@ -21,7 +21,7 @@ export function ConfirmDialog({
   title: string;
   description?: string;
   confirmText?: string;
-  cancelText?: string;
+  cancelText?: string | null;
   tone?: ConfirmTone;
   busy?: boolean;
   onConfirm: () => void | Promise<void>;
@@ -30,6 +30,7 @@ export function ConfirmDialog({
   const { t } = useI18n();
   const confirmRef = useRef<HTMLButtonElement | null>(null);
   const confirmLabel = confirmText ?? t("common.confirm");
+  const showCancel = cancelText !== null;
   const cancelLabel = cancelText ?? t("common.cancel");
 
   const icon = useMemo(() => {
@@ -81,9 +82,11 @@ export function ConfirmDialog({
         </div>
 
         <div className="confirm-actions">
-          <button type="button" className="confirm-btn ghost" onClick={onCancel} disabled={busy}>
-            {cancelLabel}
-          </button>
+          {showCancel && (
+            <button type="button" className="confirm-btn ghost" onClick={onCancel} disabled={busy}>
+              {cancelLabel}
+            </button>
+          )}
           <button
             ref={confirmRef}
             type="button"

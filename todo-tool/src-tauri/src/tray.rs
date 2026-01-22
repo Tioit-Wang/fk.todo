@@ -224,6 +224,7 @@ mod tests {
             quadrant: 1,
             notes: None,
             steps: Vec::new(),
+            tags: Vec::new(),
             sample_tag: None,
             reminder: ReminderConfig::default(),
             repeat: RepeatRule::None,

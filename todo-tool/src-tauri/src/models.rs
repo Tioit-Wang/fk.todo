@@ -79,6 +79,8 @@ pub struct Task {
     #[serde(default)]
     pub steps: Vec<Step>,
     #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
     pub sample_tag: Option<String>,
     #[serde(default)]
     pub reminder: ReminderConfig,
@@ -133,6 +135,10 @@ pub struct Settings {
     pub backup_schedule: BackupSchedule,
     #[serde(default)]
     pub last_backup_at: Option<Timestamp>,
+    #[serde(default)]
+    pub today_focus_ids: Vec<String>,
+    pub today_focus_date: Option<String>,
+    pub today_prompted_date: Option<String>,
 }
 
 impl Default for Settings {
@@ -152,6 +158,9 @@ impl Default for Settings {
             forced_reminder_color: default_forced_color(),
             backup_schedule: BackupSchedule::Daily,
             last_backup_at: None,
+            today_focus_ids: Vec::new(),
+            today_focus_date: None,
+            today_prompted_date: None,
         }
     }
 }
@@ -282,6 +291,9 @@ mod tests {
             serde_json::json!("daily")
         );
         assert_eq!(settings.last_backup_at, None);
+        assert!(settings.today_focus_ids.is_empty());
+        assert_eq!(settings.today_focus_date, None);
+        assert_eq!(settings.today_prompted_date, None);
     }
 
     #[test]
@@ -321,6 +333,9 @@ mod tests {
             serde_json::json!("daily")
         );
         assert_eq!(settings.last_backup_at, None);
+        assert!(settings.today_focus_ids.is_empty());
+        assert_eq!(settings.today_focus_date, None);
+        assert_eq!(settings.today_prompted_date, None);
     }
 
     #[test]
@@ -388,6 +403,7 @@ mod tests {
         assert_eq!(task.sort_order, 0);
         assert_eq!(task.quadrant, 1);
         assert!(task.steps.is_empty());
+        assert!(task.tags.is_empty());
         assert_eq!(task.sample_tag, None);
         assert_eq!(task.notes, None);
         assert_eq!(task.reminder.kind, ReminderKind::None);
@@ -410,6 +426,7 @@ mod tests {
             quadrant: 1,
             notes: None,
             steps: Vec::new(),
+            tags: Vec::new(),
             sample_tag: None,
             reminder: ReminderConfig {
                 kind: ReminderKind::Normal,

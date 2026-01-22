@@ -47,6 +47,7 @@ export interface Task {
   quadrant: number;
   notes?: string;
   steps: Step[];
+  tags: string[];
   sample_tag?: string;
   reminder: ReminderConfig;
   repeat: RepeatRule;
@@ -67,6 +68,9 @@ export interface Settings {
   forced_reminder_color: string;
   backup_schedule: BackupSchedule;
   last_backup_at?: number;
+  today_focus_date?: string;
+  today_focus_ids: string[];
+  today_prompted_date?: string;
 }
 
 export interface CommandResult<T> {

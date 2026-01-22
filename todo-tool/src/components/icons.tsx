@@ -72,6 +72,12 @@ export const Icons = {
       <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
     </svg>
   ),
+  Search: () => (
+    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="11" cy="11" r="8" />
+      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  ),
   Sort: () => (
     <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <line x1="4" y1="6" x2="11" y2="6" />
@@ -159,4 +165,3 @@ export const Icons = {
     </svg>
   ),
 };
-

@@ -10,11 +10,14 @@ import {
 
 import { TaskComposer, type TaskComposerDraft } from "../components/TaskComposer";
 import { NotificationBanner } from "../components/NotificationBanner";
+import { IconButton } from "../components/IconButton";
 import { TaskCard } from "../components/TaskCard";
 import { WindowTitlebar } from "../components/WindowTitlebar";
 import { Icons } from "../components/icons";
 import { useI18n } from "../i18n";
 import { visibleQuickTasks, type QuickSortMode, type QuickTab } from "../logic";
+import { computeRescheduleDueAt, rescheduleTask, type ReschedulePresetId } from "../reschedule";
+import { taskMatchesQuery } from "../search";
 import type { Settings, Task } from "../types";
 
 function isQuickTab(value: string): value is QuickTab {
@@ -32,6 +35,7 @@ export function QuickView({
   settings,
   normalTasks,
   onUpdateSettings,
+  onUpdateTask,
   onCreateFromComposer,
   onToggleComplete,
   onToggleImportant,
@@ -44,6 +48,7 @@ export function QuickView({
   settings: Settings | null;
   normalTasks: Task[];
   onUpdateSettings: (next: Settings) => Promise<boolean>;
+  onUpdateTask: (next: Task) => Promise<void> | void;
   onCreateFromComposer: (draft: TaskComposerDraft) => Promise<void> | void;
   onToggleComplete: (task: Task) => Promise<void> | void;
   onToggleImportant: (task: Task) => Promise<void> | void;
@@ -56,6 +61,7 @@ export function QuickView({
   const [tab, setTab] = useState<QuickTab>("todo");
   const [quickSort, setQuickSort] = useState<QuickSortMode>("default");
   const [now, setNow] = useState(() => new Date());
+  const [searchQuery, setSearchQuery] = useState("");
 
   const quickWindowApplied = useRef(false);
   const quickSaveTimer = useRef<number | null>(null);
@@ -271,7 +277,17 @@ export function QuickView({
     };
   }, [settings, onUpdateSettings]);
 
-  const quickTasks = useMemo(() => visibleQuickTasks(tasks, tab, now, quickSort), [tasks, tab, now, quickSort]);
+  const quickTasks = useMemo(() => {
+    const visible = visibleQuickTasks(tasks, tab, now, quickSort);
+    return visible.filter((task) => taskMatchesQuery(task, searchQuery));
+  }, [tasks, tab, now, quickSort, searchQuery]);
+
+  async function handleReschedule(task: Task, preset: ReschedulePresetId) {
+    const now = new Date();
+    const nowSeconds = Math.floor(now.getTime() / 1000);
+    const nextDueAt = computeRescheduleDueAt(task, preset, now);
+    await onUpdateTask(rescheduleTask(task, nextDueAt, nowSeconds));
+  }
 
   async function handleToggleAlwaysOnTop() {
     if (!settings) return;
@@ -321,6 +337,25 @@ export function QuickView({
         </div>
       </div>
 
+      <div className="quick-search">
+        <Icons.Search />
+        <input
+          className="search-input"
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.currentTarget.value)}
+          placeholder={t("search.placeholder")}
+        />
+        <IconButton
+          className="icon-btn"
+          onClick={() => setSearchQuery("")}
+          title={t("search.clear")}
+          label={t("search.clear")}
+          disabled={!searchQuery.trim()}
+        >
+          <Icons.X />
+        </IconButton>
+      </div>
+
       <div className="quick-task-list">
         {quickTasks.map((task) => (
           <TaskCard
@@ -329,6 +364,8 @@ export function QuickView({
             mode="quick"
             onToggleComplete={() => onToggleComplete(task)}
             onToggleImportant={() => onToggleImportant(task)}
+            onReschedulePreset={(preset) => void handleReschedule(task, preset)}
+            onUpdateTask={onUpdateTask}
             onDelete={() => onRequestDelete(task)}
             onEdit={() => onEditTask(task)}
           />

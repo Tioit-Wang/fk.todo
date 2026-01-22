@@ -19,6 +19,7 @@ export function newTask(title: string, now: Date): Task {
     quadrant: 1,
     notes: undefined,
     steps: [],
+    tags: [],
     reminder: defaultReminder(),
     repeat: { type: "none" },
   };

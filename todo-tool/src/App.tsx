@@ -27,21 +27,26 @@ import type { TaskComposerDraft } from "./components/TaskComposer";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { ForcedReminderOverlay } from "./components/ForcedReminderOverlay";
 import { TaskEditModal } from "./components/TaskEditModal";
+import { useToast } from "./components/ToastProvider";
+import { useConfirmDialog } from "./components/useConfirmDialog";
 import { MainView } from "./views/MainView";
 import { QuickView } from "./views/QuickView";
 import { SettingsView } from "./views/SettingsView";
 
 import {
+  bulkCompleteTasks,
+  bulkUpdateTasks,
   completeTask,
   createTask,
   deleteTask,
+  deleteTasks,
   dismissForced,
   loadState,
   snoozeTask,
   updateSettings,
   updateTask,
 } from "./api";
-import { formatDue } from "./date";
+import { formatDue, formatLocalDateKey } from "./date";
 import { I18nProvider, makeTranslator, resolveAppLanguage } from "./i18n";
 import { newTask } from "./logic";
 import { TAURI_NAVIGATE } from "./events";
@@ -49,6 +54,7 @@ import { detectPlatform } from "./platform";
 import { buildReminderConfig } from "./reminder";
 import { normalizeTheme } from "./theme";
 import type { Settings, Task } from "./types";
+import { TodayView } from "./views/TodayView";
 
 const NOTIFICATION_ACTION_TYPE = "todo-reminder";
 const NOTIFICATION_ACTION_SNOOZE = "snooze";
@@ -57,7 +63,24 @@ const NOTIFICATION_ACTION_COMPLETE = "complete";
 function normalizeTask(task: Task) {
   const sort_order = task.sort_order || task.created_at * 1000;
   const quadrant = [1, 2, 3, 4].includes(task.quadrant) ? task.quadrant : 1;
-  return { ...task, sort_order, quadrant };
+  const tags = Array.isArray(task.tags) ? task.tags : [];
+  return { ...task, sort_order, quadrant, tags };
+}
+
+function normalizeSettings(settings: Settings): Settings {
+  // Keep runtime guards so older persisted settings (or partial payloads) don't break the UI.
+  const today_focus_ids = Array.isArray(settings.today_focus_ids)
+    ? settings.today_focus_ids.filter((id) => typeof id === "string")
+    : [];
+  const today_focus_date =
+    typeof settings.today_focus_date === "string"
+      ? settings.today_focus_date
+      : undefined;
+  const today_prompted_date =
+    typeof settings.today_prompted_date === "string"
+      ? settings.today_prompted_date
+      : undefined;
+  return { ...settings, today_focus_ids, today_focus_date, today_prompted_date };
 }
 
 function mergeUniqueIds(existing: string[], incoming: string[]) {
@@ -129,14 +152,22 @@ function App() {
     total?: number;
   } | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
+  const [showTodayPrompt, setShowTodayPrompt] = useState(false);
 
   type ManualUpdateCheckResult =
     | { status: "update"; version: string }
     | { status: "none" }
     | { status: "error"; error: string };
 
+  type UpdateSettingsOptions = {
+    toastError?: boolean;
+    toastErrorMessage?: string;
+  };
+
   const appLang = resolveAppLanguage(settings?.language);
   const t = useMemo(() => makeTranslator(appLang), [appLang]);
+  const toast = useToast();
+  const { requestConfirm, dialog: confirmDialog } = useConfirmDialog();
 
   // Keep a mutable pointer for async callbacks so we can read latest settings without stale closures.
   const settingsRef = useRef<Settings | null>(null);
@@ -279,7 +310,7 @@ function App() {
       if (res.ok && res.data) {
         const [loadedTasks, loadedSettings] = res.data;
         setTasks(loadedTasks.map(normalizeTask));
-        setSettings(loadedSettings);
+        setSettings(normalizeSettings(loadedSettings));
       }
 
       const stateListener = await listen("state_updated", (event) => {
@@ -291,7 +322,7 @@ function App() {
           setTasks(payload.tasks.map(normalizeTask));
         }
         if (payload.settings) {
-          setSettings(payload.settings);
+          setSettings(normalizeSettings(payload.settings));
         }
       });
       if (disposed) {
@@ -535,11 +566,11 @@ function App() {
     if (res.ok && res.data) {
       const [loadedTasks, loadedSettings] = res.data;
       setTasks(loadedTasks.map(normalizeTask));
-      setSettings(loadedSettings);
+      setSettings(normalizeSettings(loadedSettings));
     }
   }
 
-  async function handleUpdateSettings(next: Settings): Promise<boolean> {
+  async function handleUpdateSettings(next: Settings, options?: UpdateSettingsOptions): Promise<boolean> {
     const previous = settingsRef.current ?? settings;
     setSettings(next);
     const result = await updateSettings(next);
@@ -547,13 +578,14 @@ function App() {
       if (previous) {
         setSettings(previous);
       }
-      if (result.error) {
-        alert(result.error);
+      const message = options?.toastErrorMessage ?? result.error;
+      if (options?.toastError !== false && message) {
+        toast.notify(message, { tone: "danger", durationMs: 6000 });
       }
       return false;
     }
     if (result.data) {
-      setSettings(result.data);
+      setSettings(normalizeSettings(result.data));
     }
     return true;
   }
@@ -562,6 +594,7 @@ function App() {
     const task = newTask(draft.title, new Date());
     task.due_at = draft.due_at;
     task.important = draft.important;
+    task.tags = draft.tags;
     task.repeat = draft.repeat;
     task.reminder = buildReminderConfig(
       draft.reminder_kind,
@@ -580,9 +613,12 @@ function App() {
     }
 
     if (task.repeat.type !== "none") {
-      const ok = confirm(
-        t("confirm.uncompleteRepeatTask"),
-      );
+      const ok = await requestConfirm({
+        title: t("confirm.uncompleteRepeatTask.title"),
+        description: t("confirm.uncompleteRepeatTask"),
+        confirmText: t("common.confirm"),
+        cancelText: t("common.cancel"),
+      });
       if (!ok) return;
     }
 
@@ -609,7 +645,7 @@ function App() {
     try {
       const result = await deleteTask(deleteCandidate.id);
       if (!result.ok) {
-        alert(result.error ?? t("alert.deleteFailed"));
+        toast.notify(result.error ?? t("alert.deleteFailed"), { tone: "danger", durationMs: 6000 });
         return;
       }
       setConfirmDeleteTaskId(null);
@@ -620,6 +656,39 @@ function App() {
 
   async function handleUpdateTask(next: Task) {
     await updateTask(next);
+  }
+
+  async function handleBulkUpdate(nextTasks: Task[]): Promise<boolean> {
+    if (nextTasks.length === 0) return true;
+    const result = await bulkUpdateTasks(nextTasks);
+    if (!result.ok) {
+      toast.notify(result.error ?? t("alert.operationFailed"), { tone: "danger", durationMs: 6000 });
+      await refreshState();
+      return false;
+    }
+    return true;
+  }
+
+  async function handleBulkComplete(taskIds: string[]): Promise<boolean> {
+    if (taskIds.length === 0) return true;
+    const result = await bulkCompleteTasks(taskIds);
+    if (!result.ok) {
+      toast.notify(result.error ?? t("alert.operationFailed"), { tone: "danger", durationMs: 6000 });
+      await refreshState();
+      return false;
+    }
+    return true;
+  }
+
+  async function handleBulkDelete(taskIds: string[]): Promise<boolean> {
+    if (taskIds.length === 0) return true;
+    const result = await deleteTasks(taskIds);
+    if (!result.ok) {
+      toast.notify(result.error ?? t("alert.deleteFailed"), { tone: "danger", durationMs: 6000 });
+      await refreshState();
+      return false;
+    }
+    return true;
   }
 
   function handleEditTask(task: Task) {
@@ -788,9 +857,12 @@ function App() {
     // Supported routes for the main window:
     // - #/main
     // - #/main/settings
+    // - #/main/today
     // - #/settings (handy when triggered from native code)
     if (parts[0] === "settings") return "settings";
     if (parts[0] === "main" && parts[1] === "settings") return "settings";
+    if (parts[0] === "today") return "today";
+    if (parts[0] === "main" && parts[1] === "today") return "today";
     return "home";
   })();
 
@@ -801,6 +873,29 @@ function App() {
     setEditingTaskId(null);
     setConfirmDeleteTaskId(null);
   }, [view, mainPage]);
+
+  // Daily "today focus" prompt: show it only in the main window home page and only once per day.
+  useEffect(() => {
+    if (view !== "main") return;
+    if (getCurrentWindow().label !== "main") return;
+    if (mainPage !== "home") return;
+    if (!settings) return;
+
+    const todayKey = formatLocalDateKey(new Date());
+    const hasFocusToday =
+      settings.today_focus_date === todayKey &&
+      (settings.today_focus_ids?.length ?? 0) > 0;
+    const promptedToday = settings.today_prompted_date === todayKey;
+
+    setShowTodayPrompt(!hasFocusToday && !promptedToday);
+  }, [
+    view,
+    mainPage,
+    settings?.today_focus_date,
+    settings?.today_prompted_date,
+    settings?.today_focus_ids?.length,
+    settings,
+  ]);
 
   const updatePercent =
     updateProgress?.total && updateProgress.total > 0
@@ -857,6 +952,7 @@ function App() {
           settings={settings}
           normalTasks={normalTasks}
           onUpdateSettings={handleUpdateSettings}
+          onUpdateTask={handleUpdateTask}
           onCreateFromComposer={handleCreateFromComposer}
           onToggleComplete={handleToggleComplete}
           onToggleImportant={handleToggleImportant}
@@ -880,17 +976,31 @@ function App() {
         />
       )}
 
-      {view === "main" && mainPage === "home" && (
-        <MainView
+      {view === "main" && mainPage === "today" && (
+        <TodayView
           tasks={tasks}
           settings={settings}
-          normalTasks={normalTasks}
-          onUpdateTask={handleUpdateTask}
-          onRefreshState={refreshState}
-          onCreateFromComposer={handleCreateFromComposer}
-          onToggleComplete={handleToggleComplete}
-          onToggleImportant={handleToggleImportant}
-          onRequestDelete={handleRequestDelete}
+          onUpdateSettings={handleUpdateSettings}
+          onBack={() => {
+            window.location.hash = "#/main";
+          }}
+        />
+      )}
+
+	      {view === "main" && mainPage === "home" && (
+	        <MainView
+	          tasks={tasks}
+	          settings={settings}
+	          normalTasks={normalTasks}
+	          onUpdateTask={handleUpdateTask}
+	          onBulkUpdate={handleBulkUpdate}
+	          onBulkComplete={handleBulkComplete}
+	          onBulkDelete={handleBulkDelete}
+	          onRefreshState={refreshState}
+	          onCreateFromComposer={handleCreateFromComposer}
+	          onToggleComplete={handleToggleComplete}
+	          onToggleImportant={handleToggleImportant}
+	          onRequestDelete={handleRequestDelete}
           onEditTask={handleEditTask}
           onNormalSnooze={handleNormalSnooze}
           onNormalComplete={handleNormalComplete}
@@ -917,6 +1027,27 @@ function App() {
           onClose={() => setEditingTaskId(null)}
         />
       )}
+
+      <ConfirmDialog
+        open={showTodayPrompt && Boolean(settings) && view === "main" && mainPage === "home"}
+        title={t("today.prompt.title")}
+        description={t("today.prompt.description")}
+        confirmText={t("today.prompt.confirm")}
+        cancelText={t("today.prompt.skip")}
+        onConfirm={() => {
+          if (!settings) return;
+          const todayKey = formatLocalDateKey(new Date());
+          void handleUpdateSettings({ ...settings, today_prompted_date: todayKey }).catch(() => {});
+          setShowTodayPrompt(false);
+          window.location.hash = "#/main/today";
+        }}
+        onCancel={() => {
+          if (!settings) return;
+          const todayKey = formatLocalDateKey(new Date());
+          void handleUpdateSettings({ ...settings, today_prompted_date: todayKey }).catch(() => {});
+          setShowTodayPrompt(false);
+        }}
+      />
 
       <ConfirmDialog
         open={showUpdatePrompt && Boolean(pendingUpdate)}
@@ -953,6 +1084,8 @@ function App() {
           setConfirmDeleteTaskId(null);
         }}
       />
+
+      {confirmDialog}
       </div>
     </I18nProvider>
   );

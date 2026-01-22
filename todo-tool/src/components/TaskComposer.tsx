@@ -8,10 +8,12 @@ import { useI18n } from "../i18n";
 import { buildReminderKindOptions, buildReminderOffsetPresets } from "../reminder";
 import { defaultDueAt } from "../scheduler";
 import { defaultRepeatRule, buildRepeatTypeOptions, buildWeekdayOptions } from "../repeat";
+import { extractTagsFromTitle } from "../tags";
 import type { ReminderKind, RepeatRule } from "../types";
 
 export type TaskComposerDraft = {
   title: string;
+  tags: string[];
   due_at: number;
   important: boolean;
   repeat: RepeatRule;
@@ -111,10 +113,11 @@ export function TaskComposer({
   }, [activePopup]);
 
   async function handleSubmit() {
-    const trimmed = title.trim();
-    if (!trimmed) return;
+    const { title: parsedTitle, tags } = extractTagsFromTitle(title);
+    if (!parsedTitle) return;
     await onSubmit({
-      title: trimmed,
+      title: parsedTitle,
+      tags,
       due_at: dueAt,
       important,
       repeat,

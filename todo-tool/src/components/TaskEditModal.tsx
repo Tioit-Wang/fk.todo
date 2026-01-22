@@ -4,6 +4,7 @@ import { formatDue, fromDateTimeLocal, toDateTimeLocal } from "../date";
 import { useI18n } from "../i18n";
 import { buildReminderConfig, getReminderOffsetMinutes, buildReminderKindOptions, buildReminderOffsetPresets } from "../reminder";
 import { defaultRepeatRule, buildRepeatTypeOptions, buildWeekdayOptions } from "../repeat";
+import { normalizeTag } from "../tags";
 import type { ReminderKind, RepeatRule, Task } from "../types";
 
 import { IconButton } from "./IconButton";
@@ -30,7 +31,9 @@ export function TaskEditModal({
   const [draftRepeat, setDraftRepeat] = useState<RepeatRule>(task.repeat);
   const [draftNotes, setDraftNotes] = useState(task.notes ?? "");
   const [draftSteps, setDraftSteps] = useState(task.steps);
+  const [draftTags, setDraftTags] = useState<string[]>(task.tags);
   const [newStepTitle, setNewStepTitle] = useState("");
+  const [newTag, setNewTag] = useState("");
   const [saving, setSaving] = useState(false);
 
   const reminderKindOptions = useMemo(() => buildReminderKindOptions(t), [t]);
@@ -46,7 +49,9 @@ export function TaskEditModal({
     setDraftRepeat(task.repeat);
     setDraftNotes(task.notes ?? "");
     setDraftSteps(task.steps);
+    setDraftTags(task.tags);
     setNewStepTitle("");
+    setNewTag("");
     setSaving(false);
   }, [task.id]);
 
@@ -59,6 +64,19 @@ export function TaskEditModal({
     setDraftNotes(task.notes ?? "");
     setDraftSteps(task.steps);
     setNewStepTitle("");
+    setDraftTags(task.tags);
+    setNewTag("");
+  }
+
+  function handleAddTag(value?: string) {
+    const tag = normalizeTag(value ?? newTag);
+    if (!tag) return;
+    setDraftTags((prev) => (prev.includes(tag) ? prev : [...prev, tag]));
+    setNewTag("");
+  }
+
+  function handleRemoveTag(tag: string) {
+    setDraftTags((prev) => prev.filter((item) => item !== tag));
   }
 
   function handleAddStep() {
@@ -107,6 +125,7 @@ export function TaskEditModal({
       repeat: draftRepeat,
       reminder: buildReminderConfig(draftReminderKind, draftDueAt, draftReminderOffset),
       steps: draftSteps,
+      tags: draftTags,
       notes: showNotes ? draftNotes.trim() || undefined : task.notes,
       updated_at: now,
     };
@@ -346,6 +365,56 @@ export function TaskEditModal({
                 </div>
               )}
             </div>
+          </div>
+
+          <div className="tags-section">
+            <div className="tags-header">
+              <span>{t("taskEdit.section.tags")}</span>
+              <div className="tags-add">
+                <input
+                  className="tags-input"
+                  placeholder={t("taskEdit.tagPlaceholder")}
+                  value={newTag}
+                  onChange={(event) => setNewTag(event.currentTarget.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") handleAddTag();
+                  }}
+                  disabled={saving}
+                />
+                <button
+                  type="button"
+                  className="tag-add-btn"
+                  onClick={() => handleAddTag()}
+                  disabled={saving || !newTag.trim()}
+                  title={!newTag.trim() ? t("taskEdit.tagRequired") : t("taskEdit.tagAdd")}
+                  aria-label={t("taskEdit.tagAdd")}
+                >
+                  <Icons.Plus />
+                </button>
+              </div>
+            </div>
+
+            {draftTags.length === 0 ? (
+              <div className="tags-empty">{t("taskEdit.tagEmpty")}</div>
+            ) : (
+              <div className="tags-list">
+                {draftTags.map((tag) => (
+                  <span key={tag} className="tag-chip">
+                    <span className="tag-text">{tag}</span>
+                    <button
+                      type="button"
+                      className="tag-delete"
+                      onClick={() => handleRemoveTag(tag)}
+                      title={t("taskEdit.tagDelete")}
+                      aria-label={t("taskEdit.tagDelete")}
+                      disabled={saving}
+                    >
+                      <Icons.X />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="steps-section">

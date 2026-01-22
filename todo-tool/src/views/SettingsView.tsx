@@ -10,6 +10,9 @@ import {
   createTask,
   deleteBackup,
   deleteTasks,
+  exportTasksCsv,
+  exportTasksJson,
+  exportTasksMarkdown,
   importBackup,
   listBackups,
   restoreBackup,
@@ -23,6 +26,8 @@ import { normalizeTheme } from "../theme";
 import type { BackupSchedule, MinimizeBehavior, Settings, Task } from "../types";
 
 import { WindowTitlebar } from "../components/WindowTitlebar";
+import { useToast } from "../components/ToastProvider";
+import { useConfirmDialog } from "../components/useConfirmDialog";
 import { Icons } from "../components/icons";
 import { detectPlatform } from "../platform";
 
@@ -42,12 +47,17 @@ export function SettingsView({
 }: {
   tasks: Task[];
   settings: Settings | null;
-  onUpdateSettings: (next: Settings) => Promise<boolean>;
+  onUpdateSettings: (
+    next: Settings,
+    options?: { toastError?: boolean; toastErrorMessage?: string },
+  ) => Promise<boolean>;
   updateBusy: boolean;
   onCheckUpdate: () => Promise<ManualUpdateCheckResult>;
   onBack: () => void;
 }) {
   const { t } = useI18n();
+  const toast = useToast();
+  const { requestConfirm, dialog: confirmDialog } = useConfirmDialog();
   const [permissionStatus, setPermissionStatus] = useState<PermissionStatus>("unknown");
   const [backups, setBackups] = useState<BackupEntry[]>([]);
   const [importPath, setImportPath] = useState("");
@@ -60,6 +70,9 @@ export function SettingsView({
   const [updateCheckBusy, setUpdateCheckBusy] = useState(false);
   const [updateCheckResult, setUpdateCheckResult] =
     useState<ManualUpdateCheckResult | null>(null);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportPath, setExportPath] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   async function handleBack() {
     setShortcutCapturing(false);
@@ -67,11 +80,11 @@ export function SettingsView({
     if (settings) {
       const nextShortcut = shortcutDraft.trim();
       if (nextShortcut && nextShortcut !== settings.shortcut) {
-        const ok = await onUpdateSettings({ ...settings, shortcut: nextShortcut });
-        if (!ok) {
-          alert(t("settings.shortcutInvalid"));
-          return;
-        }
+        const ok = await onUpdateSettings(
+          { ...settings, shortcut: nextShortcut },
+          { toastErrorMessage: t("settings.shortcutInvalid") },
+        );
+        if (!ok) return;
       }
     }
     onBack();
@@ -132,21 +145,78 @@ export function SettingsView({
   }
 
   async function handleRestoreBackup(name: string) {
-    if (!confirm(t("settings.backup.restoreConfirm"))) return;
+    const ok = await requestConfirm({
+      title: t("settings.backup.restore"),
+      description: t("settings.backup.restoreConfirm"),
+      confirmText: t("common.restore"),
+      cancelText: t("common.cancel"),
+    });
+    if (!ok) return;
     await restoreBackup(name);
   }
 
   async function handleDeleteBackup(name: string) {
-    if (!confirm(t("settings.backup.deleteConfirm", { name }))) return;
+    const ok = await requestConfirm({
+      title: t("settings.backup.delete"),
+      description: t("settings.backup.deleteConfirm", { name }),
+      confirmText: t("common.delete"),
+      cancelText: t("common.cancel"),
+      tone: "danger",
+    });
+    if (!ok) return;
     await deleteBackup(name);
     await refreshBackups();
   }
 
   async function handleImportBackup() {
     if (!importPath.trim()) return;
-    if (!confirm(t("settings.backup.restoreConfirm"))) return;
+    const ok = await requestConfirm({
+      title: t("settings.backup.import"),
+      description: t("settings.backup.restoreConfirm"),
+      confirmText: t("common.restore"),
+      cancelText: t("common.cancel"),
+    });
+    if (!ok) return;
     await importBackup(importPath.trim());
     setImportPath("");
+  }
+
+  async function handleExport(kind: "json" | "csv" | "md") {
+    if (exportBusy) return;
+    setExportBusy(true);
+    setExportError(null);
+    try {
+      const res =
+        kind === "json"
+          ? await exportTasksJson()
+          : kind === "csv"
+            ? await exportTasksCsv()
+            : await exportTasksMarkdown();
+      if (res.ok && res.data) {
+        setExportPath(res.data);
+      } else {
+        setExportError(res.error ?? "unknown error");
+      }
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setExportBusy(false);
+    }
+  }
+
+  async function handleCopyExportPath() {
+    if (!exportPath) return;
+    try {
+      await navigator.clipboard.writeText(exportPath);
+      toast.notify(t("settings.export.copied"), { tone: "success" });
+    } catch {
+      await requestConfirm({
+        title: t("settings.export.copy"),
+        description: exportPath,
+        confirmText: t("common.close"),
+        cancelText: null,
+      });
+    }
   }
 
   async function handleAddAiNovelAssistantSamples() {
@@ -155,9 +225,14 @@ export function SettingsView({
     const samples = buildAiNovelAssistantSampleTasks(new Date());
     const alreadySeeded = tasks.some(taskIsAiNovelAssistantSample);
 
-    const ok = alreadySeeded
-      ? confirm(t("settings.samples.confirm.duplicate", { count: samples.length }))
-      : confirm(t("settings.samples.confirm.fresh", { count: samples.length }));
+    const ok = await requestConfirm({
+      title: t("settings.samples.add"),
+      description: alreadySeeded
+        ? t("settings.samples.confirm.duplicate", { count: samples.length })
+        : t("settings.samples.confirm.fresh", { count: samples.length }),
+      confirmText: t("common.confirm"),
+      cancelText: t("common.cancel"),
+    });
     if (!ok) return;
 
     setSeedBusy(true);
@@ -180,15 +255,21 @@ export function SettingsView({
       if (errors.length > 0) {
         const errorLines =
           errors.slice(0, 5).join("\n") + (errors.length > 5 ? "\n..." : "");
-        alert(
-          t("settings.samples.result.partial", {
+        await requestConfirm({
+          title: t("settings.samples"),
+          description: t("settings.samples.result.partial", {
             created,
             total: samples.length,
             errors: errorLines,
           }),
-        );
+          confirmText: t("common.close"),
+          cancelText: null,
+          tone: "danger",
+        });
       } else {
-        alert(t("settings.samples.result.ok", { created }));
+        toast.notify(t("settings.samples.result.ok", { created }), {
+          tone: "success",
+        });
       }
     } finally {
       setSeedBusy(false);
@@ -199,9 +280,13 @@ export function SettingsView({
     if (sampleDeleteBusy) return;
     const sampleTasks = tasks.filter(taskIsAiNovelAssistantSample);
     if (sampleTasks.length === 0) return;
-    const ok = confirm(
-      t("settings.samples.deleteConfirm", { count: sampleTasks.length }),
-    );
+    const ok = await requestConfirm({
+      title: t("settings.samples.delete"),
+      description: t("settings.samples.deleteConfirm", { count: sampleTasks.length }),
+      confirmText: t("common.delete"),
+      cancelText: t("common.cancel"),
+      tone: "danger",
+    });
     if (!ok) return;
     setSampleDeleteBusy(true);
     try {
@@ -643,6 +728,31 @@ export function SettingsView({
 
             <div className="settings-section">
               <div className="settings-row">
+                <label>{t("settings.export")}</label>
+                <button type="button" className="pill" onClick={() => void handleExport("json")} disabled={exportBusy}>
+                  {t("settings.export.json")}
+                </button>
+                <button type="button" className="pill" onClick={() => void handleExport("csv")} disabled={exportBusy}>
+                  {t("settings.export.csv")}
+                </button>
+                <button type="button" className="pill" onClick={() => void handleExport("md")} disabled={exportBusy}>
+                  {t("settings.export.md")}
+                </button>
+                {exportError && <span className="settings-status danger">{t("settings.export.failed", { error: exportError })}</span>}
+              </div>
+              {exportPath && (
+                <div className="settings-row">
+                  <label>{t("settings.export.last")}</label>
+                  <span className="settings-status">{exportPath}</span>
+                  <button type="button" className="pill" onClick={() => void handleCopyExportPath()}>
+                    {t("settings.export.copy")}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="settings-section">
+              <div className="settings-row">
                 <label>{t("settings.samples")}</label>
                 <button
                   type="button"
@@ -665,8 +775,10 @@ export function SettingsView({
               </div>
             </div>
           </div>
-        )}
+      )}
       </div>
+
+      {confirmDialog}
     </div>
   );
 }

@@ -63,6 +63,7 @@ export function buildAiNovelAssistantSampleTasks(now: Date = new Date()): Task[]
     repeat = { type: "none" },
     notes,
     stepItems = [],
+    tags,
   }: {
     title: string;
     quadrant: 1 | 2 | 3 | 4;
@@ -73,6 +74,7 @@ export function buildAiNovelAssistantSampleTasks(now: Date = new Date()): Task[]
     repeat?: RepeatRule;
     notes?: string;
     stepItems?: Array<{ title: string; completed?: boolean }>;
+    tags?: string[];
   }): Task => {
     const created_at = nowSeconds - offset * 120;
     const updated_at = created_at;
@@ -82,6 +84,8 @@ export function buildAiNovelAssistantSampleTasks(now: Date = new Date()): Task[]
     const reminderConfig = reminder
       ? buildReminderConfig(reminder.kind, dueAtSeconds, reminder.offsetMinutes, nowSeconds)
       : buildReminderConfig("none", dueAtSeconds, 0, nowSeconds);
+
+    const resolvedTags = Array.isArray(tags) ? tags : ["示例", "AI小说助手"];
 
     return {
       id: crypto.randomUUID(),
@@ -96,6 +100,7 @@ export function buildAiNovelAssistantSampleTasks(now: Date = new Date()): Task[]
       quadrant,
       notes,
       steps: makeSteps(created_at, stepItems),
+      tags: resolvedTags,
       sample_tag: AI_NOVEL_SAMPLE_TAG,
       reminder: reminderConfig,
       repeat,

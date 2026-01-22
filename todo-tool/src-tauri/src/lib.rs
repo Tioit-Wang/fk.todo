@@ -226,8 +226,10 @@ pub fn run() {
             load_state,
             create_task,
             update_task,
+            bulk_update_tasks,
             swap_sort_order,
             complete_task,
+            bulk_complete_tasks,
             update_settings,
             snooze_task,
             dismiss_forced,
@@ -238,6 +240,9 @@ pub fn run() {
             create_backup,
             restore_backup,
             import_backup,
+            export_tasks_json,
+            export_tasks_csv,
+            export_tasks_markdown,
             set_shortcut_capture_active,
         ])
         .run(tauri::generate_context!())

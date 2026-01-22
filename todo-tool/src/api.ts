@@ -18,12 +18,20 @@ export async function updateTask(task: Task) {
   return invoke<CommandResult<Task>>("update_task", { task });
 }
 
+export async function bulkUpdateTasks(tasks: Task[]) {
+  return invoke<CommandResult<boolean>>("bulk_update_tasks", { tasks });
+}
+
 export async function swapSortOrder(firstId: string, secondId: string) {
   return invoke<CommandResult<boolean>>("swap_sort_order", { firstId, secondId });
 }
 
 export async function completeTask(taskId: string) {
   return invoke<CommandResult<Task>>("complete_task", { taskId });
+}
+
+export async function bulkCompleteTasks(taskIds: string[]) {
+  return invoke<CommandResult<boolean>>("bulk_complete_tasks", { taskIds });
 }
 
 export async function updateSettings(settings: Settings) {
@@ -68,4 +76,16 @@ export async function restoreBackup(name: string) {
 
 export async function importBackup(path: string) {
   return invoke<CommandResult<Task[]>>("import_backup", { path });
+}
+
+export async function exportTasksJson() {
+  return invoke<CommandResult<string>>("export_tasks_json");
+}
+
+export async function exportTasksCsv() {
+  return invoke<CommandResult<string>>("export_tasks_csv");
+}
+
+export async function exportTasksMarkdown() {
+  return invoke<CommandResult<string>>("export_tasks_markdown");
 }

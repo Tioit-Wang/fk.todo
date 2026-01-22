@@ -1,7 +1,8 @@
-import type { DragEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 
 import { formatDue } from "../date";
 import { formatRepeatRule } from "../repeat";
+import type { ReschedulePresetId } from "../reschedule";
 import { isOverdue } from "../scheduler";
 import type { Task } from "../types";
 import { useI18n } from "../i18n";
@@ -12,6 +13,9 @@ import { Icons } from "./icons";
 export function TaskCard({
   task,
   mode,
+  selectable,
+  selected,
+  onToggleSelected,
   showMove,
   draggable,
   onDragStart,
@@ -21,9 +25,15 @@ export function TaskCard({
   onToggleImportant,
   onDelete,
   onEdit,
+  onReschedulePreset,
+  onUpdateTask,
+  showNotesPreview,
 }: {
   task: Task;
   mode: "quick" | "main";
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelected?: () => void;
   showMove?: boolean;
   draggable?: boolean;
   onDragStart?: (event: DragEvent) => void;
@@ -33,18 +43,117 @@ export function TaskCard({
   onToggleImportant: () => void;
   onDelete: () => void;
   onEdit: () => void;
+  onReschedulePreset?: (preset: ReschedulePresetId) => void;
+  onUpdateTask?: (next: Task) => Promise<void> | void;
+  showNotesPreview?: boolean;
 }) {
   const { t } = useI18n();
   const now = Math.floor(Date.now() / 1000);
   const overdue = isOverdue(task, now);
+
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const [rescheduleOpen, setRescheduleOpen] = useState(false);
+  const canReschedule = Boolean(onReschedulePreset) && !task.completed;
+  const [expanded, setExpanded] = useState(false);
+  const [stepBusy, setStepBusy] = useState(false);
+  const [newStepTitle, setNewStepTitle] = useState("");
+  const canEditSteps = Boolean(onUpdateTask) && !task.completed;
+  const canSelect = Boolean(selectable) && Boolean(onToggleSelected);
+
+  useEffect(() => {
+    if (!rescheduleOpen) return;
+
+    const onPointerDown = (event: MouseEvent) => {
+      const node = event.target as Node | null;
+      if (!node) return;
+      const wrapper = cardRef.current;
+      if (wrapper && !wrapper.contains(node)) {
+        setRescheduleOpen(false);
+      }
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setRescheduleOpen(false);
+    };
+
+    window.addEventListener("mousedown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [rescheduleOpen]);
+
+  async function updateSteps(nextSteps: Task["steps"]) {
+    if (!onUpdateTask) return;
+    if (stepBusy) return;
+    setStepBusy(true);
+    try {
+      const now = Math.floor(Date.now() / 1000);
+      await onUpdateTask({ ...task, steps: nextSteps, updated_at: now });
+    } finally {
+      setStepBusy(false);
+    }
+  }
+
+  async function handleAddStep() {
+    const title = newStepTitle.trim();
+    if (!title) return;
+    if (!canEditSteps) return;
+    const ts = Math.floor(Date.now() / 1000);
+    const nextSteps = [
+      ...task.steps,
+      {
+        id: crypto.randomUUID(),
+        title,
+        completed: false,
+        created_at: ts,
+      },
+    ];
+    setNewStepTitle("");
+    await updateSteps(nextSteps);
+  }
+
+  async function handleToggleStep(stepId: string) {
+    if (!canEditSteps) return;
+    const ts = Math.floor(Date.now() / 1000);
+    const nextSteps = task.steps.map((step) => {
+      if (step.id !== stepId) return step;
+      const completed = !step.completed;
+      return {
+        ...step,
+        completed,
+        completed_at: completed ? ts : undefined,
+      };
+    });
+    await updateSteps(nextSteps);
+  }
+
+  async function handleRemoveStep(stepId: string) {
+    if (!canEditSteps) return;
+    await updateSteps(task.steps.filter((step) => step.id !== stepId));
+  }
 
   return (
     <div
       className={`task-card ${mode} q${task.quadrant} ${task.completed ? "completed" : ""} ${overdue ? "overdue" : ""}`}
       draggable={draggable}
       onDragStart={onDragStart}
+      ref={cardRef}
     >
-      <div className="task-row">
+      <div className={`task-row ${canSelect ? "selectable" : ""}`}>
+        {canSelect && (
+          <button
+            type="button"
+            className={`task-select ${selected ? "selected" : ""}`}
+            onClick={() => onToggleSelected?.()}
+            title={selected ? t("batch.unselect") : t("batch.select")}
+            aria-label={selected ? t("batch.unselect") : t("batch.select")}
+            aria-pressed={Boolean(selected)}
+          >
+            {selected && <Icons.Check />}
+          </button>
+        )}
         <button
           type="button"
           className="task-checkbox"
@@ -79,6 +188,31 @@ export function TaskCard({
               </span>
             )}
           </div>
+          {task.tags.length > 0 && (
+            <div className="task-tags">
+              {task.tags.slice(0, 2).map((tag) => (
+                <span key={tag} className="tag-chip small">
+                  {tag}
+                </span>
+              ))}
+              {task.tags.length > 2 && <span className="tag-chip small more">+{task.tags.length - 2}</span>}
+            </div>
+          )}
+          {!expanded && task.steps.length > 0 && (
+            <div className="task-steps-preview" aria-label={t("taskEdit.section.steps")}>
+              {task.steps.slice(0, 3).map((step) => (
+                <div key={step.id} className={`task-step-preview ${step.completed ? "completed" : ""}`}>
+                  <span className="task-step-preview-mark">{step.completed ? "[x]" : "[ ]"}</span>
+                  <span className="task-step-preview-title">{step.title}</span>
+                </div>
+              ))}
+              {task.steps.length > 3 && (
+                <div className="task-step-preview more" aria-hidden="true">
+                  ... (+{task.steps.length - 3})
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="task-icons">
@@ -91,6 +225,18 @@ export function TaskCard({
                 <Icons.ArrowDown />
               </IconButton>
             </>
+          )}
+          {onReschedulePreset && (
+            <IconButton
+              className={`task-icon-btn ${canReschedule ? "" : "disabled"}`}
+              onClick={() => setRescheduleOpen((prev) => !prev)}
+              title={t("task.reschedule")}
+              label={t("task.reschedule")}
+              aria-expanded={rescheduleOpen}
+              disabled={!canReschedule}
+            >
+              <Icons.Snooze />
+            </IconButton>
           )}
           <IconButton
             className={`task-icon-btn important ${task.important ? "active" : ""}`}
@@ -107,8 +253,131 @@ export function TaskCard({
           <IconButton className="task-icon-btn" onClick={onEdit} title={t("common.edit")} label={t("task.edit")}>
             <Icons.Edit />
           </IconButton>
+          <IconButton
+            className="task-icon-btn"
+            onClick={() => setExpanded((prev) => !prev)}
+            title={expanded ? t("task.collapse") : t("task.expand")}
+            label={expanded ? t("task.collapse") : t("task.expand")}
+            aria-expanded={expanded}
+          >
+            {expanded ? <Icons.ChevronDown /> : <Icons.ChevronRight />}
+          </IconButton>
         </div>
       </div>
+
+      {rescheduleOpen && onReschedulePreset && (
+        <div className="task-reschedule-menu" role="menu" aria-label={t("task.reschedule")}>
+          <button
+            type="button"
+            className="pill"
+            onClick={() => {
+              onReschedulePreset("plus10m");
+              setRescheduleOpen(false);
+            }}
+          >
+            {t("reschedule.plus10m")}
+          </button>
+          <button
+            type="button"
+            className="pill"
+            onClick={() => {
+              onReschedulePreset("plus1h");
+              setRescheduleOpen(false);
+            }}
+          >
+            {t("reschedule.plus1h")}
+          </button>
+          <button
+            type="button"
+            className="pill"
+            onClick={() => {
+              onReschedulePreset("tomorrow1800");
+              setRescheduleOpen(false);
+            }}
+          >
+            {t("reschedule.tomorrow1800")}
+          </button>
+          <button
+            type="button"
+            className="pill"
+            onClick={() => {
+              onReschedulePreset("nextWorkday0900");
+              setRescheduleOpen(false);
+            }}
+          >
+            {t("reschedule.nextWorkday0900")}
+          </button>
+        </div>
+      )}
+
+      {expanded && (
+        <div className="task-details">
+          <div className="steps-section">
+            <div className="steps-header">
+              <span>{t("taskEdit.section.steps")}</span>
+              <div className="steps-add">
+                <input
+                  className="steps-input"
+                  placeholder={t("taskEdit.stepPlaceholder")}
+                  value={newStepTitle}
+                  onChange={(event) => setNewStepTitle(event.currentTarget.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") void handleAddStep();
+                  }}
+                  disabled={stepBusy || !canEditSteps}
+                />
+                <button
+                  type="button"
+                  className="step-add-btn"
+                  onClick={() => void handleAddStep()}
+                  disabled={stepBusy || !canEditSteps || !newStepTitle.trim()}
+                  title={!newStepTitle.trim() ? t("taskEdit.stepRequired") : t("taskEdit.stepAdd")}
+                  aria-label={t("taskEdit.stepAdd")}
+                >
+                  <Icons.Plus />
+                </button>
+              </div>
+            </div>
+
+            {task.steps.length === 0 ? (
+              <div className="steps-empty">{t("taskEdit.stepEmpty")}</div>
+            ) : (
+              task.steps.map((step) => (
+                <div key={step.id} className={`step-item ${step.completed ? "completed" : ""}`}>
+                  <button
+                    type="button"
+                    className="step-checkbox"
+                    onClick={() => void handleToggleStep(step.id)}
+                    aria-label={step.completed ? t("taskEdit.stepMarkIncomplete") : t("taskEdit.stepMarkComplete")}
+                    aria-pressed={step.completed}
+                    disabled={stepBusy || !canEditSteps}
+                  >
+                    {step.completed && <Icons.Check />}
+                  </button>
+                  <span className="step-title">{step.title}</span>
+                  <button
+                    type="button"
+                    className="step-delete"
+                    onClick={() => void handleRemoveStep(step.id)}
+                    title={t("taskEdit.stepDelete")}
+                    aria-label={t("taskEdit.stepDelete")}
+                    disabled={stepBusy || !canEditSteps}
+                  >
+                    <Icons.X />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+
+          {showNotesPreview && task.notes?.trim() && (
+            <div className="notes-preview-section">
+              <div className="notes-header">{t("taskEdit.section.notes")}</div>
+              <div className="notes-preview">{task.notes}</div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

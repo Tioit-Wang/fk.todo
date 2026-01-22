@@ -1,8 +1,9 @@
-import { useMemo, useState, type DragEvent } from "react";
+import { useEffect, useMemo, useState, type DragEvent } from "react";
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import { swapSortOrder } from "../api";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { NotificationBanner } from "../components/NotificationBanner";
 import { IconButton } from "../components/IconButton";
 import { TaskCard } from "../components/TaskCard";
@@ -10,7 +11,9 @@ import { TaskComposer, type TaskComposerDraft } from "../components/TaskComposer
 import { WindowTitlebar } from "../components/WindowTitlebar";
 import { Icons } from "../components/icons";
 import { useI18n } from "../i18n";
+import { computeRescheduleDueAt, rescheduleTask, type ReschedulePresetId } from "../reschedule";
 import { isDueInFuture, isDueToday, isDueTomorrow, isOverdue } from "../scheduler";
+import { taskMatchesQuery } from "../search";
 import type { Settings, Task } from "../types";
 
 type MainSortId = "due" | "created" | "manual";
@@ -25,6 +28,9 @@ export function MainView({
   settings,
   normalTasks,
   onUpdateTask,
+  onBulkUpdate,
+  onBulkComplete,
+  onBulkDelete,
   onRefreshState,
   onCreateFromComposer,
   onToggleComplete,
@@ -38,6 +44,9 @@ export function MainView({
   settings: Settings | null;
   normalTasks: Task[];
   onUpdateTask: (next: Task) => Promise<void> | void;
+  onBulkUpdate: (next: Task[]) => Promise<boolean>;
+  onBulkComplete: (taskIds: string[]) => Promise<boolean>;
+  onBulkDelete: (taskIds: string[]) => Promise<boolean>;
   onRefreshState: () => Promise<void>;
   onCreateFromComposer: (draft: TaskComposerDraft) => Promise<void> | void;
   onToggleComplete: (task: Task) => Promise<void> | void;
@@ -51,11 +60,19 @@ export function MainView({
   const [mainView, setMainView] = useState<"quadrant" | "list">("list");
   const [listTab, setListTab] = useState<ListTabId>("today");
 
+  const [bulkMode, setBulkMode] = useState(false);
+  const [bulkSelectedIds, setBulkSelectedIds] = useState<string[]>([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const [confirmBulkComplete, setConfirmBulkComplete] = useState(false);
+
   const [dueFilter, setDueFilter] = useState<DueFilterId>("all");
   const [importanceFilter, setImportanceFilter] = useState<ImportanceFilterId>("all");
   const [repeatFilter, setRepeatFilter] = useState<RepeatFilterId>("all");
   const [reminderFilter, setReminderFilter] = useState<ReminderFilterId>("all");
+  const [tagFilter, setTagFilter] = useState<string>("all");
   const [mainSort, setMainSort] = useState<MainSortId>("due");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const mainSortOptions = useMemo(
     () => [
@@ -106,6 +123,22 @@ export function MainView({
     [t],
   );
 
+  const tagFilterOptions = useMemo(() => {
+    const tags = new Set<string>();
+    tasks.forEach((task) => {
+      task.tags.forEach((tag) => {
+        if (tag) tags.add(tag);
+      });
+    });
+
+    const list = Array.from(tags).sort((a, b) => a.localeCompare(b));
+    return [
+      { id: "all", label: t("filter.tagAll") },
+      { id: "none", label: t("filter.tagNone") },
+      ...list.map((tag) => ({ id: tag, label: `#${tag}` })),
+    ];
+  }, [tasks, t]);
+
   const quadrants = useMemo(
     () => [
       { id: 1, title: t("quadrant.q1.title"), sublabel: t("quadrant.q1.sublabel"), className: "quadrant-red" },
@@ -135,9 +168,14 @@ export function MainView({
       if (reminderFilter === "forced" && task.reminder.kind !== "forced") return false;
       if (reminderFilter === "normal" && task.reminder.kind !== "normal") return false;
 
+      if (tagFilter === "none" && task.tags.length > 0) return false;
+      if (tagFilter !== "all" && tagFilter !== "none" && !task.tags.includes(tagFilter)) return false;
+
+      if (!taskMatchesQuery(task, searchQuery)) return false;
+
       return true;
     });
-  }, [tasks, dueFilter, importanceFilter, repeatFilter, reminderFilter]);
+  }, [tasks, dueFilter, importanceFilter, repeatFilter, reminderFilter, tagFilter, searchQuery]);
 
   const sortedTasks = useMemo(() => {
     const list = [...filteredTasks];
@@ -223,6 +261,99 @@ export function MainView({
     return counts;
   }, [tasks]);
 
+  const bulkSelectedSet = useMemo(() => new Set(bulkSelectedIds), [bulkSelectedIds]);
+  const bulkSelectedTasks = useMemo(() => {
+    if (bulkSelectedIds.length === 0) return [];
+    return tasks.filter((task) => bulkSelectedSet.has(task.id));
+  }, [tasks, bulkSelectedIds.length, bulkSelectedSet]);
+  const bulkSelectedIncomplete = useMemo(
+    () => bulkSelectedTasks.filter((task) => !task.completed),
+    [bulkSelectedTasks],
+  );
+  const bulkSelectedIncompleteIds = useMemo(
+    () => bulkSelectedIncomplete.map((task) => task.id),
+    [bulkSelectedIncomplete],
+  );
+  const bulkSelectedRepeatCount = useMemo(
+    () => bulkSelectedIncomplete.filter((task) => task.repeat.type !== "none").length,
+    [bulkSelectedIncomplete],
+  );
+
+  const bulkVisibleIds = useMemo(() => activeListSection.tasks.map((task) => task.id), [activeListSection]);
+
+  useEffect(() => {
+    // Keep selection stable across state updates (e.g. after persist), but drop ids that no longer exist.
+    if (bulkSelectedIds.length === 0) return;
+    const known = new Set(tasks.map((task) => task.id));
+    setBulkSelectedIds((prev) => prev.filter((id) => known.has(id)));
+  }, [tasks, bulkSelectedIds.length]);
+
+  function toggleBulkSelected(taskId: string) {
+    setBulkSelectedIds((prev) => {
+      if (prev.includes(taskId)) return prev.filter((id) => id !== taskId);
+      return [...prev, taskId];
+    });
+  }
+
+  function clearBulkSelection() {
+    setBulkSelectedIds([]);
+  }
+
+  function selectAllVisible() {
+    setBulkSelectedIds(bulkVisibleIds);
+  }
+
+  async function handleBulkReschedule(preset: ReschedulePresetId) {
+    if (bulkBusy) return;
+    if (bulkSelectedIncomplete.length === 0) return;
+
+    setBulkBusy(true);
+    try {
+      const now = new Date();
+      const nowSeconds = Math.floor(now.getTime() / 1000);
+      const nextTasks = bulkSelectedIncomplete.map((task) => {
+        const nextDueAt = computeRescheduleDueAt(task, preset, now);
+        return rescheduleTask(task, nextDueAt, nowSeconds);
+      });
+      const ok = await onBulkUpdate(nextTasks);
+      if (ok) clearBulkSelection();
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  async function handleConfirmBulkDelete() {
+    if (bulkBusy) return;
+    if (bulkSelectedIds.length === 0) return;
+
+    setBulkBusy(true);
+    try {
+      const ok = await onBulkDelete(bulkSelectedIds);
+      if (ok) {
+        setConfirmBulkDelete(false);
+        clearBulkSelection();
+      }
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  async function handleConfirmBulkComplete() {
+    if (bulkBusy) return;
+    if (bulkSelectedIncompleteIds.length === 0) return;
+
+    setBulkBusy(true);
+    try {
+      const ok = await onBulkComplete(bulkSelectedIncompleteIds);
+      if (ok) {
+        setConfirmBulkComplete(false);
+        clearBulkSelection();
+      }
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
   async function handleMoveTask(task: Task, direction: "up" | "down", list: Task[]) {
     const index = list.findIndex((item) => item.id === task.id);
     const targetIndex = direction === "up" ? index - 1 : index + 1;
@@ -233,6 +364,13 @@ export function MainView({
     if (!result.ok) {
       await onRefreshState();
     }
+  }
+
+  async function handleReschedule(task: Task, preset: ReschedulePresetId) {
+    const now = new Date();
+    const nowSeconds = Math.floor(now.getTime() / 1000);
+    const nextDueAt = computeRescheduleDueAt(task, preset, now);
+    await onUpdateTask(rescheduleTask(task, nextDueAt, nowSeconds));
   }
 
   function handleDropToQuadrant(quadrant: number, taskId: string) {
@@ -285,12 +423,29 @@ export function MainView({
               <button
                 type="button"
                 className={`segment-btn ${mainView === "quadrant" ? "active" : ""}`}
-                onClick={() => setMainView("quadrant")}
+                onClick={() => {
+                  // Bulk operations are list-only; switching views exits bulk mode.
+                  setBulkMode(false);
+                  clearBulkSelection();
+                  setConfirmBulkDelete(false);
+                  setConfirmBulkComplete(false);
+                  setMainView("quadrant");
+                }}
                 aria-selected={mainView === "quadrant"}
               >
                 {t("main.view.quadrant")}
               </button>
             </div>
+            <IconButton
+              className="icon-btn"
+              onClick={() => {
+                window.location.hash = "#/main/today";
+              }}
+              title={t("today.title")}
+              label={t("today.title")}
+            >
+              <Icons.Calendar />
+            </IconButton>
             <IconButton
               className="icon-btn"
               onClick={() => {
@@ -345,6 +500,13 @@ export function MainView({
                 </option>
               ))}
             </select>
+            <select value={tagFilter} onChange={(event) => setTagFilter(event.currentTarget.value)}>
+              {tagFilterOptions.map((opt) => (
+                <option key={opt.id} value={opt.id}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="filter-group">
             <Icons.Sort />
@@ -356,7 +518,125 @@ export function MainView({
               ))}
             </select>
           </div>
+          <div className="filter-group search">
+            <Icons.Search />
+            <input
+              className="search-input"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.currentTarget.value)}
+              placeholder={t("search.placeholder")}
+            />
+            <IconButton
+              className="icon-btn"
+              onClick={() => setSearchQuery("")}
+              title={t("search.clear")}
+              label={t("search.clear")}
+              disabled={!searchQuery.trim()}
+            >
+              <Icons.X />
+            </IconButton>
+          </div>
+          {mainView === "list" && (
+            <div className="filter-group">
+              <button
+                type="button"
+                className={`pill ${bulkMode ? "active" : ""}`}
+                onClick={() => {
+                  setBulkMode((prev) => {
+                    const next = !prev;
+                    if (!next) {
+                      clearBulkSelection();
+                      setConfirmBulkDelete(false);
+                      setConfirmBulkComplete(false);
+                    }
+                    return next;
+                  });
+                }}
+                aria-pressed={bulkMode}
+                title={bulkMode ? t("batch.exit") : t("batch.toggle")}
+              >
+                {bulkMode ? t("batch.exit") : t("batch.toggle")}
+              </button>
+            </div>
+          )}
         </div>
+
+        {mainView === "list" && bulkMode && (
+          <div className="batch-bar">
+            <span>{t("batch.selected", { count: bulkSelectedIds.length })}</span>
+            <button
+              type="button"
+              className="batch-btn"
+              onClick={selectAllVisible}
+              disabled={bulkBusy || bulkVisibleIds.length === 0}
+              title={t("batch.selectAll")}
+            >
+              {t("batch.selectAll")}
+            </button>
+            <button
+              type="button"
+              className="batch-btn"
+              onClick={clearBulkSelection}
+              disabled={bulkBusy || bulkSelectedIds.length === 0}
+              title={t("batch.clear")}
+            >
+              {t("batch.clear")}
+            </button>
+            <button
+              type="button"
+              className="batch-btn"
+              onClick={() => setConfirmBulkComplete(true)}
+              disabled={bulkBusy || bulkSelectedIncompleteIds.length === 0}
+              title={t("batch.complete")}
+            >
+              {t("batch.complete")}
+            </button>
+            <button
+              type="button"
+              className="batch-btn danger"
+              onClick={() => setConfirmBulkDelete(true)}
+              disabled={bulkBusy || bulkSelectedIds.length === 0}
+              title={t("batch.delete")}
+            >
+              {t("batch.delete")}
+            </button>
+
+            <span>{t("batch.reschedule")}</span>
+            <button
+              type="button"
+              className="batch-btn"
+              onClick={() => void handleBulkReschedule("plus10m")}
+              disabled={bulkBusy || bulkSelectedIncompleteIds.length === 0}
+            >
+              {t("reschedule.plus10m")}
+            </button>
+            <button
+              type="button"
+              className="batch-btn"
+              onClick={() => void handleBulkReschedule("plus1h")}
+              disabled={bulkBusy || bulkSelectedIncompleteIds.length === 0}
+            >
+              {t("reschedule.plus1h")}
+            </button>
+            <button
+              type="button"
+              className="batch-btn"
+              onClick={() => void handleBulkReschedule("tomorrow1800")}
+              disabled={bulkBusy || bulkSelectedIncompleteIds.length === 0}
+            >
+              {t("reschedule.tomorrow1800")}
+            </button>
+            <button
+              type="button"
+              className="batch-btn"
+              onClick={() => void handleBulkReschedule("nextWorkday0900")}
+              disabled={bulkBusy || bulkSelectedIncompleteIds.length === 0}
+            >
+              {t("reschedule.nextWorkday0900")}
+            </button>
+
+          </div>
+        )}
 
         {mainView === "quadrant" && (
           <div className="quadrant-grid">
@@ -395,6 +675,9 @@ export function MainView({
                         onMoveDown={() => void handleMoveTask(task, "down", tasksByQuadrant[quad.id])}
                         onToggleComplete={() => onToggleComplete(task)}
                         onToggleImportant={() => onToggleImportant(task)}
+                        onReschedulePreset={(preset) => void handleReschedule(task, preset)}
+                        onUpdateTask={onUpdateTask}
+                        showNotesPreview
                         onDelete={() => onRequestDelete(task)}
                         onEdit={() => onEditTask(task)}
                       />
@@ -432,13 +715,19 @@ export function MainView({
                     key={task.id}
                     task={task}
                     mode="main"
+                    selectable={bulkMode}
+                    selected={bulkSelectedSet.has(task.id)}
+                    onToggleSelected={() => toggleBulkSelected(task.id)}
                     showMove={mainSort === "manual"}
-                    draggable
+                    draggable={!bulkMode}
                     onDragStart={(event) => handleDragStart(task, event)}
                     onMoveUp={() => void handleMoveTask(task, "up", activeListSection.tasks)}
                     onMoveDown={() => void handleMoveTask(task, "down", activeListSection.tasks)}
                     onToggleComplete={() => onToggleComplete(task)}
                     onToggleImportant={() => onToggleImportant(task)}
+                    onReschedulePreset={(preset) => void handleReschedule(task, preset)}
+                    onUpdateTask={onUpdateTask}
+                    showNotesPreview
                     onDelete={() => onRequestDelete(task)}
                     onEdit={() => onEditTask(task)}
                   />
@@ -453,6 +742,41 @@ export function MainView({
       <div className="main-input-bar">
         <TaskComposer onSubmit={onCreateFromComposer} />
       </div>
+
+      <ConfirmDialog
+        open={confirmBulkComplete && bulkSelectedIncompleteIds.length > 0}
+        title={t("batch.confirmComplete.title", { count: bulkSelectedIncompleteIds.length })}
+        description={
+          bulkSelectedRepeatCount > 0
+            ? t("batch.confirmComplete.descriptionWithRepeat", {
+                repeat: bulkSelectedRepeatCount,
+              })
+            : t("batch.confirmComplete.description")
+        }
+        confirmText={bulkBusy ? t("common.saving") : t("batch.complete")}
+        cancelText={t("common.cancel")}
+        busy={bulkBusy}
+        onConfirm={() => void handleConfirmBulkComplete()}
+        onCancel={() => {
+          if (bulkBusy) return;
+          setConfirmBulkComplete(false);
+        }}
+      />
+
+      <ConfirmDialog
+        open={confirmBulkDelete && bulkSelectedIds.length > 0}
+        title={t("batch.confirmDelete.title", { count: bulkSelectedIds.length })}
+        description={t("batch.confirmDelete.description")}
+        confirmText={bulkBusy ? t("common.deleting") : t("batch.delete")}
+        cancelText={t("common.cancel")}
+        tone="danger"
+        busy={bulkBusy}
+        onConfirm={() => void handleConfirmBulkDelete()}
+        onCancel={() => {
+          if (bulkBusy) return;
+          setConfirmBulkDelete(false);
+        }}
+      />
     </div>
   );
 }

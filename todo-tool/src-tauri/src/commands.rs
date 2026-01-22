@@ -1,10 +1,12 @@
 use chrono::{Datelike, Local, TimeZone, Utc};
+use std::fs;
+use std::path::Path;
 use std::path::PathBuf;
 
 use crate::events::StatePayload;
 #[cfg(all(feature = "app", not(test)))]
 use crate::events::EVENT_STATE_UPDATED;
-use crate::models::{BackupSchedule, RepeatRule, Settings, Task};
+use crate::models::{BackupSchedule, ReminderKind, RepeatRule, Settings, Task};
 use crate::repeat::next_due_timestamp;
 use crate::state::AppState;
 use crate::storage::{Storage, StorageError};
@@ -223,6 +225,23 @@ fn update_task_impl(ctx: &impl CommandCtx, state: &AppState, task: Task) -> Comm
     ok(task)
 }
 
+fn bulk_update_tasks_impl(
+    ctx: &impl CommandCtx,
+    state: &AppState,
+    tasks: Vec<Task>,
+) -> CommandResult<bool> {
+    for mut task in tasks {
+        if task.sort_order == 0 {
+            task.sort_order = task.created_at * 1000;
+        }
+        state.update_task(task);
+    }
+    if let Err(error) = persist(ctx, state) {
+        return err(&format!("storage error: {error:?}"));
+    }
+    ok(true)
+}
+
 fn swap_sort_order_impl(
     ctx: &impl CommandCtx,
     state: &AppState,
@@ -237,6 +256,38 @@ fn swap_sort_order_impl(
         return err(&format!("storage error: {error:?}"));
     }
     ok(true)
+}
+
+fn build_next_repeat_task(completed: &Task, next_due: i64) -> Task {
+    let now = Utc::now();
+    let mut next = completed.clone();
+    next.id = format!("{}-{}", completed.id, now.timestamp());
+    next.completed = false;
+    next.completed_at = None;
+    next.created_at = now.timestamp();
+    next.updated_at = now.timestamp();
+    next.sort_order = now.timestamp_millis();
+    next.due_at = next_due;
+    next.reminder.last_fired_at = None;
+    next.reminder.forced_dismissed = false;
+    next.reminder.snoozed_until = None;
+
+    // Preserve the reminder offset semantics across repeat instances.
+    // (Otherwise a copied `remind_at` in the past would trigger immediately on the next cycle.)
+    if next.reminder.kind == ReminderKind::None {
+        next.reminder.remind_at = None;
+    } else {
+        let old_default_target = if completed.reminder.kind == ReminderKind::Normal {
+            completed.due_at - 10 * 60
+        } else {
+            completed.due_at
+        };
+        let old_target = completed.reminder.remind_at.unwrap_or(old_default_target);
+        let offset = (completed.due_at - old_target).max(0);
+        next.reminder.remind_at = Some(next_due - offset);
+    }
+
+    next
 }
 
 fn complete_task_impl(
@@ -257,18 +308,7 @@ fn complete_task_impl(
     }
 
     let next_due = next_due_timestamp(completed.due_at, &completed.repeat);
-
-    let mut next = completed.clone();
-    next.id = format!("{}-{}", completed.id, Utc::now().timestamp());
-    next.completed = false;
-    next.completed_at = None;
-    next.created_at = Utc::now().timestamp();
-    next.updated_at = Utc::now().timestamp();
-    next.sort_order = Utc::now().timestamp_millis();
-    next.due_at = next_due;
-    next.reminder.last_fired_at = None;
-    next.reminder.forced_dismissed = false;
-    next.reminder.snoozed_until = None;
+    let next = build_next_repeat_task(&completed, next_due);
 
     state.add_task(next.clone());
 
@@ -277,6 +317,32 @@ fn complete_task_impl(
     }
 
     ok(next)
+}
+
+fn bulk_complete_tasks_impl(
+    ctx: &impl CommandCtx,
+    state: &AppState,
+    task_ids: Vec<String>,
+) -> CommandResult<bool> {
+    for task_id in task_ids {
+        let completed = match state.complete_task(&task_id) {
+            Some(task) => task,
+            None => continue,
+        };
+
+        if let RepeatRule::None = completed.repeat {
+            continue;
+        }
+
+        let next_due = next_due_timestamp(completed.due_at, &completed.repeat);
+        let next = build_next_repeat_task(&completed, next_due);
+        state.add_task(next);
+    }
+
+    if let Err(error) = persist(ctx, state) {
+        return err(&format!("storage error: {error:?}"));
+    }
+    ok(true)
 }
 
 fn update_settings_impl(
@@ -415,6 +481,17 @@ pub fn update_task(app: AppHandle, state: State<AppState>, task: Task) -> Comman
 
 #[cfg(all(feature = "app", not(test)))]
 #[tauri::command]
+pub fn bulk_update_tasks(
+    app: AppHandle,
+    state: State<AppState>,
+    tasks: Vec<Task>,
+) -> CommandResult<bool> {
+    let ctx = TauriCommandCtx { app: &app };
+    bulk_update_tasks_impl(&ctx, state.inner(), tasks)
+}
+
+#[cfg(all(feature = "app", not(test)))]
+#[tauri::command]
 pub fn swap_sort_order(
     app: AppHandle,
     state: State<AppState>,
@@ -434,6 +511,17 @@ pub fn complete_task(
 ) -> CommandResult<Task> {
     let ctx = TauriCommandCtx { app: &app };
     complete_task_impl(&ctx, state.inner(), task_id)
+}
+
+#[cfg(all(feature = "app", not(test)))]
+#[tauri::command]
+pub fn bulk_complete_tasks(
+    app: AppHandle,
+    state: State<AppState>,
+    task_ids: Vec<String>,
+) -> CommandResult<bool> {
+    let ctx = TauriCommandCtx { app: &app };
+    bulk_complete_tasks_impl(&ctx, state.inner(), task_ids)
 }
 
 #[cfg(all(feature = "app", not(test)))]
@@ -617,6 +705,196 @@ fn import_backup_impl(
     ok(data.tasks)
 }
 
+fn export_default_path(root: &Path, ext: &str) -> PathBuf {
+    let exports_dir = root.join("exports");
+    let stamp = Local::now().format("%Y%m%d-%H%M%S").to_string();
+    exports_dir.join(format!("mustdo-{stamp}.{ext}"))
+}
+
+fn write_atomic_bytes(path: &Path, bytes: &[u8]) -> Result<(), StorageError> {
+    let tmp = path.with_extension("tmp");
+    fs::create_dir_all(
+        path.parent()
+            .ok_or_else(|| StorageError::Io(std::io::Error::other("invalid export path")))?,
+    )?;
+    fs::write(&tmp, bytes)?;
+    fs::rename(tmp, path)?;
+    Ok(())
+}
+
+fn export_tasks_json_impl(ctx: &impl CommandCtx, state: &AppState) -> CommandResult<String> {
+    let root = match ctx.app_data_dir() {
+        Ok(path) => path,
+        Err(e) => return err(&format!("app_data_dir error: {e}")),
+    };
+
+    let path = export_default_path(&root, "json");
+    let data = state.tasks_file();
+    let json = match serde_json::to_vec_pretty(&data) {
+        Ok(bytes) => bytes,
+        Err(e) => return err(&format!("json error: {e}")),
+    };
+
+    if let Err(error) = write_atomic_bytes(&path, &json) {
+        return err(&format!("export error: {error:?}"));
+    }
+
+    ok(path.to_string_lossy().to_string())
+}
+
+fn csv_escape(value: &str) -> String {
+    // Minimal CSV escaping: wrap in quotes and double any existing quotes.
+    let escaped = value.replace('"', "\"\"");
+    format!("\"{escaped}\"")
+}
+
+fn export_tasks_csv_impl(ctx: &impl CommandCtx, state: &AppState) -> CommandResult<String> {
+    let root = match ctx.app_data_dir() {
+        Ok(path) => path,
+        Err(e) => return err(&format!("app_data_dir error: {e}")),
+    };
+
+    let path = export_default_path(&root, "csv");
+    let tasks = state.tasks();
+
+    let mut out = String::new();
+    out.push_str("id,title,due_at,important,completed,quadrant,tags,notes,steps\n");
+    for task in tasks {
+        let tags = task.tags.join(";");
+        let notes = task.notes.unwrap_or_default().replace("\r\n", "\n");
+        let steps = task
+            .steps
+            .iter()
+            .map(|s| {
+                if s.completed {
+                    format!("[x] {}", s.title)
+                } else {
+                    format!("[ ] {}", s.title)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" | ");
+
+        out.push_str(&csv_escape(&task.id));
+        out.push(',');
+        out.push_str(&csv_escape(&task.title));
+        out.push(',');
+        out.push_str(&task.due_at.to_string());
+        out.push(',');
+        out.push_str(if task.important { "true" } else { "false" });
+        out.push(',');
+        out.push_str(if task.completed { "true" } else { "false" });
+        out.push(',');
+        out.push_str(&task.quadrant.to_string());
+        out.push(',');
+        out.push_str(&csv_escape(&tags));
+        out.push(',');
+        out.push_str(&csv_escape(&notes));
+        out.push(',');
+        out.push_str(&csv_escape(&steps));
+        out.push('\n');
+    }
+
+    if let Err(error) = write_atomic_bytes(&path, out.as_bytes()) {
+        return err(&format!("export error: {error:?}"));
+    }
+
+    ok(path.to_string_lossy().to_string())
+}
+
+fn export_tasks_markdown_impl(ctx: &impl CommandCtx, state: &AppState) -> CommandResult<String> {
+    let root = match ctx.app_data_dir() {
+        Ok(path) => path,
+        Err(e) => return err(&format!("app_data_dir error: {e}")),
+    };
+
+    let path = export_default_path(&root, "md");
+    let now = Local::now();
+    let now_ts = now.timestamp();
+    let today = now.date_naive();
+
+    let mut overdue: Vec<Task> = Vec::new();
+    let mut today_list: Vec<Task> = Vec::new();
+    let mut future: Vec<Task> = Vec::new();
+    let mut done: Vec<Task> = Vec::new();
+
+    for task in state.tasks() {
+        if task.completed {
+            done.push(task);
+            continue;
+        }
+        if task.due_at < now_ts {
+            overdue.push(task);
+            continue;
+        }
+        let due = Local.timestamp_opt(task.due_at, 0).single();
+        if let Some(due_time) = due {
+            if due_time.date_naive() == today {
+                today_list.push(task);
+                continue;
+            }
+        }
+        future.push(task);
+    }
+
+    overdue.sort_by_key(|t| t.due_at);
+    today_list.sort_by_key(|t| t.due_at);
+    future.sort_by_key(|t| t.due_at);
+    done.sort_by_key(|t| t.due_at);
+
+    let fmt_due = |ts: i64| Local.timestamp_opt(ts, 0).single().map(|dt| dt.format("%Y-%m-%d %H:%M").to_string()).unwrap_or_else(|| ts.to_string());
+
+    let mut out = String::new();
+    out.push_str("# MustDo Export\n\n");
+    out.push_str(&format!("Generated at: {}\n\n", now.format("%Y-%m-%d %H:%M:%S")));
+
+    let mut write_section = |title: &str, tasks: &[Task], checked: bool| {
+        out.push_str(&format!("## {title}\n\n"));
+        if tasks.is_empty() {
+            out.push_str("_Empty_\n\n");
+            return;
+        }
+        for task in tasks {
+            let box_mark = if checked { "x" } else { " " };
+            out.push_str(&format!("- [{box_mark}] {} (due: {})\n", task.title, fmt_due(task.due_at)));
+            if !task.tags.is_empty() {
+                let tags = task
+                    .tags
+                    .iter()
+                    .map(|t| format!("#{t}"))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                out.push_str(&format!("  - tags: {tags}\n"));
+            }
+            if let Some(notes) = &task.notes {
+                let notes = notes.replace("\r\n", "\n").replace('\n', " ");
+                if !notes.trim().is_empty() {
+                    out.push_str(&format!("  - notes: {notes}\n"));
+                }
+            }
+            if !task.steps.is_empty() {
+                out.push_str("  - steps:\n");
+                for step in &task.steps {
+                    let s_mark = if step.completed { "x" } else { " " };
+                    out.push_str(&format!("    - [{s_mark}] {}\n", step.title));
+                }
+            }
+        }
+        out.push('\n');
+    };
+
+    write_section("Overdue", &overdue, false);
+    write_section("Due today", &today_list, false);
+    write_section("Future", &future, false);
+    write_section("Completed", &done, true);
+
+    if let Err(error) = write_atomic_bytes(&path, out.as_bytes()) {
+        return err(&format!("export error: {error:?}"));
+    }
+
+    ok(path.to_string_lossy().to_string())
+}
+
 #[cfg(all(feature = "app", not(test)))]
 #[tauri::command]
 pub fn list_backups(app: AppHandle) -> CommandResult<Vec<BackupEntry>> {
@@ -658,6 +936,27 @@ pub fn import_backup(
 ) -> CommandResult<Vec<Task>> {
     let ctx = TauriCommandCtx { app: &app };
     import_backup_impl(&ctx, state.inner(), path)
+}
+
+#[cfg(all(feature = "app", not(test)))]
+#[tauri::command]
+pub fn export_tasks_json(app: AppHandle, state: State<AppState>) -> CommandResult<String> {
+    let ctx = TauriCommandCtx { app: &app };
+    export_tasks_json_impl(&ctx, state.inner())
+}
+
+#[cfg(all(feature = "app", not(test)))]
+#[tauri::command]
+pub fn export_tasks_csv(app: AppHandle, state: State<AppState>) -> CommandResult<String> {
+    let ctx = TauriCommandCtx { app: &app };
+    export_tasks_csv_impl(&ctx, state.inner())
+}
+
+#[cfg(all(feature = "app", not(test)))]
+#[tauri::command]
+pub fn export_tasks_markdown(app: AppHandle, state: State<AppState>) -> CommandResult<String> {
+    let ctx = TauriCommandCtx { app: &app };
+    export_tasks_markdown_impl(&ctx, state.inner())
 }
 
 #[cfg(test)]
@@ -775,6 +1074,7 @@ mod tests {
             quadrant: 1,
             notes: None,
             steps: Vec::new(),
+            tags: Vec::new(),
             sample_tag: None,
             reminder: ReminderConfig {
                 kind: ReminderKind::Normal,
@@ -1333,5 +1633,106 @@ mod tests {
         assert!(res.ok);
         assert_eq!(state_import_dst.tasks().len(), 1);
         assert!(!import_backup_impl(&ctx_restore, &state_import_dst, "no-such-file".into()).ok);
+    }
+
+    #[test]
+    fn export_commands_write_files_and_return_paths() {
+        let ctx = TestCtx::new();
+        let state = make_state(vec![make_task("a", 123)]);
+
+        let json = export_tasks_json_impl(&ctx, &state);
+        assert!(json.ok);
+        let json_path = json.data.unwrap();
+        assert!(std::path::Path::new(&json_path).exists());
+        let json_text = std::fs::read_to_string(&json_path).unwrap();
+        assert!(json_text.contains("\"tasks\""));
+
+        let csv = export_tasks_csv_impl(&ctx, &state);
+        assert!(csv.ok);
+        let csv_path = csv.data.unwrap();
+        assert!(std::path::Path::new(&csv_path).exists());
+        let csv_text = std::fs::read_to_string(&csv_path).unwrap();
+        assert!(csv_text.lines().next().unwrap().contains("id,title,due_at"));
+
+        let md = export_tasks_markdown_impl(&ctx, &state);
+        assert!(md.ok);
+        let md_path = md.data.unwrap();
+        assert!(std::path::Path::new(&md_path).exists());
+        let md_text = std::fs::read_to_string(&md_path).unwrap();
+        assert!(md_text.contains("# MustDo Export"));
+        assert!(md_text.contains("## Overdue"));
+    }
+
+    #[test]
+    fn export_commands_fail_when_app_data_dir_is_not_a_directory() {
+        let mut ctx = TestCtx::new();
+        let file_root = ctx.root_path().join("not-a-dir");
+        std::fs::write(&file_root, b"x").unwrap();
+        ctx.set_app_data_dir_override(file_root);
+
+        let state = make_state(vec![make_task("a", 123)]);
+        let res = export_tasks_json_impl(&ctx, &state);
+        assert!(!res.ok);
+    }
+
+    #[test]
+    fn bulk_update_tasks_updates_multiple_tasks_and_persists_once() {
+        let ctx = TestCtx::new();
+        let state = make_state(vec![make_task("a", 100), make_task("b", 200)]);
+
+        let mut a = make_task("a", 555);
+        a.quadrant = 3;
+        let mut b = make_task("b", 666);
+        b.quadrant = 2;
+
+        let res = bulk_update_tasks_impl(&ctx, &state, vec![a, b]);
+        assert!(res.ok);
+
+        let tasks = state.tasks();
+        assert_eq!(tasks.len(), 2);
+        let a = tasks.iter().find(|t| t.id == "a").unwrap();
+        let b = tasks.iter().find(|t| t.id == "b").unwrap();
+        assert_eq!(a.due_at, 555);
+        assert_eq!(a.quadrant, 3);
+        assert_eq!(b.due_at, 666);
+        assert_eq!(b.quadrant, 2);
+
+        // One persist => one state_updated emission.
+        assert_eq!(ctx.emitted.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn bulk_complete_tasks_marks_completed_and_spawns_next_for_repeat() {
+        let ctx = TestCtx::new();
+        let mut repeating = make_task("r", 1000);
+        repeating.repeat = RepeatRule::Daily {
+            workday_only: false,
+        };
+
+        let state = make_state(vec![make_task("a", 100), repeating.clone()]);
+        let res = bulk_complete_tasks_impl(
+            &ctx,
+            &state,
+            vec!["a".to_string(), "r".to_string()],
+        );
+        assert!(res.ok);
+
+        let tasks = state.tasks();
+        let a = tasks.iter().find(|t| t.id == "a").unwrap();
+        let r_done = tasks.iter().find(|t| t.id == "r").unwrap();
+        assert!(a.completed);
+        assert!(r_done.completed);
+
+        // A repeat task should spawn the next instance.
+        let expected_next_due = next_due_timestamp(repeating.due_at, &repeating.repeat);
+        let r_next = tasks
+            .iter()
+            .find(|t| t.id.starts_with("r-"))
+            .expect("next repeat task should exist");
+        assert!(!r_next.completed);
+        assert_eq!(r_next.due_at, expected_next_due);
+
+        // One persist => one state_updated emission.
+        assert_eq!(ctx.emitted.lock().unwrap().len(), 1);
     }
 }
