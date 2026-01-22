@@ -56,9 +56,17 @@ export function TaskCard({
   const canReschedule = Boolean(onReschedulePreset) && !task.completed;
   const [expanded, setExpanded] = useState(false);
   const [stepBusy, setStepBusy] = useState(false);
+  const [stepAddOpen, setStepAddOpen] = useState(false);
   const [newStepTitle, setNewStepTitle] = useState("");
   const canEditSteps = Boolean(onUpdateTask) && !task.completed;
   const canSelect = Boolean(selectable) && Boolean(onToggleSelected);
+  const stepAddInputRef = useRef<HTMLInputElement | null>(null);
+
+  const showInlineNotes = mode === "main" && Boolean(showNotesPreview);
+  const canEditNotes = Boolean(onUpdateTask) && !task.completed && showInlineNotes;
+  const [notesDraft, setNotesDraft] = useState(task.notes ?? "");
+  const [notesDirty, setNotesDirty] = useState(false);
+  const [notesBusy, setNotesBusy] = useState(false);
 
   useEffect(() => {
     if (!rescheduleOpen) return;
@@ -83,6 +91,25 @@ export function TaskCard({
       window.removeEventListener("keydown", onKeyDown);
     };
   }, [rescheduleOpen]);
+
+  useEffect(() => {
+    if (!expanded) {
+      setRescheduleOpen(false);
+      setStepAddOpen(false);
+      setNewStepTitle("");
+      return;
+    }
+    if (stepAddOpen) {
+      stepAddInputRef.current?.focus();
+    }
+  }, [expanded, stepAddOpen]);
+
+  useEffect(() => {
+    if (!showInlineNotes) return;
+    if (!expanded) return;
+    if (notesDirty) return;
+    setNotesDraft(task.notes ?? "");
+  }, [expanded, notesDirty, showInlineNotes, task.notes]);
 
   async function updateSteps(nextSteps: Task["steps"]) {
     if (!onUpdateTask) return;
@@ -132,6 +159,28 @@ export function TaskCard({
   async function handleRemoveStep(stepId: string) {
     if (!canEditSteps) return;
     await updateSteps(task.steps.filter((step) => step.id !== stepId));
+  }
+
+  async function handleSaveNotes() {
+    if (!onUpdateTask) return;
+    if (!canEditNotes) return;
+    if (notesBusy) return;
+
+    const current = (task.notes ?? "").trim();
+    const next = notesDraft.trim();
+    if (current === next) {
+      setNotesDirty(false);
+      return;
+    }
+
+    setNotesBusy(true);
+    try {
+      const now = Math.floor(Date.now() / 1000);
+      await onUpdateTask({ ...task, notes: next || undefined, updated_at: now });
+      setNotesDirty(false);
+    } finally {
+      setNotesBusy(false);
+    }
   }
 
   return (
@@ -202,7 +251,9 @@ export function TaskCard({
             <div className="task-steps-preview" aria-label={t("taskEdit.section.steps")}>
               {task.steps.slice(0, 3).map((step) => (
                 <div key={step.id} className={`task-step-preview ${step.completed ? "completed" : ""}`}>
-                  <span className="task-step-preview-mark">{step.completed ? "[x]" : "[ ]"}</span>
+                  <span className="task-step-preview-checkbox" aria-hidden="true">
+                    {step.completed && <Icons.Check />}
+                  </span>
                   <span className="task-step-preview-title">{step.title}</span>
                 </div>
               ))}
@@ -315,65 +366,98 @@ export function TaskCard({
           <div className="steps-section">
             <div className="steps-header">
               <span>{t("taskEdit.section.steps")}</span>
-              <div className="steps-add">
+            </div>
+
+            {task.steps.map((step) => (
+              <div key={step.id} className={`step-item ${step.completed ? "completed" : ""}`}>
+                <button
+                  type="button"
+                  className="step-checkbox"
+                  onClick={() => void handleToggleStep(step.id)}
+                  aria-label={step.completed ? t("taskEdit.stepMarkIncomplete") : t("taskEdit.stepMarkComplete")}
+                  aria-pressed={step.completed}
+                  disabled={stepBusy || !canEditSteps}
+                >
+                  {step.completed && <Icons.Check />}
+                </button>
+                <span className="step-title">{step.title}</span>
+                <button
+                  type="button"
+                  className="step-delete"
+                  onClick={() => void handleRemoveStep(step.id)}
+                  title={t("taskEdit.stepDelete")}
+                  aria-label={t("taskEdit.stepDelete")}
+                  disabled={stepBusy || !canEditSteps}
+                >
+                  <Icons.X />
+                </button>
+              </div>
+            ))}
+
+            {stepAddOpen ? (
+              <div className="step-add-row">
                 <input
+                  ref={stepAddInputRef}
                   className="steps-input"
                   placeholder={t("taskEdit.stepPlaceholder")}
                   value={newStepTitle}
                   onChange={(event) => setNewStepTitle(event.currentTarget.value)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter") void handleAddStep();
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      setNewStepTitle("");
+                      setStepAddOpen(false);
+                    }
                   }}
                   disabled={stepBusy || !canEditSteps}
                 />
                 <button
                   type="button"
-                  className="step-add-btn"
-                  onClick={() => void handleAddStep()}
-                  disabled={stepBusy || !canEditSteps || !newStepTitle.trim()}
-                  title={!newStepTitle.trim() ? t("taskEdit.stepRequired") : t("taskEdit.stepAdd")}
-                  aria-label={t("taskEdit.stepAdd")}
+                  className="step-add-cancel"
+                  onClick={() => {
+                    setNewStepTitle("");
+                    setStepAddOpen(false);
+                  }}
+                  title={t("common.close")}
+                  aria-label={t("common.close")}
+                  disabled={stepBusy}
                 >
-                  <Icons.Plus />
+                  <Icons.X />
                 </button>
               </div>
-            </div>
-
-            {task.steps.length === 0 ? (
-              <div className="steps-empty">{t("taskEdit.stepEmpty")}</div>
             ) : (
-              task.steps.map((step) => (
-                <div key={step.id} className={`step-item ${step.completed ? "completed" : ""}`}>
-                  <button
-                    type="button"
-                    className="step-checkbox"
-                    onClick={() => void handleToggleStep(step.id)}
-                    aria-label={step.completed ? t("taskEdit.stepMarkIncomplete") : t("taskEdit.stepMarkComplete")}
-                    aria-pressed={step.completed}
-                    disabled={stepBusy || !canEditSteps}
-                  >
-                    {step.completed && <Icons.Check />}
-                  </button>
-                  <span className="step-title">{step.title}</span>
-                  <button
-                    type="button"
-                    className="step-delete"
-                    onClick={() => void handleRemoveStep(step.id)}
-                    title={t("taskEdit.stepDelete")}
-                    aria-label={t("taskEdit.stepDelete")}
-                    disabled={stepBusy || !canEditSteps}
-                  >
-                    <Icons.X />
-                  </button>
-                </div>
-              ))
+              <button
+                type="button"
+                className="step-add-bar"
+                onClick={() => {
+                  if (!canEditSteps || stepBusy) return;
+                  setStepAddOpen(true);
+                }}
+                disabled={stepBusy || !canEditSteps}
+                aria-label={t("taskEdit.stepAdd")}
+                title={t("taskEdit.stepAdd")}
+              >
+                <Icons.Plus />
+                <span>{t("taskEdit.stepAdd")}</span>
+              </button>
             )}
           </div>
 
-          {showNotesPreview && task.notes?.trim() && (
-            <div className="notes-preview-section">
+          {showInlineNotes && (
+            <div className="notes-section">
               <div className="notes-header">{t("taskEdit.section.notes")}</div>
-              <div className="notes-preview">{task.notes}</div>
+              <textarea
+                className="notes-input inline-notes"
+                value={notesDraft}
+                placeholder={t("taskEdit.notesPlaceholder")}
+                onChange={(event) => {
+                  setNotesDirty(true);
+                  setNotesDraft(event.currentTarget.value);
+                }}
+                onBlur={() => void handleSaveNotes()}
+                disabled={!canEditNotes || notesBusy}
+              />
             </div>
           )}
         </div>

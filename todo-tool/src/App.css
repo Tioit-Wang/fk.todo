@@ -775,7 +775,8 @@ textarea:focus-visible {
   grid-template-columns: 26px 1fr auto;
   gap: 8px;
   padding: 8px 10px;
-  align-items: center;
+  /* Keep checkbox + action buttons anchored to the first line, even when the card grows taller. */
+  align-items: start;
 }
 
 .task-row.selectable {
@@ -860,16 +861,29 @@ textarea:focus-visible {
 
 .task-step-preview {
   display: grid;
-  grid-template-columns: 28px 1fr;
+  grid-template-columns: 20px 1fr;
   gap: 6px;
   align-items: center;
   line-height: 14px;
   min-width: 0;
 }
 
-.task-step-preview-mark {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  color: var(--muted);
+.task-step-preview-checkbox {
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  display: grid;
+  place-items: center;
+  opacity: 0.8;
+  cursor: default;
+}
+
+.task-step-preview-checkbox .icon {
+  width: 14px;
+  height: 14px;
 }
 
 .task-step-preview-title {
@@ -884,7 +898,7 @@ textarea:focus-visible {
 }
 
 .task-step-preview.more {
-  padding-left: 28px;
+  padding-left: 20px;
 }
 
 .task-due-time {
@@ -1180,14 +1194,6 @@ textarea:focus-visible {
   align-items: center;
 }
 
-.steps-input {
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--panel-strong);
-  color: var(--text);
-  padding: 6px 8px;
-}
-
 .step-add-btn {
   border-radius: 8px;
   border: 1px solid var(--border);
@@ -1201,12 +1207,77 @@ textarea:focus-visible {
   color: var(--muted);
 }
 
-.step-item {
+.step-add-bar {
+  border-radius: 10px;
+  border: 1px dashed var(--border);
+  background: var(--panel);
+  color: var(--muted-strong);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+.step-add-bar:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.step-add-bar:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.step-add-bar .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.step-add-row {
   display: grid;
-  grid-template-columns: 22px 1fr auto;
+  grid-template-columns: 1fr 30px;
   gap: 8px;
   align-items: center;
-  padding: 4px 0;
+}
+
+.steps-input {
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel-strong);
+  color: var(--text);
+  padding: 6px 8px;
+}
+
+.step-add-cancel {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.step-add-cancel:hover:not(:disabled) {
+  border-color: var(--border);
+  background: var(--panel);
+  color: var(--text);
+}
+
+.step-add-cancel:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.step-item {
+  display: grid;
+  grid-template-columns: 18px 1fr auto;
+  gap: 6px;
+  align-items: center;
+  padding: 2px 0;
 }
 
 .step-item.completed .step-title {
@@ -1215,19 +1286,30 @@ textarea:focus-visible {
 }
 
 .step-checkbox {
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--panel-strong);
   color: var(--text);
   display: grid;
   place-items: center;
+  cursor: pointer;
+}
+
+.step-checkbox:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.step-checkbox .icon {
+  width: 14px;
+  height: 14px;
 }
 
 .step-delete {
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border-radius: 8px;
   border: 1px solid transparent;
   background: transparent;
@@ -1263,6 +1345,12 @@ textarea:focus-visible {
   background: var(--panel-strong);
   color: var(--text);
   padding: 8px;
+}
+
+.notes-input.inline-notes {
+  height: 96px;
+  resize: none;
+  overflow: auto;
 }
 
 .notes-preview {
