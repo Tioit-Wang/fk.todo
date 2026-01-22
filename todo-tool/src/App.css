@@ -1903,6 +1903,22 @@ textarea:focus-visible {
   padding: 6px 8px;
 }
 
+.settings-row .shortcut-capture {
+  min-width: 220px;
+  text-align: left;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.settings-row .shortcut-capture.capturing {
+  border-color: var(--warning);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--warning) 30%, transparent);
+}
+
 .settings-status {
   color: var(--muted);
 }

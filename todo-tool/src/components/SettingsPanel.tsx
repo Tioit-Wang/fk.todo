@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -15,6 +15,7 @@ import {
 } from "../api";
 import { useI18n } from "../i18n";
 import { buildAiNovelAssistantSampleTasks, taskIsAiNovelAssistantSample } from "../sampleData";
+import { captureShortcutFromEvent } from "../shortcut";
 import type { BackupSchedule, Settings, Task } from "../types";
 
 import { IconButton } from "./IconButton";
@@ -48,6 +49,8 @@ export function SettingsPanel({
   const [backups, setBackups] = useState<BackupEntry[]>([]);
   const [importPath, setImportPath] = useState("");
   const [shortcutDraft, setShortcutDraft] = useState("");
+  const [shortcutCapturing, setShortcutCapturing] = useState(false);
+  const [shortcutHint, setShortcutHint] = useState<string | null>(null);
   const [seedBusy, setSeedBusy] = useState(false);
   const [sampleDeleteBusy, setSampleDeleteBusy] = useState(false);
 
@@ -179,9 +182,10 @@ export function SettingsPanel({
     }
   }
 
-  async function applyShortcutDraft() {
-    if (!settings) return;
-    const nextShortcut = shortcutDraft.trim();
+  const applyShortcutDraft = useCallback(
+    async (nextOverride?: string) => {
+      if (!settings) return;
+      const nextShortcut = (nextOverride ?? shortcutDraft).trim();
     if (!nextShortcut) {
       setShortcutDraft(settings.shortcut);
       return;
@@ -192,7 +196,9 @@ export function SettingsPanel({
       // Keep the input consistent with persisted settings on failure.
       setShortcutDraft(settings.shortcut);
     }
-  }
+    },
+    [onUpdateSettings, settings, shortcutDraft],
+  );
 
   // When the panel opens, sync drafts and refresh side-effecty data (permission, backups).
   useEffect(() => {
@@ -201,6 +207,49 @@ export function SettingsPanel({
     void refreshPermissionStatus();
     void refreshBackups();
   }, [open, settings?.shortcut, settings]);
+
+  useEffect(() => {
+    if (!open || !shortcutCapturing) return;
+    setShortcutHint(t("settings.shortcutHint"));
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (event.key === "Escape") {
+        setShortcutCapturing(false);
+        setShortcutHint(null);
+        return;
+      }
+
+      const result = captureShortcutFromEvent(event);
+      if ("error" in result) {
+        setShortcutHint(
+          result.error === "need_modifier"
+            ? t("settings.shortcutNeedModifier")
+            : t("settings.shortcutNeedKey"),
+        );
+        return;
+      }
+
+      setShortcutCapturing(false);
+      setShortcutHint(null);
+      setShortcutDraft(result.shortcut);
+      void applyShortcutDraft(result.shortcut);
+    };
+
+    const handleBlur = () => {
+      setShortcutCapturing(false);
+      setShortcutHint(null);
+    };
+
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
+    window.addEventListener("blur", handleBlur);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, { capture: true });
+      window.removeEventListener("blur", handleBlur);
+    };
+  }, [open, shortcutCapturing, t, applyShortcutDraft]);
 
   if (!open || !settings) return null;
 
@@ -217,17 +266,24 @@ export function SettingsPanel({
         <div className="settings-section">
           <div className="settings-row">
             <label>{t("settings.shortcut")}</label>
-            <input
-              value={shortcutDraft}
-              onChange={(event) => setShortcutDraft(event.currentTarget.value)}
-              onBlur={() => void applyShortcutDraft()}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  event.currentTarget.blur();
+            <button
+              type="button"
+              className={`shortcut-capture ${shortcutCapturing ? "capturing" : ""}`}
+              onClick={() => {
+                if (shortcutCapturing) {
+                  setShortcutCapturing(false);
+                  setShortcutHint(null);
+                  return;
                 }
+                setShortcutCapturing(true);
               }}
-            />
+              title={t("settings.shortcutHint")}
+            >
+              {shortcutCapturing
+                ? t("settings.shortcutCapturing")
+                : shortcutDraft || t("settings.shortcutCapture")}
+            </button>
+            {shortcutHint && <span className="settings-status">{shortcutHint}</span>}
           </div>
           <div className="settings-row">
             <label>{t("settings.theme")}</label>
