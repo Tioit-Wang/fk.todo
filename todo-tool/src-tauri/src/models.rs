@@ -32,7 +32,7 @@ impl Default for ReminderConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RepeatRule {
     None,
@@ -139,7 +139,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             shortcut: "CommandOrControl+Shift+T".to_string(),
-            theme: "light".to_string(),
+            theme: "retro".to_string(),
             language: default_language(),
             sound_enabled: true,
             close_behavior: CloseBehavior::HideToTray,
@@ -260,7 +260,7 @@ mod tests {
     fn settings_default_values() {
         let settings = Settings::default();
         assert_eq!(settings.shortcut, "CommandOrControl+Shift+T");
-        assert_eq!(settings.theme, "light");
+        assert_eq!(settings.theme, "retro");
         assert_eq!(settings.language, "auto");
         assert!(settings.sound_enabled);
         assert_eq!(
@@ -390,9 +390,39 @@ mod tests {
         assert!(task.steps.is_empty());
         assert_eq!(task.sample_tag, None);
         assert_eq!(task.notes, None);
-        assert!(matches!(task.reminder.kind, ReminderKind::None));
+        assert_eq!(task.reminder.kind, ReminderKind::None);
         assert!(!task.reminder.forced_dismissed);
-        assert!(matches!(task.repeat, RepeatRule::None));
+        assert_eq!(task.repeat, RepeatRule::None);
+    }
+
+    #[test]
+    fn task_non_default_reminder_and_repeat_are_not_none() {
+        let task = Task {
+            id: "t3".to_string(),
+            title: "non-default".to_string(),
+            due_at: 123,
+            important: false,
+            completed: false,
+            completed_at: None,
+            created_at: 10,
+            updated_at: 10,
+            sort_order: 0,
+            quadrant: 1,
+            notes: None,
+            steps: Vec::new(),
+            sample_tag: None,
+            reminder: ReminderConfig {
+                kind: ReminderKind::Normal,
+                remind_at: Some(111),
+                snoozed_until: None,
+                forced_dismissed: false,
+                last_fired_at: None,
+            },
+            repeat: RepeatRule::Daily { workday_only: false },
+        };
+
+        assert_ne!(task.reminder.kind, ReminderKind::None);
+        assert_ne!(task.repeat, RepeatRule::None);
     }
 
     #[test]

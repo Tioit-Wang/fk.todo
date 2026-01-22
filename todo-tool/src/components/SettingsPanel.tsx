@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -16,6 +16,7 @@ import {
 import { useI18n } from "../i18n";
 import { buildAiNovelAssistantSampleTasks, taskIsAiNovelAssistantSample } from "../sampleData";
 import { captureShortcutFromEvent } from "../shortcut";
+import { normalizeTheme } from "../theme";
 import type { BackupSchedule, Settings, Task } from "../types";
 
 import { IconButton } from "./IconButton";
@@ -65,19 +66,25 @@ export function SettingsPanel({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, onClose]);
 
-  async function refreshPermissionStatus() {
+  const refreshPermissionStatus = useCallback(async () => {
     try {
       const granted = await isPermissionGranted();
       setPermissionStatus(granted ? "granted" : "denied");
     } catch {
       setPermissionStatus("unknown");
     }
-  }
+  }, []);
 
-  async function requestNotificationPermission() {
-    const result = await requestPermission();
-    setPermissionStatus(result === "granted" ? "granted" : "denied");
-  }
+  const requestNotificationPermission = useCallback(async () => {
+    try {
+      const result = await requestPermission();
+      setPermissionStatus(result === "granted" ? "granted" : "denied");
+    } catch {
+      setPermissionStatus("unknown");
+    } finally {
+      setTimeout(() => void refreshPermissionStatus(), 500);
+    }
+  }, [refreshPermissionStatus]);
 
   async function openNotificationSettings() {
     const target = detectPlatform();
@@ -206,7 +213,23 @@ export function SettingsPanel({
     setShortcutDraft(settings.shortcut);
     void refreshPermissionStatus();
     void refreshBackups();
-  }, [open, settings?.shortcut, settings]);
+  }, [open, settings?.shortcut, settings, refreshPermissionStatus]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleFocus = () => void refreshPermissionStatus();
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void refreshPermissionStatus();
+      }
+    };
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [open, refreshPermissionStatus]);
 
   useEffect(() => {
     if (!open || !shortcutCapturing) return;
@@ -253,6 +276,13 @@ export function SettingsPanel({
 
   if (!open || !settings) return null;
 
+  const themeValue = useMemo(() => normalizeTheme(settings.theme), [settings.theme]);
+  const permissionLabel = useMemo(() => {
+    if (permissionStatus === "granted") return t("settings.permission.granted");
+    if (permissionStatus === "denied") return t("settings.permission.denied");
+    return t("settings.permission.unknown");
+  }, [permissionStatus, t]);
+
   return (
     <div className="settings-overlay" onClick={onClose}>
         <div className="settings-panel" onClick={(event) => event.stopPropagation()}>
@@ -288,7 +318,7 @@ export function SettingsPanel({
           <div className="settings-row">
             <label>{t("settings.theme")}</label>
             <select
-              value={settings.theme}
+              value={themeValue}
               onChange={(event) =>
                 void onUpdateSettings({
                   ...settings,
@@ -296,8 +326,10 @@ export function SettingsPanel({
                 })
               }
             >
-              <option value="light">{t("settings.theme.light")}</option>
-              <option value="dark">{t("settings.theme.dark")}</option>
+              <option value="retro">{t("settings.theme.retro")}</option>
+              <option value="tech">{t("settings.theme.tech")}</option>
+              <option value="calm">{t("settings.theme.calm")}</option>
+              <option value="vscode">{t("settings.theme.vscode")}</option>
             </select>
           </div>
           <div className="settings-row">
@@ -382,7 +414,7 @@ export function SettingsPanel({
           <div className="settings-row">
             <label>{t("settings.notificationPermission")}</label>
             <span className="settings-status">
-              {permissionStatus === "granted" ? t("settings.permission.granted") : t("settings.permission.denied")}
+              {permissionLabel}
             </span>
             <button type="button" className="pill" onClick={() => void requestNotificationPermission()}>
               {t("settings.permission.request")}

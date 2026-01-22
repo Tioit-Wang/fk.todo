@@ -1137,6 +1137,19 @@ mod tests {
     }
 
     #[test]
+    fn update_settings_normalizes_unknown_language_to_default() {
+        let ctx = TestCtx::new();
+        let state = make_state(Vec::new());
+
+        let mut settings = state.settings();
+        settings.language = "fr".into();
+
+        let res = update_settings_impl(&ctx, &state, settings);
+        assert!(res.ok);
+        assert_eq!(state.settings().language, Settings::default().language);
+    }
+
+    #[test]
     fn snooze_dismiss_and_delete_cover_found_not_found_and_persist_error() {
         let ctx = TestCtx::new();
         let state = make_state(vec![make_task("a", 1000), make_task("b", 2000)]);
@@ -1226,6 +1239,10 @@ mod tests {
         let ctx_del_fail = TestCtx::new();
         fs::write(ctx_del_fail.root_path().join("backups"), b"x").unwrap();
         assert!(!delete_backup_impl(&ctx_del_fail, "data-test.json".into()).ok);
+
+        let ctx_del_invalid = TestCtx::new();
+        fs::create_dir_all(ctx_del_invalid.root_path().join("backups")).unwrap();
+        assert!(!delete_backup_impl(&ctx_del_invalid, "../data-test.json".into()).ok);
 
         let ctx_del_ok = TestCtx::new();
         fs::create_dir_all(ctx_del_ok.root_path().join("backups")).unwrap();

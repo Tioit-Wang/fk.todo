@@ -302,4 +302,18 @@ mod tests {
         let updated = state.tasks().into_iter().find(|t| t.id == task.id).unwrap();
         assert_eq!(updated.sample_tag.as_deref(), Some("ai-novel-assistant-v1"));
     }
+
+    #[test]
+    fn update_task_overwrites_sample_tag_when_present() {
+        let mut task = make_task("sample2", 1, 1, 10);
+        task.sample_tag = Some("old-tag".to_string());
+        let state = AppState::new(vec![task.clone()], Settings::default());
+
+        let mut edited = task.clone();
+        edited.sample_tag = Some("new-tag".to_string());
+        state.update_task(edited);
+
+        let updated = state.tasks().into_iter().find(|t| t.id == task.id).unwrap();
+        assert_eq!(updated.sample_tag.as_deref(), Some("new-tag"));
+    }
 }

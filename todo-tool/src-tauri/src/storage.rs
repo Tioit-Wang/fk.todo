@@ -213,8 +213,12 @@ impl Storage {
     }
 
     fn next_backup_name(&self) -> Result<String, StorageError> {
+        self.next_backup_name_with_limit(9999)
+    }
+
+    fn next_backup_name_with_limit(&self, limit: usize) -> Result<String, StorageError> {
         let date = chrono::Local::now().format("%Y-%m-%d").to_string();
-        for index in 1..=9999 {
+        for index in 1..=limit {
             let name = if index == 1 {
                 format!("data-{date}.json")
             } else {
@@ -578,6 +582,22 @@ mod tests {
     }
 
     #[test]
+    fn next_backup_name_fails_when_limit_exhausted() {
+        let root = tempfile::tempdir().unwrap();
+        let storage = Storage::new(root.path().to_path_buf());
+        storage.ensure_dirs().unwrap();
+
+        let date = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let name = format!("data-{date}.json");
+        fs::write(root.path().join(BACKUP_DIR).join(&name), b"x").unwrap();
+
+        let err = storage
+            .next_backup_name_with_limit(1)
+            .expect_err("should error when all slots are exhausted");
+        assert!(is_io(&err));
+    }
+
+    #[test]
     fn delete_backup_removes_file_and_rejects_invalid_names() {
         let root = tempfile::tempdir().unwrap();
         let storage = Storage::new(root.path().to_path_buf());
@@ -591,6 +611,42 @@ mod tests {
         let err = storage
             .delete_backup("../data-test.json")
             .expect_err("should reject invalid filename");
+        assert!(is_io(&err));
+
+        let err = storage
+            .delete_backup("")
+            .expect_err("should reject empty filename");
+        assert!(is_io(&err));
+
+        let err = storage
+            .delete_backup("data-missing.json")
+            .expect_err("should fail when file is missing");
+        assert!(is_io(&err));
+    }
+
+    #[test]
+    fn create_backup_reports_error_when_names_exhausted() {
+        let root = tempfile::tempdir().unwrap();
+        let storage = Storage::new(root.path().to_path_buf());
+        storage.ensure_dirs().unwrap();
+
+        let date = chrono::Local::now().format("%Y-%m-%d").to_string();
+        for index in 1..=9999 {
+            let name = if index == 1 {
+                format!("data-{date}.json")
+            } else {
+                format!("data-{date}-{index}.json")
+            };
+            fs::write(root.path().join(BACKUP_DIR).join(name), b"x").unwrap();
+        }
+
+        let data_path = root.path().join(DATA_FILE);
+        fs::write(&data_path, serde_json::to_string_pretty(&sample_tasks_file()).unwrap())
+            .unwrap();
+
+        let err = storage
+            .create_backup(&data_path)
+            .expect_err("should error once all names are taken");
         assert!(is_io(&err));
     }
 

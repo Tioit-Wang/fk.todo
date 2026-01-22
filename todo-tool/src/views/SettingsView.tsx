@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
@@ -18,6 +18,7 @@ import {
 import { useI18n } from "../i18n";
 import { buildAiNovelAssistantSampleTasks, taskIsAiNovelAssistantSample } from "../sampleData";
 import { captureShortcutFromEvent } from "../shortcut";
+import { normalizeTheme } from "../theme";
 import type { BackupSchedule, MinimizeBehavior, Settings, Task } from "../types";
 
 import { WindowTitlebar } from "../components/WindowTitlebar";
@@ -85,23 +86,25 @@ export function SettingsView({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [settings, shortcutDraft, onUpdateSettings, onBack, t]);
 
-  async function refreshPermissionStatus() {
+  const refreshPermissionStatus = useCallback(async () => {
     try {
       const granted = await isPermissionGranted();
       setPermissionStatus(granted ? "granted" : "denied");
     } catch {
       setPermissionStatus("unknown");
     }
-  }
+  }, []);
 
-  async function requestNotificationPermission() {
+  const requestNotificationPermission = useCallback(async () => {
     try {
       const result = await requestPermission();
       setPermissionStatus(result === "granted" ? "granted" : "denied");
     } catch {
       setPermissionStatus("unknown");
+    } finally {
+      setTimeout(() => void refreshPermissionStatus(), 500);
     }
-  }
+  }, [refreshPermissionStatus]);
 
   async function openNotificationSettings() {
     const target = detectPlatform();
@@ -278,7 +281,22 @@ export function SettingsView({
   useEffect(() => {
     void refreshPermissionStatus();
     void refreshBackups();
-  }, []);
+  }, [refreshPermissionStatus]);
+
+  useEffect(() => {
+    const handleFocus = () => void refreshPermissionStatus();
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void refreshPermissionStatus();
+      }
+    };
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [refreshPermissionStatus]);
 
   // Fetch app version once (best-effort).
   useEffect(() => {
@@ -347,6 +365,16 @@ export function SettingsView({
       text: t("settings.update.checkFailed", { error }),
     };
   })();
+
+  const themeValue = useMemo(
+    () => (settings ? normalizeTheme(settings.theme) : "retro"),
+    [settings?.theme],
+  );
+  const permissionLabel = useMemo(() => {
+    if (permissionStatus === "granted") return t("settings.permission.granted");
+    if (permissionStatus === "denied") return t("settings.permission.denied");
+    return t("settings.permission.unknown");
+  }, [permissionStatus, t]);
 
   return (
     <div className="main-window">
@@ -422,7 +450,7 @@ export function SettingsView({
               <div className="settings-row">
                 <label>{t("settings.theme")}</label>
                 <select
-                  value={settings.theme}
+                  value={themeValue}
                   onChange={(event) =>
                     void onUpdateSettings({
                       ...settings,
@@ -430,8 +458,10 @@ export function SettingsView({
                     })
                   }
                 >
-                  <option value="light">{t("settings.theme.light")}</option>
-                  <option value="dark">{t("settings.theme.dark")}</option>
+                  <option value="retro">{t("settings.theme.retro")}</option>
+                  <option value="tech">{t("settings.theme.tech")}</option>
+                  <option value="calm">{t("settings.theme.calm")}</option>
+                  <option value="vscode">{t("settings.theme.vscode")}</option>
                 </select>
               </div>
               <div className="settings-row">
@@ -531,7 +561,7 @@ export function SettingsView({
               <div className="settings-row">
                 <label>{t("settings.notificationPermission")}</label>
                 <span className="settings-status">
-                  {permissionStatus === "granted" ? t("settings.permission.granted") : t("settings.permission.denied")}
+                  {permissionLabel}
                 </span>
                 <button type="button" className="pill" onClick={() => void requestNotificationPermission()}>
                   {t("settings.permission.request")}

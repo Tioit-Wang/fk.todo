@@ -13,7 +13,6 @@ import { NotificationBanner } from "../components/NotificationBanner";
 import { TaskCard } from "../components/TaskCard";
 import { WindowTitlebar } from "../components/WindowTitlebar";
 import { Icons } from "../components/icons";
-import { DOM_WINDOW_DRAG_START } from "../events";
 import { useI18n } from "../i18n";
 import { visibleQuickTasks, type QuickSortMode, type QuickTab } from "../logic";
 import type { Settings, Task } from "../types";
@@ -32,7 +31,6 @@ export function QuickView({
   tasks,
   settings,
   normalTasks,
-  isModalOpen,
   onUpdateSettings,
   onCreateFromComposer,
   onToggleComplete,
@@ -45,7 +43,6 @@ export function QuickView({
   tasks: Task[];
   settings: Settings | null;
   normalTasks: Task[];
-  isModalOpen: boolean;
   onUpdateSettings: (next: Settings) => Promise<boolean>;
   onCreateFromComposer: (draft: TaskComposerDraft) => Promise<void> | void;
   onToggleComplete: (task: Task) => Promise<void> | void;
@@ -63,11 +60,8 @@ export function QuickView({
   const quickWindowApplied = useRef(false);
   const quickSaveTimer = useRef<number | null>(null);
   const settingsRef = useRef<Settings | null>(settings);
-  const isModalOpenRef = useRef(isModalOpen);
   const tabLockedRef = useRef(false);
   const sortLockedRef = useRef(false);
-  const ignoreFocusLossUntilRef = useRef(0);
-  const focusLossCheckTimerRef = useRef<number | null>(null);
 
   const quickTabs = useMemo<{ id: QuickTab; label: string }[]>(
     () => [
@@ -91,9 +85,6 @@ export function QuickView({
     settingsRef.current = settings;
   }, [settings]);
 
-  useEffect(() => {
-    isModalOpenRef.current = isModalOpen;
-  }, [isModalOpen]);
 
   useEffect(() => {
     const tick = () => setNow(new Date());
@@ -222,13 +213,6 @@ export function QuickView({
     void appWindow.setAlwaysOnTop(settings.quick_always_on_top).catch(() => {});
 
     const scheduleSave = () => {
-      // When the user drags/resizes the quick window on Windows, the native drag loop can
-      // cause transient focus changes. Extend the grace period while movement is ongoing so
-      // the window doesn't auto-hide mid-drag.
-      if (Date.now() < ignoreFocusLossUntilRef.current) {
-        ignoreFocusLossUntilRef.current = Math.max(ignoreFocusLossUntilRef.current, Date.now() + 800);
-      }
-
       if (quickSaveTimer.current) {
         clearTimeout(quickSaveTimer.current);
       }
@@ -286,75 +270,6 @@ export function QuickView({
       }
     };
   }, [settings, onUpdateSettings]);
-
-  // Auto-hide quick window when it loses focus (unless it's pinned or the edit modal is open).
-  //
-  // NOTE: Don't use the webview-level `window.blur` event here. On Windows, entering a native
-  // drag loop can briefly blur the webview, which makes the quick window appear to minimize
-  // or disappear while dragging. Using Tauri's window focus event + a small drag grace period
-  // avoids that UX bug.
-  useEffect(() => {
-    const appWindow = getCurrentWindow();
-
-    const scheduleFocusLossCheck = (graceMs: number) => {
-      ignoreFocusLossUntilRef.current = Math.max(ignoreFocusLossUntilRef.current, Date.now() + graceMs);
-      if (focusLossCheckTimerRef.current) {
-        window.clearTimeout(focusLossCheckTimerRef.current);
-      }
-
-      const tick = async () => {
-        try {
-          focusLossCheckTimerRef.current = null;
-          const now = Date.now();
-          if (now < ignoreFocusLossUntilRef.current) {
-            // Grace period extended (e.g., continuous drag); re-check when it should have ended.
-            const remaining = ignoreFocusLossUntilRef.current - now;
-            focusLossCheckTimerRef.current = window.setTimeout(() => void tick(), remaining + 50);
-            return;
-          }
-          if (settingsRef.current?.quick_always_on_top) return;
-          if (isModalOpenRef.current) return;
-          const focused = await appWindow.isFocused();
-          if (!focused) void appWindow.hide().catch(() => {});
-        } catch {
-          // Best-effort: if focus APIs fail, don't auto-hide.
-        }
-      };
-
-      focusLossCheckTimerRef.current = window.setTimeout(() => void tick(), graceMs + 50);
-    };
-
-    const onDragStart = () => scheduleFocusLossCheck(1200);
-    window.addEventListener(DOM_WINDOW_DRAG_START, onDragStart as EventListener);
-
-    let disposed = false;
-    let unlistenFocus: (() => void) | null = null;
-    (async () => {
-      const focused = await appWindow.onFocusChanged(({ payload }) => {
-        // payload === true => focused, payload === false => blurred.
-        if (payload) return;
-        if (Date.now() < ignoreFocusLossUntilRef.current) return;
-        if (settingsRef.current?.quick_always_on_top) return;
-        if (isModalOpenRef.current) return;
-        void appWindow.hide().catch(() => {});
-      });
-
-      if (disposed) {
-        focused();
-        return;
-      }
-      unlistenFocus = focused;
-    })();
-
-    return () => {
-      disposed = true;
-      window.removeEventListener(DOM_WINDOW_DRAG_START, onDragStart as EventListener);
-      if (focusLossCheckTimerRef.current) {
-        window.clearTimeout(focusLossCheckTimerRef.current);
-      }
-      if (unlistenFocus) unlistenFocus();
-    };
-  }, []);
 
   const quickTasks = useMemo(() => visibleQuickTasks(tasks, tab, now, quickSort), [tasks, tab, now, quickSort]);
 

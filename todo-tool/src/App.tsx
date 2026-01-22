@@ -47,6 +47,7 @@ import { newTask } from "./logic";
 import { TAURI_NAVIGATE } from "./events";
 import { detectPlatform } from "./platform";
 import { buildReminderConfig } from "./reminder";
+import { normalizeTheme } from "./theme";
 import type { Settings, Task } from "./types";
 
 const NOTIFICATION_ACTION_TYPE = "todo-reminder";
@@ -383,7 +384,7 @@ function App() {
   useEffect(() => {
     settingsRef.current = settings;
     if (!settings) return;
-    document.documentElement.dataset.theme = settings.theme;
+    document.documentElement.dataset.theme = normalizeTheme(settings.theme);
   }, [settings]);
 
   useEffect(() => {
@@ -855,7 +856,6 @@ function App() {
           tasks={tasks}
           settings={settings}
           normalTasks={normalTasks}
-          isModalOpen={Boolean(editingTaskId) || Boolean(confirmDeleteTaskId)}
           onUpdateSettings={handleUpdateSettings}
           onCreateFromComposer={handleCreateFromComposer}
           onToggleComplete={handleToggleComplete}
