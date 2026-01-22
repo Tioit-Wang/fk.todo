@@ -1,6 +1,6 @@
 [package]
 name = "todo-tool"
-version = "20260121.1.2-bate.1"
+version = "20260122.2.0-bate.1"
 description = "MustDo - pinned todo list with forced reminders"
 authors = ["you"]
 edition = "2021"
