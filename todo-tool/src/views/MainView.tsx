@@ -160,36 +160,41 @@ export function MainView({
 
   const listSections = useMemo(() => {
     const now = new Date();
-    const all: Task[] = [];
+    const allOpen: Task[] = [];
+    const allDone: Task[] = [];
     const overdue: Task[] = [];
-    const today: Task[] = [];
-    const tomorrow: Task[] = [];
-    const future: Task[] = [];
+    const todayOpen: Task[] = [];
+    const todayDone: Task[] = [];
+    const tomorrowOpen: Task[] = [];
+    const tomorrowDone: Task[] = [];
+    const futureOpen: Task[] = [];
+    const futureDone: Task[] = [];
     const completed: Task[] = [];
 
     sortedTasks.forEach((task) => {
-      all.push(task);
       if (task.completed) {
+        allDone.push(task);
         completed.push(task);
-        return;
+      } else {
+        allOpen.push(task);
       }
       if (isOverdue(task, Math.floor(now.getTime() / 1000))) {
         overdue.push(task);
       } else if (isDueToday(task, now)) {
-        today.push(task);
+        (task.completed ? todayDone : todayOpen).push(task);
       } else if (isDueTomorrow(task, now)) {
-        tomorrow.push(task);
-      } else {
-        future.push(task);
+        (task.completed ? tomorrowDone : tomorrowOpen).push(task);
+      } else if (isDueInFuture(task, now)) {
+        (task.completed ? futureDone : futureOpen).push(task);
       }
     });
 
     return [
-      { id: "all", label: t("main.tab.all"), tasks: all },
+      { id: "all", label: t("main.tab.all"), tasks: [...allOpen, ...allDone] },
       { id: "overdue", label: t("main.tab.overdue"), tasks: overdue },
-      { id: "today", label: t("main.tab.today"), tasks: today },
-      { id: "tomorrow", label: t("main.tab.tomorrow"), tasks: tomorrow },
-      { id: "future", label: t("main.tab.future"), tasks: future },
+      { id: "today", label: t("main.tab.today"), tasks: [...todayOpen, ...todayDone] },
+      { id: "tomorrow", label: t("main.tab.tomorrow"), tasks: [...tomorrowOpen, ...tomorrowDone] },
+      { id: "future", label: t("main.tab.future"), tasks: [...futureOpen, ...futureDone] },
       { id: "completed", label: t("main.tab.completed"), tasks: completed },
     ];
   }, [sortedTasks, t]);
