@@ -182,6 +182,9 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: todo-tool
+          # Force npm for running the Tauri CLI, regardless of any other lockfiles.
+          # This avoids tauri-action auto-detecting pnpm/yarn and running different install/build commands.
+          tauriScript: npm run tauri
           tagName: ${{ github.ref_name }}
           releaseName: fk.todo ${{ github.ref_name }}
           releaseBody: See the assets to download this version and install.

@@ -1,7 +1,7 @@
 {
   "name": "todo-tool",
   "private": true,
-  "version": "20260122.2.4-bate.2",
+  "version": "20260122.2.4-bate.3",
   "type": "module",
   "scripts": {
     "dev": "vite",
