@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use chrono::Utc;
@@ -9,6 +10,9 @@ const SCHEMA_VERSION: u32 = 1;
 #[derive(Clone)]
 pub struct AppState {
     inner: Arc<Mutex<AppData>>,
+    // Runtime-only flag: when the user is recording a shortcut in Settings,
+    // we temporarily ignore the global shortcut handler to avoid accidental triggers.
+    shortcut_capture_active: Arc<AtomicBool>,
 }
 
 impl AppState {
@@ -21,7 +25,16 @@ impl AppState {
         }
         Self {
             inner: Arc::new(Mutex::new(AppData { tasks, settings })),
+            shortcut_capture_active: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    pub fn is_shortcut_capture_active(&self) -> bool {
+        self.shortcut_capture_active.load(Ordering::Relaxed)
+    }
+
+    pub fn set_shortcut_capture_active(&self, active: bool) {
+        self.shortcut_capture_active.store(active, Ordering::Relaxed);
     }
 
     pub fn tasks_file(&self) -> TasksFile {
@@ -186,6 +199,16 @@ mod tests {
         let b = out.iter().find(|t| t.id == "b").unwrap();
         assert_eq!(a.sort_order, 10 * 1000);
         assert_eq!(b.sort_order, 777);
+    }
+
+    #[test]
+    fn shortcut_capture_flag_defaults_to_false_and_can_toggle() {
+        let state = AppState::new(Vec::new(), Settings::default());
+        assert!(!state.is_shortcut_capture_active());
+        state.set_shortcut_capture_active(true);
+        assert!(state.is_shortcut_capture_active());
+        state.set_shortcut_capture_active(false);
+        assert!(!state.is_shortcut_capture_active());
     }
 
     #[test]

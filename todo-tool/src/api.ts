@@ -30,6 +30,10 @@ export async function updateSettings(settings: Settings) {
   return invoke<CommandResult<Settings>>("update_settings", { settings });
 }
 
+export async function setShortcutCaptureActive(active: boolean) {
+  return invoke<CommandResult<boolean>>("set_shortcut_capture_active", { active });
+}
+
 export async function snoozeTask(taskId: string, until: number) {
   return invoke<CommandResult<boolean>>("snooze_task", { taskId, until });
 }

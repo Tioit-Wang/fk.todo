@@ -13,6 +13,7 @@ import {
   importBackup,
   listBackups,
   restoreBackup,
+  setShortcutCaptureActive,
   type BackupEntry,
 } from "../api";
 import { useI18n } from "../i18n";
@@ -237,6 +238,7 @@ export function SettingsView({
   useEffect(() => {
     if (!shortcutCapturing) return;
     setShortcutHint(t("settings.shortcutHint"));
+    void setShortcutCaptureActive(true).catch(() => {});
 
     const handleKeyDown = (event: KeyboardEvent) => {
       event.preventDefault();
@@ -272,6 +274,7 @@ export function SettingsView({
     window.addEventListener("keydown", handleKeyDown, { capture: true });
     window.addEventListener("blur", handleBlur);
     return () => {
+      void setShortcutCaptureActive(false).catch(() => {});
       window.removeEventListener("keydown", handleKeyDown, { capture: true });
       window.removeEventListener("blur", handleBlur);
     };

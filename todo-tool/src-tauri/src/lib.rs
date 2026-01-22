@@ -41,6 +41,12 @@ pub fn run() {
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
                     if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        // When the user is recording a shortcut in Settings, ignore the global
+                        // shortcut handler so we don't accidentally pop up the quick window.
+                        let state = app.state::<AppState>();
+                        if state.is_shortcut_capture_active() {
+                            return;
+                        }
                         if let Some(window) = app.get_webview_window("quick") {
                             let _ = window.unminimize();
                             let _ = window.show();
@@ -232,6 +238,7 @@ pub fn run() {
             create_backup,
             restore_backup,
             import_backup,
+            set_shortcut_capture_active,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

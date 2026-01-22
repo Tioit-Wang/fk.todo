@@ -449,6 +449,13 @@ pub fn update_settings(
 
 #[cfg(all(feature = "app", not(test)))]
 #[tauri::command]
+pub fn set_shortcut_capture_active(state: State<AppState>, active: bool) -> CommandResult<bool> {
+    state.set_shortcut_capture_active(active);
+    ok(true)
+}
+
+#[cfg(all(feature = "app", not(test)))]
+#[tauri::command]
 pub fn snooze_task(
     app: AppHandle,
     state: State<AppState>,
