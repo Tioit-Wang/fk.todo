@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
+import { getAppVersion } from "../version";
 import {
   createBackup,
   createTask,
@@ -23,16 +24,24 @@ import { Icons } from "../components/icons";
 import { detectPlatform } from "../platform";
 
 type PermissionStatus = "unknown" | "granted" | "denied";
+type ManualUpdateCheckResult =
+  | { status: "update"; version: string }
+  | { status: "none" }
+  | { status: "error"; error: string };
 
 export function SettingsView({
   tasks,
   settings,
   onUpdateSettings,
+  updateBusy,
+  onCheckUpdate,
   onBack,
 }: {
   tasks: Task[];
   settings: Settings | null;
   onUpdateSettings: (next: Settings) => Promise<boolean>;
+  updateBusy: boolean;
+  onCheckUpdate: () => Promise<ManualUpdateCheckResult>;
   onBack: () => void;
 }) {
   const { t } = useI18n();
@@ -42,6 +51,10 @@ export function SettingsView({
   const [shortcutDraft, setShortcutDraft] = useState("");
   const [seedBusy, setSeedBusy] = useState(false);
   const [sampleDeleteBusy, setSampleDeleteBusy] = useState(false);
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [updateCheckBusy, setUpdateCheckBusy] = useState(false);
+  const [updateCheckResult, setUpdateCheckResult] =
+    useState<ManualUpdateCheckResult | null>(null);
 
   async function handleBack() {
     if (settings) {
@@ -216,6 +229,33 @@ export function SettingsView({
     void refreshBackups();
   }, []);
 
+  // Fetch app version once (best-effort).
+  useEffect(() => {
+    let disposed = false;
+    void getAppVersion()
+      .then((version) => {
+        if (disposed) return;
+        setAppVersion(version ?? "");
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
+  async function handleCheckUpdate() {
+    if (import.meta.env.DEV) return;
+    if (updateBusy || updateCheckBusy) return;
+    setUpdateCheckBusy(true);
+    setUpdateCheckResult(null);
+    try {
+      const res = await onCheckUpdate();
+      setUpdateCheckResult(res);
+    } finally {
+      setUpdateCheckBusy(false);
+    }
+  }
+
   async function handleMinimize() {
     const appWindow = getCurrentWindow();
     const behavior = settings?.minimize_behavior ?? "hide_to_tray";
@@ -229,6 +269,33 @@ export function SettingsView({
       // Best-effort: if the platform disallows the requested action, keep the window usable.
     }
   }
+
+  const updateStatus = (() => {
+    if (import.meta.env.DEV) {
+      return { tone: "info", text: t("settings.update.devDisabled") };
+    }
+    if (updateCheckBusy) {
+      return { tone: "info", text: t("settings.update.checking") };
+    }
+    if (!updateCheckResult) return null;
+    if (updateCheckResult.status === "none") {
+      return { tone: "success", text: t("settings.update.latest") };
+    }
+    if (updateCheckResult.status === "update") {
+      return {
+        tone: "warning",
+        text: t("settings.update.available", { version: updateCheckResult.version }),
+      };
+    }
+    const error =
+      updateCheckResult.error.length > 160
+        ? `${updateCheckResult.error.slice(0, 157)}...`
+        : updateCheckResult.error;
+    return {
+      tone: "danger",
+      text: t("settings.update.checkFailed", { error }),
+    };
+  })();
 
   return (
     <div className="main-window">
@@ -251,15 +318,38 @@ export function SettingsView({
         }
       />
 
-      <div className="main-content settings-page">
-        {!settings ? (
-          <div className="settings-empty">{t("common.loading")}</div>
-        ) : (
-          <div className="settings-panel settings-page-panel">
-            <div className="settings-section">
-              <div className="settings-row">
-                <label>{t("settings.shortcut")}</label>
-                <input
+         <div className="main-content settings-page">
+         {!settings ? (
+           <div className="settings-empty">{t("common.loading")}</div>
+         ) : (
+           <div className="settings-panel settings-page-panel">
+             <div className="settings-section">
+               <div className="settings-row">
+                 <label>{t("settings.update.currentVersion")}</label>
+                 <span className="settings-status">
+                   {appVersion === null ? t("common.loading") : appVersion || "-"}
+                 </span>
+               </div>
+               <div className="settings-row">
+                 <label>{t("settings.update")}</label>
+                 <button
+                   type="button"
+                   className="pill"
+                   onClick={() => void handleCheckUpdate()}
+                   disabled={import.meta.env.DEV || updateBusy || updateCheckBusy}
+                 >
+                   {t("settings.update.check")}
+                 </button>
+                 {updateStatus && (
+                   <span className={`settings-status ${updateStatus.tone}`}>{updateStatus.text}</span>
+                 )}
+               </div>
+             </div>
+
+             <div className="settings-section">
+               <div className="settings-row">
+                 <label>{t("settings.shortcut")}</label>
+                 <input
                   value={shortcutDraft}
                   onChange={(event) => setShortcutDraft(event.currentTarget.value)}
                   onBlur={() => void applyShortcutDraft()}

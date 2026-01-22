@@ -28,6 +28,70 @@ jobs:
           # Prefer "master" if it exists; otherwise fall back to "main".
           git fetch origin --prune --tags
 
+          tag="${GITHUB_REF_NAME}"
+          if [[ ! "$tag" =~ ^V[0-9]{8}\.[0-9]+\.[0-9]+(-bate(\.[0-9]+)?)?$ ]]; then
+            echo "Invalid release tag: ${tag}" >&2
+            echo "Expected: VYYYYMMDD.N.P or VYYYYMMDD.N.P-bate[.N]" >&2
+            exit 1
+          fi
+
+          version="${tag#V}"
+          python3 - "$version" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          try:
+              import tomllib  # Python >= 3.11
+          except Exception as exc:  # pragma: no cover
+              print(f"tomllib is required to parse Cargo.toml: {exc}", file=sys.stderr)
+              sys.exit(1)
+
+          tag_version = sys.argv[1]
+          root = pathlib.Path(".")
+
+          def read_json(path: str) -> dict:
+              return json.loads((root / path).read_text(encoding="utf-8"))
+
+          def read_toml(path: str) -> dict:
+              return tomllib.loads((root / path).read_text(encoding="utf-8"))
+
+          pkg_version = read_json("todo-tool/package.json").get("version")
+          tauri_version = read_json("todo-tool/src-tauri/tauri.conf.json").get("version")
+          cargo = read_toml("todo-tool/src-tauri/Cargo.toml")
+          cargo_version = (cargo.get("package") or {}).get("version")
+
+          versions = {
+              "todo-tool/package.json": pkg_version,
+              "todo-tool/src-tauri/Cargo.toml": cargo_version,
+              "todo-tool/src-tauri/tauri.conf.json": tauri_version,
+          }
+
+          missing = [path for path, v in versions.items() if not isinstance(v, str) or not v.strip()]
+          if missing:
+              print("Failed to read version from:", file=sys.stderr)
+              for path in missing:
+                  print(f"  - {path}", file=sys.stderr)
+              sys.exit(1)
+
+          unique_versions = set(versions.values())
+          if len(unique_versions) != 1:
+              print("Version mismatch between files:", file=sys.stderr)
+              for path, v in versions.items():
+                  print(f"  {path}: {v}", file=sys.stderr)
+              sys.exit(1)
+
+          file_version = next(iter(unique_versions))
+          if file_version != tag_version:
+              print("Tag/version mismatch:", file=sys.stderr)
+              print(f"  tag: {tag_version}", file=sys.stderr)
+              for path, v in versions.items():
+                  print(f"  {path}: {v}", file=sys.stderr)
+              sys.exit(1)
+
+          print(f"Version OK: {tag_version}")
+          PY
+
           release_ref=""
           if git show-ref --verify --quiet refs/remotes/origin/master; then
             release_ref="origin/master"

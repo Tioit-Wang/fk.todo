@@ -1907,6 +1907,18 @@ textarea:focus-visible {
   color: var(--muted);
 }
 
+.settings-status.success {
+  color: var(--success);
+}
+
+.settings-status.warning {
+  color: var(--warning);
+}
+
+.settings-status.danger {
+  color: var(--danger);
+}
+
 .backup-list {
   display: grid;
   gap: 6px;

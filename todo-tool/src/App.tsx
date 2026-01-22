@@ -129,6 +129,11 @@ function App() {
   } | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
 
+  type ManualUpdateCheckResult =
+    | { status: "update"; version: string }
+    | { status: "none" }
+    | { status: "error"; error: string };
+
   const appLang = resolveAppLanguage(settings?.language);
   const t = useMemo(() => makeTranslator(appLang), [appLang]);
 
@@ -747,6 +752,33 @@ function App() {
     }
   }
 
+  async function handleManualUpdateCheck(): Promise<ManualUpdateCheckResult> {
+    if (import.meta.env.DEV) {
+      return { status: "error", error: "updater disabled in dev mode" };
+    }
+    if (getCurrentWindow().label !== "main") {
+      return { status: "error", error: "updater must run in main window" };
+    }
+    if (updateBusy) {
+      return { status: "error", error: "updater is busy" };
+    }
+
+    try {
+      const update = await check();
+      if (!update) return { status: "none" };
+
+      // Replace any existing pending handle to avoid leaking native resources.
+      setPendingUpdate((prev) => {
+        if (prev) void prev.close().catch(() => {});
+        return update;
+      });
+      setShowUpdatePrompt(true);
+      return { status: "update", version: update.version };
+    } catch (err) {
+      return { status: "error", error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
   const mainPage = (() => {
     const raw = locationHash.replace("#", "");
     const path = raw.startsWith("/") ? raw.slice(1) : raw;
@@ -840,6 +872,8 @@ function App() {
           tasks={tasks}
           settings={settings}
           onUpdateSettings={handleUpdateSettings}
+          updateBusy={updateBusy}
+          onCheckUpdate={handleManualUpdateCheck}
           onBack={() => {
             window.location.hash = "#/main";
           }}
