@@ -223,11 +223,29 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
-            const { data: release } = await github.rest.repos.getReleaseByTag({
-              owner,
-              repo,
-              tag,
-            });
+            // NOTE:
+            // `GET /releases/tags/{tag}` only works for *published* releases.
+            // We intentionally keep the release as a *draft* during the matrix build,
+            // so we must resolve it via `listReleases` (which includes drafts for users with push access).
+            const resolveReleaseByTag = async () => {
+              const releases = await github.paginate(github.rest.repos.listReleases, {
+                owner,
+                repo,
+                per_page: 100,
+              });
+              const match = releases.find((r) => r.tag_name === tag);
+              if (!match) throw new Error(`missing release for tag: ${tag}`);
+
+              // Refresh to ensure assets are fully populated and up-to-date.
+              const { data: full } = await github.rest.repos.getRelease({
+                owner,
+                repo,
+                release_id: match.id,
+              });
+              return full;
+            };
+
+            const release = await resolveReleaseByTag();
 
             const assets = release.assets ?? [];
             const byName = new Map(assets.map((a) => [a.name, a]));
