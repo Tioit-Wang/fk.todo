@@ -144,6 +144,11 @@ jobs:
           cache: "npm"
           cache-dependency-path: todo-tool/package-lock.json
 
+      - name: Setup pnpm (Corepack)
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.9.0 --activate
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
