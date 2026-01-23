@@ -97,7 +97,14 @@ export function sortTasksWithPinnedImportant(
 export function buildCompletionSections(
   tasks: Task[],
 ): Record<ListTabId, Task[]> {
-  const open = tasks.filter((task) => !task.completed);
-  const done = tasks.filter((task) => task.completed);
-  return { all: [...open, ...done], open, done };
+  const open: Task[] = [];
+  const done: Task[] = [];
+  for (const task of tasks) {
+    if (task.completed) {
+      done.push(task);
+    } else {
+      open.push(task);
+    }
+  }
+  return { all: open.concat(done), open, done };
 }

@@ -9,6 +9,7 @@ import { Icons } from "../components/icons";
 import { NotificationBanner } from "../components/NotificationBanner";
 import { TaskCard } from "../components/TaskCard";
 import { useI18n } from "../i18n";
+import type { SnoozePresetId } from "../snooze";
 import type { Settings, Task } from "../types";
 
 export function CalendarView({
@@ -27,7 +28,7 @@ export function CalendarView({
   tasks: Task[];
   settings: Settings | null;
   normalTasks: Task[];
-  onNormalSnooze: (task: Task) => Promise<void> | void;
+  onNormalSnooze: (task: Task, preset: SnoozePresetId) => Promise<void> | void;
   onNormalComplete: (task: Task) => Promise<void> | void;
   onUpdateTask: (next: Task) => Promise<void> | void;
   onToggleComplete: (task: Task) => Promise<void> | void;

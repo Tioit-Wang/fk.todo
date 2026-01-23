@@ -440,6 +440,7 @@ fn build_next_repeat_task(completed: &Task, next_due: i64) -> Task {
     next.reminder.last_fired_at = None;
     next.reminder.forced_dismissed = false;
     next.reminder.snoozed_until = None;
+    next.reminder.repeat_fired_count = 0;
 
     // Preserve the reminder offset semantics across repeat instances.
     // (Otherwise a copied `remind_at` in the past would trigger immediately on the next cycle.)

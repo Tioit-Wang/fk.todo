@@ -18,6 +18,7 @@ pub struct ReminderConfig {
     pub snoozed_until: Option<Timestamp>,
     pub forced_dismissed: bool,
     pub last_fired_at: Option<Timestamp>,
+    pub repeat_fired_count: i64,
 }
 
 impl Default for ReminderConfig {
@@ -28,24 +29,29 @@ impl Default for ReminderConfig {
             snoozed_until: None,
             forced_dismissed: false,
             last_fired_at: None,
+            repeat_fired_count: 0,
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RepeatRule {
+    #[default]
     None,
-    Daily { workday_only: bool },
-    Weekly { days: Vec<u8> },
-    Monthly { day: u8 },
-    Yearly { month: u8, day: u8 },
-}
-
-impl Default for RepeatRule {
-    fn default() -> Self {
-        Self::None
-    }
+    Daily {
+        workday_only: bool,
+    },
+    Weekly {
+        days: Vec<u8>,
+    },
+    Monthly {
+        day: u8,
+    },
+    Yearly {
+        month: u8,
+        day: u8,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -114,17 +120,12 @@ pub enum CloseBehavior {
     Exit,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum MinimizeBehavior {
+    #[default]
     HideToTray,
     Minimize,
-}
-
-impl Default for MinimizeBehavior {
-    fn default() -> Self {
-        Self::HideToTray
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -158,6 +159,10 @@ pub struct Settings {
     pub today_focus_ids: Vec<String>,
     pub today_focus_date: Option<String>,
     pub today_prompted_date: Option<String>,
+    #[serde(default = "default_reminder_repeat_interval_sec")]
+    pub reminder_repeat_interval_sec: i64,
+    #[serde(default = "default_reminder_repeat_max_times")]
+    pub reminder_repeat_max_times: i64,
 }
 
 impl Default for Settings {
@@ -180,6 +185,8 @@ impl Default for Settings {
             today_focus_ids: Vec::new(),
             today_focus_date: None,
             today_prompted_date: None,
+            reminder_repeat_interval_sec: default_reminder_repeat_interval_sec(),
+            reminder_repeat_max_times: default_reminder_repeat_max_times(),
         }
     }
 }
@@ -260,6 +267,16 @@ fn default_project_id() -> String {
     "inbox".to_string()
 }
 
+fn default_reminder_repeat_interval_sec() -> i64 {
+    // 0 disables repeats (single-shot reminders only).
+    10 * 60
+}
+
+fn default_reminder_repeat_max_times() -> i64 {
+    // 0 means "repeat until completed" (no limit).
+    0
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct TasksFile {
@@ -288,6 +305,7 @@ mod tests {
         assert_eq!(config.snoozed_until, None);
         assert!(!config.forced_dismissed);
         assert_eq!(config.last_fired_at, None);
+        assert_eq!(config.repeat_fired_count, 0);
     }
 
     #[test]
@@ -319,6 +337,8 @@ mod tests {
         assert!(settings.today_focus_ids.is_empty());
         assert_eq!(settings.today_focus_date, None);
         assert_eq!(settings.today_prompted_date, None);
+        assert_eq!(settings.reminder_repeat_interval_sec, 10 * 60);
+        assert_eq!(settings.reminder_repeat_max_times, 0);
     }
 
     #[test]
@@ -361,6 +381,8 @@ mod tests {
         assert!(settings.today_focus_ids.is_empty());
         assert_eq!(settings.today_focus_date, None);
         assert_eq!(settings.today_prompted_date, None);
+        assert_eq!(settings.reminder_repeat_interval_sec, 10 * 60);
+        assert_eq!(settings.reminder_repeat_max_times, 0);
     }
 
     #[test]
@@ -461,6 +483,7 @@ mod tests {
                 snoozed_until: None,
                 forced_dismissed: false,
                 last_fired_at: None,
+                repeat_fired_count: 0,
             },
             repeat: RepeatRule::Daily {
                 workday_only: false,
@@ -486,6 +509,7 @@ mod tests {
         assert_eq!(config.snoozed_until, None);
         assert!(!config.forced_dismissed);
         assert_eq!(config.last_fired_at, None);
+        assert_eq!(config.repeat_fired_count, 0);
     }
 
     #[test]

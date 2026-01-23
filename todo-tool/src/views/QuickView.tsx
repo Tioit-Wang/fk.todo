@@ -18,6 +18,7 @@ import { useI18n } from "../i18n";
 import { visibleQuickTasks, type QuickSortMode, type QuickTab } from "../logic";
 import { computeRescheduleDueAt, rescheduleTask, type ReschedulePresetId } from "../reschedule";
 import { taskMatchesQuery } from "../search";
+import type { SnoozePresetId } from "../snooze";
 import type { Settings, Task } from "../types";
 
 function isQuickTab(value: string): value is QuickTab {
@@ -54,7 +55,7 @@ export function QuickView({
   onToggleImportant: (task: Task) => Promise<void> | void;
   onRequestDelete: (task: Task) => void;
   onEditTask: (task: Task) => void;
-  onNormalSnooze: (task: Task) => Promise<void> | void;
+  onNormalSnooze: (task: Task, preset: SnoozePresetId) => Promise<void> | void;
   onNormalComplete: (task: Task) => Promise<void> | void;
 }) {
   const { t } = useI18n();

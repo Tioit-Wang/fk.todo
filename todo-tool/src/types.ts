@@ -13,6 +13,7 @@ export interface ReminderConfig {
   snoozed_until?: number;
   forced_dismissed: boolean;
   last_fired_at?: number;
+  repeat_fired_count?: number;
 }
 
 export type CloseBehavior = "hide_to_tray" | "exit";
@@ -82,6 +83,8 @@ export interface Settings {
   today_focus_date?: string;
   today_focus_ids: string[];
   today_prompted_date?: string;
+  reminder_repeat_interval_sec: number;
+  reminder_repeat_max_times: number;
 }
 
 export interface StatePayload {

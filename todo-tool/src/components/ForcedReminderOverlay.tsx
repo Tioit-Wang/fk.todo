@@ -5,6 +5,7 @@ import { useI18n } from "../i18n";
 import { formatRepeatRule } from "../repeat";
 import { isOverdue } from "../scheduler";
 import type { Task } from "../types";
+import type { SnoozePresetId } from "../snooze";
 
 import { Icons } from "./icons";
 
@@ -35,7 +36,7 @@ export function ForcedReminderOverlay({
   queueIndex,
   queueTotal,
   onDismiss,
-  onSnooze5,
+  onSnooze,
   onComplete,
 }: {
   task: Task | null;
@@ -43,7 +44,7 @@ export function ForcedReminderOverlay({
   queueIndex: number;
   queueTotal: number;
   onDismiss: () => void;
-  onSnooze5: () => void;
+  onSnooze: (preset: SnoozePresetId) => void;
   onComplete: () => void;
 }) {
   const { t } = useI18n();
@@ -72,12 +73,12 @@ export function ForcedReminderOverlay({
       if (event.key === "Escape") {
         // Safer default than “关闭提醒”: Esc = snooze and revisit soon.
         event.preventDefault();
-        onSnooze5();
+        onSnooze("m5");
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [task, onComplete, onSnooze5]);
+  }, [task, onComplete, onSnooze]);
 
   if (!task) return null;
 
@@ -135,9 +136,25 @@ export function ForcedReminderOverlay({
             <button type="button" className="forced-btn ghost" onClick={onDismiss}>
               {t("forced.action.dismiss")}
             </button>
-            <button type="button" className="forced-btn secondary" onClick={onSnooze5}>
+            <button type="button" className="forced-btn secondary" onClick={() => onSnooze("m5")}>
               <Icons.Snooze />
               {t("forced.action.snooze5")}
+            </button>
+            <button type="button" className="forced-btn secondary" onClick={() => onSnooze("m15")}>
+              <Icons.Snooze />
+              {t("forced.action.snooze15")}
+            </button>
+            <button type="button" className="forced-btn secondary" onClick={() => onSnooze("h1")}>
+              <Icons.Snooze />
+              {t("forced.action.snooze1h")}
+            </button>
+            <button
+              type="button"
+              className="forced-btn secondary"
+              onClick={() => onSnooze("tomorrow0900")}
+            >
+              <Icons.Snooze />
+              {t("forced.action.snoozeTomorrowMorning")}
             </button>
             <button type="button" className="forced-btn primary" onClick={onComplete}>
               <Icons.Check />

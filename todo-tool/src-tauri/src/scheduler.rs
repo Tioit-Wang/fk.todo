@@ -63,6 +63,9 @@ fn persist_reminder_state(app: &AppHandle, state: &AppState) {
 
 fn collect_due_tasks(state: &AppState, now: i64) -> Vec<Task> {
     let mut due = Vec::new();
+    let settings = state.settings();
+    let repeat_interval = settings.reminder_repeat_interval_sec.max(0);
+    let repeat_max_times = settings.reminder_repeat_max_times;
     let tasks = state.tasks();
     for task in tasks {
         if task.completed {
@@ -86,10 +89,49 @@ fn collect_due_tasks(state: &AppState, now: i64) -> Vec<Task> {
             .or(reminder.remind_at)
             .unwrap_or(default_target);
 
-        let already_fired = reminder
-            .last_fired_at
-            .map_or(false, |last_fired| last_fired >= target_time);
-        if !already_fired && now >= target_time {
+        // Repeat reminders are intentionally scoped to Normal reminders.
+        // Forced reminders already have a blocking overlay, and repeating the overlay tends to
+        // feel like "spam" rather than "must handle".
+        let effective_repeat_interval = if reminder.kind == ReminderKind::Normal {
+            repeat_interval
+        } else {
+            0
+        };
+
+        if effective_repeat_interval <= 0 {
+            // Single-shot: same semantics as before (last_fired_at de-dupes a given target_time).
+            let already_fired = reminder
+                .last_fired_at
+                .is_some_and(|last_fired| last_fired >= target_time);
+            if !already_fired && now >= target_time {
+                due.push(task.clone());
+            }
+            continue;
+        }
+
+        // Repeat mode: once fired, keep reminding on a fixed cadence until completion (or limit).
+        let fired_count = reminder.repeat_fired_count.max(0);
+        if repeat_max_times > 0 && fired_count >= repeat_max_times {
+            continue;
+        }
+
+        let last_fired_at = reminder.last_fired_at.unwrap_or(i64::MIN);
+        let next_target = if let Some(snoozed_until) = reminder.snoozed_until {
+            // Snooze always wins if it is later than the last fired time.
+            if snoozed_until > last_fired_at {
+                snoozed_until
+            } else if let Some(last) = reminder.last_fired_at {
+                last.saturating_add(effective_repeat_interval)
+            } else {
+                target_time
+            }
+        } else if let Some(last) = reminder.last_fired_at {
+            last.saturating_add(effective_repeat_interval)
+        } else {
+            target_time
+        };
+
+        if now >= next_target {
             due.push(task.clone());
         }
     }
@@ -237,5 +279,99 @@ mod tests {
         // Important task should come first.
         assert_eq!(due[0].id, due_normal_important.id);
         assert_eq!(due[1].id, due_forced_by_snooze.id);
+    }
+
+    #[test]
+    fn collect_due_tasks_repeats_normal_reminders_when_interval_enabled() {
+        let now = 1000;
+
+        let repeating = task_with_reminder(
+            "repeat",
+            2000,
+            false,
+            false,
+            ReminderConfig {
+                kind: ReminderKind::Normal,
+                last_fired_at: Some(700),
+                repeat_fired_count: 1,
+                ..ReminderConfig::default()
+            },
+        );
+
+        let mut settings = crate::models::Settings::default();
+        settings.reminder_repeat_interval_sec = 300;
+        settings.reminder_repeat_max_times = 0;
+
+        let state = AppState::new(vec![repeating], Vec::new(), settings);
+        let out = collect_due_tasks(&state, now);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].id, "repeat");
+    }
+
+    #[test]
+    fn collect_due_tasks_repeat_mode_respects_snooze_override_and_max_times() {
+        let now = 1000;
+
+        let snoozed = task_with_reminder(
+            "snoozed",
+            2000,
+            false,
+            false,
+            ReminderConfig {
+                kind: ReminderKind::Normal,
+                last_fired_at: Some(700),
+                snoozed_until: Some(1200),
+                repeat_fired_count: 1,
+                ..ReminderConfig::default()
+            },
+        );
+
+        let maxed_out = task_with_reminder(
+            "maxed",
+            2000,
+            false,
+            false,
+            ReminderConfig {
+                kind: ReminderKind::Normal,
+                last_fired_at: Some(700),
+                repeat_fired_count: 2,
+                ..ReminderConfig::default()
+            },
+        );
+
+        let mut settings = crate::models::Settings::default();
+        settings.reminder_repeat_interval_sec = 300;
+        settings.reminder_repeat_max_times = 2;
+
+        let state = AppState::new(vec![snoozed, maxed_out], Vec::new(), settings);
+        let out = collect_due_tasks(&state, now);
+        // snoozed_until wins (1200 > now), and maxed_out hits the repeat limit.
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn collect_due_tasks_does_not_repeat_forced_reminders() {
+        let now = 2000;
+
+        let forced = task_with_reminder(
+            "forced",
+            1100,
+            false,
+            false,
+            ReminderConfig {
+                kind: ReminderKind::Forced,
+                last_fired_at: Some(1200),
+                repeat_fired_count: 99,
+                ..ReminderConfig::default()
+            },
+        );
+
+        let mut settings = crate::models::Settings::default();
+        settings.reminder_repeat_interval_sec = 300;
+        settings.reminder_repeat_max_times = 0;
+
+        let state = AppState::new(vec![forced], Vec::new(), settings);
+        let out = collect_due_tasks(&state, now);
+        assert!(out.is_empty());
     }
 }

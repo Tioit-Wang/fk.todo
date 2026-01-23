@@ -800,7 +800,61 @@ export function SettingsView({
                         <Icons.ExternalLink />
                         {t("settings.permission.systemSettings")}
                       </button>
-                    )}
+                      )}
+                  </div>
+                  <div className="settings-row">
+                    <label>{t("settings.reminderRepeatInterval")}</label>
+                    <select
+                      value={settings.reminder_repeat_interval_sec}
+                      onChange={(event) =>
+                        void onUpdateSettings({
+                          ...settings,
+                          reminder_repeat_interval_sec: Number(
+                            event.currentTarget.value,
+                          ),
+                        })
+                      }
+                    >
+                      <option value={0}>
+                        {t("settings.reminderRepeatInterval.off")}
+                      </option>
+                      <option value={5 * 60}>
+                        {t("settings.reminderRepeatInterval.5m")}
+                      </option>
+                      <option value={10 * 60}>
+                        {t("settings.reminderRepeatInterval.10m")}
+                      </option>
+                      <option value={30 * 60}>
+                        {t("settings.reminderRepeatInterval.30m")}
+                      </option>
+                    </select>
+                  </div>
+                  <div className="settings-row">
+                    <label>{t("settings.reminderRepeatMaxTimes")}</label>
+                    <select
+                      value={settings.reminder_repeat_max_times}
+                      onChange={(event) =>
+                        void onUpdateSettings({
+                          ...settings,
+                          reminder_repeat_max_times: Number(
+                            event.currentTarget.value,
+                          ),
+                        })
+                      }
+                    >
+                      <option value={0}>
+                        {t("settings.reminderRepeatMaxTimes.untilComplete")}
+                      </option>
+                      <option value={3}>
+                        {t("settings.reminderRepeatMaxTimes.3")}
+                      </option>
+                      <option value={5}>
+                        {t("settings.reminderRepeatMaxTimes.5")}
+                      </option>
+                      <option value={10}>
+                        {t("settings.reminderRepeatMaxTimes.10")}
+                      </option>
+                    </select>
                   </div>
                 </div>
               </section>

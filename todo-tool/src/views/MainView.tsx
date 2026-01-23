@@ -19,6 +19,7 @@ import {
   rescheduleTask,
   type ReschedulePresetId,
 } from "../reschedule";
+import type { SnoozePresetId } from "../snooze";
 import type { Project, Settings, Task } from "../types";
 import {
   buildCompletionSections,
@@ -76,7 +77,7 @@ export function MainView({
   onOpenSettings: () => void;
   onOpenToday: () => void;
   onOpenCalendar: () => void;
-  onNormalSnooze: (task: Task) => Promise<void> | void;
+  onNormalSnooze: (task: Task, preset: SnoozePresetId) => Promise<void> | void;
   onNormalComplete: (task: Task) => Promise<void> | void;
 }) {
   const { t } = useI18n();
@@ -160,7 +161,8 @@ export function MainView({
       const bp = b.pinned ? 1 : 0;
       if (ap !== bp) return bp - ap;
       if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
-      return a.created_at - b.created_at;
+      if (a.created_at !== b.created_at) return a.created_at - b.created_at;
+      return a.id.localeCompare(b.id);
     });
     return list;
   }, [projects]);
@@ -764,6 +766,11 @@ export function MainView({
                       }}
                       onContextMenu={(event) => {
                         event.preventDefault();
+                        // Inbox has no context actions; avoid showing an empty menu.
+                        if (project.id === "inbox") {
+                          setProjectMenu(null);
+                          return;
+                        }
                         setProjectMenu({
                           projectId: project.id,
                           x: event.clientX,

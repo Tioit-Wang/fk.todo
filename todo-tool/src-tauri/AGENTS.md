@@ -153,3 +153,30 @@
 - 对 settings/任务字段做破坏性变更时，优先“加字段 + default”而不是“改名/删字段”。
 - I/O 错误要返回给前端：command 返回 `CommandResult` 的 error 字符串；不要直接 panic。
 - 自动备份逻辑依赖 Local 时间（day/week/month）；涉及时间语义调整要补齐测试。
+
+## 9) 推荐技能（Codex skills / 后端）
+
+如果你的 Codex 环境已安装 rust-skills 相关 skills，后端侧建议按场景优先使用：
+
+- Rust 总入口：
+  - `rust-router`：Rust 编译错误/设计取舍/对比方案时的默认入口（会把问题路由到更具体的技能）。
+- 编译器错误“定位类别”（ownership/borrow/trait bounds）：
+  - `m01-ownership` / `m02-resource` / `m03-mutability` / `m04-zero-cost`：优先用它们定位根因，再决定是否需要 clone/Arc/Mutex/泛型约束调整。
+- 领域建模与 schema 演进（`models.rs` / JSON 兼容）：
+  - `m09-domain` + `m05-type-driven`：明确 Entity/Value Object、字段约束、不变量、默认值与迁移策略。
+- 错误边界（command 返回、I/O 失败、数据损坏恢复）：
+  - `m06-error-handling` + `m13-domain-error`：区分“可预期失败”与“bug/invariant”，决定用户提示/内部日志/是否可恢复。
+- 并发、调度器与状态共享（`scheduler.rs` / `state.rs` / tokio）：
+  - `m07-concurrency` + `m12-lifecycle`：Send/Sync、Arc/Mutex 选型、避免锁跨 `.await`、后台任务生命周期与 Drop 清理。
+- 依赖与 feature 管理：
+  - `m11-ecosystem` + `rust-deps-visualizer`：新增/裁剪 crate、feature 取舍、依赖树与版本冲突排查。
+- 代码审查与“反模式”快速扫描：
+  - `coding-guidelines` + `m15-anti-pattern`：clone/unwrap、全局可变状态、过度共享、复杂函数拆分等。
+- Unsafe / FFI：
+  - `unsafe-checker`：出现 `unsafe` / 裸指针 / ABI 相关改动时必须使用并补齐 `// SAFETY:` 说明。
+- 读代码与影响面分析（通常需要 LSP 支持；若不可用则用 `rg` 手动替代）：
+  - `rust-code-navigator` / `rust-call-graph` / `rust-symbol-analyzer` / `rust-trait-explorer` / `rust-refactor-helper`
+
+需要查 crate 文档/版本/变更时：
+
+- 可用 `rust-learner`（依赖浏览器/抓取链路的运行环境）；若不可用，直接以 docs.rs / crates.io 作为事实来源，并在代码里用 feature/版本号显式记录理由。

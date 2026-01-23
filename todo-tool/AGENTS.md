@@ -133,3 +133,14 @@ TS 数据结构定义在：`todo-tool/src/types.ts`
   - 当前约定：beep 只在 quick；系统通知只在 main；action 只在 quick。
 - `Date.now()` 是毫秒；业务时间戳用秒。创建任务时注意混用风险。
 - Reminder 的触发逻辑主要在后端；前端不要自己“推测触发”，而是响应 `reminder_fired`。
+
+## 9) 推荐技能（Codex skills / 前端）
+
+如果你的 Codex 环境已安装相关 skills，前端侧优先推荐：
+
+- `react-best-practices`：做 UI 性能/交互体验优化时优先参考（避免不必要 rerender、减少瀑布式异步、控制 bundle 等）。
+
+跨边界改动（types / invoke / events）时：
+
+- 先对照全局 `AGENTS.md` 的“推荐技能”与契约约定（`types.ts` / `models.rs` / snake_case / 秒级时间戳）。
+- 如果需要同时改 Rust：转到后端文档 `todo-tool/src-tauri/AGENTS.md`，并优先使用 `m09-domain` / `m05-type-driven` / `m06-error-handling` 来约束数据与错误边界。

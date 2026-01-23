@@ -10,7 +10,7 @@
 
 另外两份“事实来源”文档也很重要：
 
-- PRD（需求）：`桌面级Todo工具需求文档.md`
+- PRD（需求）：`REQUIREMENTS_PLAN.zh-CN.md`
 - 项目现状/关键文件索引：`todo-tool/UNFINISHED.md`
 
 ## 1) 仓库结构（以 workspace 根目录为准）
@@ -18,8 +18,8 @@
 - `todo-tool/`：应用主体（Vite 前端 + Tauri 配置 + Rust 后端子项目）
   - `todo-tool/src/`：React/TypeScript 前端
   - `todo-tool/src-tauri/`：Rust 后端（Tauri app + commands + storage + scheduler）
-- `.github/workflows/ci-build.yml`：CI（多平台构建）
-- `桌面级Todo工具需求文档.md`：需求文档（MVP）
+- `.github/workflows/release.yml`：发布流水线（push tag `V*` 触发，多平台构建 + 发布 GitHub Release）
+- `REQUIREMENTS_PLAN.zh-CN.md`：需求/规划（MVP + 迭代路线）
 
 ## 2) 关键命令（开发/构建/测试）
 
@@ -41,7 +41,7 @@
 
 平台依赖（Linux CI/本地）：
 
-- WebKit/GTK 等依赖见：`.github/workflows/ci-build.yml`
+- WebKit/GTK 等依赖见：`.github/workflows/release.yml`
 
 ## 3) 架构概览（前后端边界）
 
@@ -75,14 +75,14 @@
 - 原子写入：临时文件 + rename 覆盖（避免崩溃导致 JSON 损坏）
 - 备份：按 settings 中的 schedule 决定是否生成（Daily/Weekly/Monthly/None）
 
-## 5) CI 与发布产物
+## 5) CI/CD 与发布产物
 
-CI（`ci-build`）在 ubuntu/windows/macos 上执行：
+GitHub Actions：`.github/workflows/release.yml` 在 push tag `V*` 时执行（多平台打包并发布 GitHub Release）：
 
-- Node 20 + Rust stable
-- `npm ci`
-- `npm exec -- tauri build --no-bundle`
-- 上传 release 二进制（`todo-tool/src-tauri/target/release/todo-tool*`）
+- 版本一致性 guard：tag version 必须与 `todo-tool/package.json`、`todo-tool/src-tauri/Cargo.toml`、`todo-tool/src-tauri/tauri.conf.json` 完全一致
+- 构建矩阵：ubuntu/windows/macos（包含 macOS aarch64 + x86_64）
+- 打包方式：通过 `tauri-apps/tauri-action@v0` 生成 installer/bundle（Linux AppImage / Windows NSIS / macOS DMG）
+- finalize：生成并上传 `latest.json`，并在所有平台产物齐备后再把 release 从 draft 发布（预览版 `-bate` 不覆盖 `/releases/latest`）
 
 ## 6) 版本号规范（SemVer 兼容）
 
@@ -119,6 +119,28 @@ CI（`ci-build`）在 ubuntu/windows/macos 上执行：
 4. 跑最小验证：
    - 前端：`npm run build`
    - 后端：`cargo test --lib`
+
+## 8) 推荐技能（Codex skills）
+
+如果运行环境已安装 Codex skills（例如 rust-skills / react-best-practices），建议按场景优先使用下列技能来减少走弯路与降低改动风险：
+
+- Rust 后端（Tauri commands / storage / scheduler）：
+  - `rust-router`：Rust 问题总入口（编译错误、设计取舍、crate 对比/最佳实践等）。
+  - `m01-ownership` / `m02-resource` / `m03-mutability` / `m04-zero-cost`：处理 ownership/borrow/trait bounds 等典型编译错误（例如 E0382/E0502/E0277），避免“为了过编译到处 clone”。
+  - `m06-error-handling` / `m13-domain-error`：command 错误分层（用户可读 vs 内部可诊断）、是否可恢复/是否需要重试。
+  - `m07-concurrency` / `m12-lifecycle`：tokio 调度、Arc/Mutex 状态共享、后台任务生命周期、Drop/清理时机。
+  - `m09-domain` / `m05-type-driven`：Task/Settings 等领域建模、schema 演进、默认值/不变量约束。
+  - `m11-ecosystem` / `rust-deps-visualizer`：crate/feature 选择、依赖树、体积与版本冲突排查。
+  - `coding-guidelines` / `m15-anti-pattern`：Rust 风格与反模式扫描（clone/unwrap、锁跨 await、过度共享状态等）。
+  - `unsafe-checker`：出现 `unsafe` / FFI / 裸指针相关改动时必须使用。
+- 前端（React/TS + UI）：
+  - `react-best-practices`：列表/状态订阅/渲染性能/拆包等优化建议（即使不是 Next.js 也有参考价值）。
+- 读代码与影响面分析（通常需要 LSP 支持；若不可用则用 `rg` 手动替代）：
+  - `rust-code-navigator`：跳转定义/查找引用
+  - `rust-call-graph`：调用关系（谁调用了/调用了谁）
+  - `rust-symbol-analyzer`：项目结构与符号总览
+  - `rust-trait-explorer`：trait 实现关系梳理
+  - `rust-refactor-helper`：重构前的影响面分析
 
 ---
 

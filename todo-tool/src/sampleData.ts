@@ -6,6 +6,9 @@ const AI_NOVEL_SEED_MARKER = "seed:ai-novel-assistant-v1";
 const AI_NOVEL_TITLE_PREFIX = "AI小说助手 · ";
 export const AI_NOVEL_SAMPLE_PROJECT_ID =
   "sample-project-ai-novel-assistant-v1";
+const AI_NOVEL_SAMPLE_WRITING_PROJECT_ID =
+  "sample-project-ai-novel-assistant-writing-v1";
+const AI_NOVEL_SAMPLE_OPS_PROJECT_ID = "sample-project-ai-novel-assistant-ops-v1";
 
 function toSeconds(date: Date): number {
   return Math.floor(date.getTime() / 1000);
@@ -50,7 +53,7 @@ function makeSteps(
 function makeSeedNotes(extra?: string): string {
   const parts = [
     "示例任务集：AI 小说助手开发计划 (v1)",
-    "可用于快速体验四象限与列表视图。",
+    "可用于快速体验：四象限/列表、项目、步骤、重复任务、提醒、逾期与已完成。",
     AI_NOVEL_SEED_MARKER,
   ];
   if (extra?.trim()) parts.push(extra.trim());
@@ -68,7 +71,25 @@ export function buildAiNovelAssistantSampleProjects(
       id: AI_NOVEL_SAMPLE_PROJECT_ID,
       name: "AI 小说助手",
       pinned: true,
-      sort_order: Date.now(),
+      sort_order: nowSeconds * 1000 + 10,
+      created_at: nowSeconds,
+      updated_at: nowSeconds,
+      sample_tag: AI_NOVEL_SAMPLE_TAG,
+    },
+    {
+      id: AI_NOVEL_SAMPLE_WRITING_PROJECT_ID,
+      name: "AI 小说助手 · 写作流程",
+      pinned: false,
+      sort_order: nowSeconds * 1000 + 20,
+      created_at: nowSeconds,
+      updated_at: nowSeconds,
+      sample_tag: AI_NOVEL_SAMPLE_TAG,
+    },
+    {
+      id: AI_NOVEL_SAMPLE_OPS_PROJECT_ID,
+      name: "AI 小说助手 · 发布/运营",
+      pinned: false,
+      sort_order: nowSeconds * 1000 + 30,
       created_at: nowSeconds,
       updated_at: nowSeconds,
       sample_tag: AI_NOVEL_SAMPLE_TAG,
@@ -83,10 +104,17 @@ export function buildAiNovelAssistantSampleTasks(
   const nowSeconds = toSeconds(now);
   let offset = 0;
 
+  const mergeTags = (extra?: string[]): string[] => {
+    const base = ["示例", "AI小说助手"];
+    const next = [...base, ...(Array.isArray(extra) ? extra : [])];
+    return Array.from(new Set(next.map((item) => item.trim()).filter(Boolean)));
+  };
+
   const makeTask = ({
     title,
     quadrant,
     dueAtSeconds,
+    projectIdOverride,
     important = false,
     completed = false,
     reminder,
@@ -98,6 +126,7 @@ export function buildAiNovelAssistantSampleTasks(
     title: string;
     quadrant: 1 | 2 | 3 | 4;
     dueAtSeconds: number;
+    projectIdOverride?: string;
     important?: boolean;
     completed?: boolean;
     reminder?: SeedReminder;
@@ -122,11 +151,11 @@ export function buildAiNovelAssistantSampleTasks(
         )
       : buildReminderConfig("none", dueAtSeconds, 0, nowSeconds);
 
-    const resolvedTags = Array.isArray(tags) ? tags : ["示例", "AI小说助手"];
+    const resolvedTags = mergeTags(tags);
 
     return {
       id: crypto.randomUUID(),
-      project_id: projectId,
+      project_id: projectIdOverride ?? projectId,
       title: title.startsWith(AI_NOVEL_TITLE_PREFIX)
         ? title
         : `${AI_NOVEL_TITLE_PREFIX}${title}`,
@@ -166,6 +195,15 @@ export function buildAiNovelAssistantSampleTasks(
   const plus14Days1800 = toSeconds(atLocalDayTime(now, 14, 18, 0));
 
   const plus2Hours = toSeconds(minutesFrom(now, 120));
+  const plus4Hours = toSeconds(minutesFrom(now, 240));
+  const demoNotifyDue = toSeconds(minutesFrom(now, 2));
+
+  const nextMonthFirst1000 = toSeconds(
+    new Date(now.getFullYear(), now.getMonth() + 1, 1, 10, 0, 0, 0),
+  );
+  const nextYearJanFirst1000 = toSeconds(
+    new Date(now.getFullYear() + 1, 0, 1, 10, 0, 0, 0),
+  );
 
   return [
     // Q1: 重要且紧急 (Do First)
@@ -210,6 +248,19 @@ export function buildAiNovelAssistantSampleTasks(
       notes: makeSeedNotes("普通提醒：用于支持后续剧情推进与伏笔管理。"),
     }),
     makeTask({
+      title: "排查『导出 Markdown』标题层级与空行",
+      quadrant: 1,
+      dueAtSeconds: today1800,
+      important: true,
+      notes: makeSeedNotes("验收：导出后可直接粘贴到文档，层级与空行正确。"),
+      stepItems: [
+        { title: "准备含步骤/备注/标签的测试任务集", completed: true },
+        { title: "对比 JSON/CSV/MD 三种导出结果" },
+        { title: "补齐边界：空备注、空步骤、换行/符号" },
+      ],
+      tags: ["导出", "Markdown", "验收"],
+    }),
+    makeTask({
       title: "已完成: 初版需求清单（四象限）",
       quadrant: 1,
       dueAtSeconds: threeDaysAgo1800,
@@ -244,6 +295,7 @@ export function buildAiNovelAssistantSampleTasks(
       important: true,
       repeat: { type: "weekly", days: [7] },
       notes: makeSeedNotes("循环任务：每周日复盘，形成可追踪的迭代记录。"),
+      tags: ["复盘", "每周"],
     }),
     makeTask({
       title: "每日(工作日): 写作日志 & 训练样本整理",
@@ -252,6 +304,53 @@ export function buildAiNovelAssistantSampleTasks(
       important: true,
       repeat: { type: "daily", workday_only: true },
       notes: makeSeedNotes("循环任务：持续收集高质量样本，提升生成一致性。"),
+      projectIdOverride: AI_NOVEL_SAMPLE_WRITING_PROJECT_ID,
+      tags: ["写作", "每工作日"],
+    }),
+    makeTask({
+      title: "每日: 章节输入输出自检（长度/人称/敏感词）",
+      quadrant: 2,
+      dueAtSeconds: tomorrow1800,
+      important: true,
+      repeat: { type: "daily", workday_only: false },
+      projectIdOverride: AI_NOVEL_SAMPLE_WRITING_PROJECT_ID,
+      notes: makeSeedNotes("循环任务：降低『写到一半跑题』与格式崩坏概率。"),
+      stepItems: [
+        { title: "检查字数范围与节奏" },
+        { title: "检查视角/人称一致" },
+        { title: "检查人物姓名与设定一致" },
+        { title: "检查敏感词/违禁内容" },
+      ],
+      tags: ["写作", "质量", "每日"],
+    }),
+    makeTask({
+      title: "每周(一/三/五): Prompt 模板评审",
+      quadrant: 2,
+      dueAtSeconds: plus7Days1800,
+      important: true,
+      repeat: { type: "weekly", days: [1, 3, 5] },
+      notes: makeSeedNotes("循环任务：保持提示词库可维护，避免越改越乱。"),
+      tags: ["Prompt", "每周", "模板"],
+    }),
+    makeTask({
+      title: "每月(1号): 成本与质量复盘（Token/耗时/命中率）",
+      quadrant: 2,
+      dueAtSeconds: nextMonthFirst1000,
+      important: true,
+      repeat: { type: "monthly", day: 1 },
+      projectIdOverride: AI_NOVEL_SAMPLE_OPS_PROJECT_ID,
+      notes: makeSeedNotes("循环任务：记录趋势与异常，支持定价与性能优化。"),
+      tags: ["复盘", "每月", "成本"],
+    }),
+    makeTask({
+      title: "每年(1月1日): 年度版本路线图与发布节奏",
+      quadrant: 2,
+      dueAtSeconds: nextYearJanFirst1000,
+      important: true,
+      repeat: { type: "yearly", month: 1, day: 1 },
+      projectIdOverride: AI_NOVEL_SAMPLE_OPS_PROJECT_ID,
+      notes: makeSeedNotes("循环任务：定义年度大版本主题与季度里程碑。"),
+      tags: ["规划", "每年", "发布"],
     }),
     makeTask({
       title: "已完成: 明确产品愿景与目标用户",
@@ -264,6 +363,17 @@ export function buildAiNovelAssistantSampleTasks(
 
     // Q3: 紧急不重要 (Delegate)
     makeTask({
+      title: "演示: 普通提醒（约 1 分钟后触发）",
+      quadrant: 3,
+      dueAtSeconds: demoNotifyDue,
+      reminder: { kind: "normal", offsetMinutes: 0 },
+      notes: makeSeedNotes(
+        "演示任务：用于快速看到提醒横幅/系统通知（可『稍后 5 分钟』）。",
+      ),
+      tags: ["演示", "提醒"],
+      projectIdOverride: "inbox",
+    }),
+    makeTask({
       title: "UI 文案走查（按钮/错误提示）",
       quadrant: 3,
       dueAtSeconds: today1800,
@@ -274,6 +384,21 @@ export function buildAiNovelAssistantSampleTasks(
       quadrant: 3,
       dueAtSeconds: plus2Hours,
       notes: makeSeedNotes("将讨论结果同步到文档，避免信息丢失。"),
+      projectIdOverride: AI_NOVEL_SAMPLE_OPS_PROJECT_ID,
+    }),
+    makeTask({
+      title: "制作发布清单：更新日志/截图/安装包",
+      quadrant: 3,
+      dueAtSeconds: plus4Hours,
+      notes: makeSeedNotes("适合体验：列表视图 + 步骤清单 + 批量勾选。"),
+      stepItems: [
+        { title: "整理更新日志（功能/修复/已知问题）" },
+        { title: "准备 3 张功能截图（主界面/快捷窗/提醒）" },
+        { title: "本地构建 installer 并校验签名" },
+        { title: "上传产物并更新下载地址" },
+      ],
+      tags: ["发布", "清单"],
+      projectIdOverride: AI_NOVEL_SAMPLE_OPS_PROJECT_ID,
     }),
     makeTask({
       title: "收集 10 个竞品交互截图",
@@ -306,6 +431,14 @@ export function buildAiNovelAssistantSampleTasks(
       quadrant: 4,
       dueAtSeconds: plus14Days1800,
       notes: makeSeedNotes("非关键：用于填充 Q4 样本。"),
+    }),
+    makeTask({
+      title: "备选: 语料清洗规则（停用词/重复句/敏感词）",
+      quadrant: 4,
+      dueAtSeconds: plus12Days1800,
+      notes: makeSeedNotes("可用于体验：标签检索（如『敏感词』/『清洗』）。"),
+      tags: ["语料", "清洗", "敏感词"],
+      projectIdOverride: AI_NOVEL_SAMPLE_WRITING_PROJECT_ID,
     }),
     makeTask({
       title: "已完成: 创建开发计划看板 (TODO/Doing/Done)",

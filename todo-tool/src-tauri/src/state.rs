@@ -256,6 +256,16 @@ impl AppState {
         let mut guard = self.inner.lock().expect("state poisoned");
         if let Some(existing) = guard.tasks.iter_mut().find(|t| t.id == task.id) {
             existing.reminder.last_fired_at = Some(at);
+            existing.reminder.repeat_fired_count = existing
+                .reminder
+                .repeat_fired_count
+                .max(0)
+                .saturating_add(1);
+            if let Some(snoozed_until) = existing.reminder.snoozed_until {
+                if snoozed_until <= at {
+                    existing.reminder.snoozed_until = None;
+                }
+            }
         }
     }
 

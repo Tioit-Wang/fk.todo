@@ -57,12 +57,16 @@ import { newTask } from "./logic";
 import { TAURI_NAVIGATE } from "./events";
 import { detectPlatform } from "./platform";
 import { buildReminderConfig } from "./reminder";
+import { computeSnoozeUntilSeconds, type SnoozePresetId } from "./snooze";
 import { normalizeTheme } from "./theme";
 import type { Project, Settings, Task } from "./types";
 import { TodayView } from "./views/TodayView";
 
 const NOTIFICATION_ACTION_TYPE = "todo-reminder";
-const NOTIFICATION_ACTION_SNOOZE = "snooze";
+const NOTIFICATION_ACTION_SNOOZE_5 = "snooze5";
+const NOTIFICATION_ACTION_SNOOZE_15 = "snooze15";
+const NOTIFICATION_ACTION_SNOOZE_1H = "snooze1h";
+const NOTIFICATION_ACTION_SNOOZE_TOMORROW = "snoozeTomorrow";
 const NOTIFICATION_ACTION_COMPLETE = "complete";
 
 function normalizeTask(task: Task) {
@@ -96,12 +100,54 @@ function normalizeSettings(settings: Settings): Settings {
     typeof settings.today_prompted_date === "string"
       ? settings.today_prompted_date
       : undefined;
+  const reminder_repeat_interval_sec =
+    typeof settings.reminder_repeat_interval_sec === "number" &&
+    Number.isFinite(settings.reminder_repeat_interval_sec)
+      ? Math.max(0, Math.floor(settings.reminder_repeat_interval_sec))
+      : 10 * 60;
+  const reminder_repeat_max_times =
+    typeof settings.reminder_repeat_max_times === "number" &&
+    Number.isFinite(settings.reminder_repeat_max_times)
+      ? Math.max(0, Math.floor(settings.reminder_repeat_max_times))
+      : 0;
   return {
     ...settings,
     today_focus_ids,
     today_focus_date,
     today_prompted_date,
+    reminder_repeat_interval_sec,
+    reminder_repeat_max_times,
   };
+}
+
+function reconcileById<T extends { id: string }>(
+  prev: T[],
+  incoming: T[],
+  isSame: (prevItem: T, nextItem: T) => boolean,
+): T[] {
+  if (prev.length === 0) return incoming;
+  if (incoming.length === 0) return incoming;
+
+  // Fast path: identical order + same items => keep the old array reference
+  // so React can skip downstream work.
+  if (prev.length === incoming.length) {
+    let allSame = true;
+    for (let i = 0; i < incoming.length; i += 1) {
+      const nextItem = incoming[i];
+      const prevItem = prev[i];
+      if (prevItem?.id !== nextItem.id || !isSame(prevItem, nextItem)) {
+        allSame = false;
+        break;
+      }
+    }
+    if (allSame) return prev;
+  }
+
+  const prevById = new Map(prev.map((item) => [item.id, item]));
+  return incoming.map((item) => {
+    const existing = prevById.get(item.id);
+    return existing && isSame(existing, item) ? existing : item;
+  });
 }
 
 function mergeUniqueIds(existing: string[], incoming: string[]) {
@@ -281,7 +327,13 @@ function App() {
       {
         id: NOTIFICATION_ACTION_TYPE,
         actions: [
-          { id: NOTIFICATION_ACTION_SNOOZE, title: t("banner.snooze5") },
+          { id: NOTIFICATION_ACTION_SNOOZE_5, title: t("banner.snooze5") },
+          { id: NOTIFICATION_ACTION_SNOOZE_15, title: t("banner.snooze15") },
+          { id: NOTIFICATION_ACTION_SNOOZE_1H, title: t("banner.snooze1h") },
+          {
+            id: NOTIFICATION_ACTION_SNOOZE_TOMORROW,
+            title: t("banner.snoozeTomorrowMorning"),
+          },
           { id: NOTIFICATION_ACTION_COMPLETE, title: t("banner.complete") },
         ],
       },
@@ -301,8 +353,19 @@ function App() {
             : null;
 
         if (taskId) {
-          if (actionId === NOTIFICATION_ACTION_SNOOZE) {
-            const until = Math.floor(Date.now() / 1000) + 5 * 60;
+          const snoozePreset: SnoozePresetId | null =
+            actionId === NOTIFICATION_ACTION_SNOOZE_5
+              ? "m5"
+              : actionId === NOTIFICATION_ACTION_SNOOZE_15
+                ? "m15"
+                : actionId === NOTIFICATION_ACTION_SNOOZE_1H
+                  ? "h1"
+                  : actionId === NOTIFICATION_ACTION_SNOOZE_TOMORROW
+                    ? "tomorrow0900"
+                    : null;
+
+          if (snoozePreset) {
+            const until = computeSnoozeUntilSeconds(snoozePreset);
             await snoozeTask(taskId, until);
             setNormalQueueIds((prev) => prev.filter((id) => id !== taskId));
           } else if (actionId === NOTIFICATION_ACTION_COMPLETE) {
@@ -341,8 +404,48 @@ function App() {
     void (async () => {
       const res = await loadState();
       if (res.ok && res.data) {
-        setTasks(res.data.tasks.map(normalizeTask));
-        setProjects(res.data.projects.map(normalizeProject));
+        setTasks((prev) => {
+          const raw = res.data?.tasks ?? [];
+          if (prev.length === raw.length) {
+            let same = true;
+            for (let i = 0; i < raw.length; i += 1) {
+              if (
+                prev[i]?.id !== raw[i]?.id ||
+                prev[i]?.updated_at !== raw[i]?.updated_at
+              ) {
+                same = false;
+                break;
+              }
+            }
+            if (same) return prev;
+          }
+
+          const nextTasks = raw.map(normalizeTask);
+          return reconcileById(prev, nextTasks, (a, b) => a.updated_at === b.updated_at);
+        });
+        setProjects((prev) => {
+          const raw = res.data?.projects ?? [];
+          if (prev.length === raw.length) {
+            let same = true;
+            for (let i = 0; i < raw.length; i += 1) {
+              if (
+                prev[i]?.id !== raw[i]?.id ||
+                prev[i]?.updated_at !== raw[i]?.updated_at
+              ) {
+                same = false;
+                break;
+              }
+            }
+            if (same) return prev;
+          }
+
+          const nextProjects = raw.map(normalizeProject);
+          return reconcileById(
+            prev,
+            nextProjects,
+            (a, b) => a.updated_at === b.updated_at,
+          );
+        });
         setSettings(normalizeSettings(res.data.settings));
       }
 
@@ -353,10 +456,54 @@ function App() {
           settings?: Settings;
         };
         if (payload.tasks) {
-          setTasks(payload.tasks.map(normalizeTask));
+          setTasks((prev) => {
+            const raw = payload.tasks ?? [];
+            if (prev.length === raw.length) {
+              let same = true;
+              for (let i = 0; i < raw.length; i += 1) {
+                if (
+                  prev[i]?.id !== raw[i]?.id ||
+                  prev[i]?.updated_at !== raw[i]?.updated_at
+                ) {
+                  same = false;
+                  break;
+                }
+              }
+              if (same) return prev;
+            }
+
+            const nextTasks = raw.map(normalizeTask);
+            return reconcileById(
+              prev,
+              nextTasks,
+              (a, b) => a.updated_at === b.updated_at,
+            );
+          });
         }
         if (payload.projects) {
-          setProjects(payload.projects.map(normalizeProject));
+          setProjects((prev) => {
+            const raw = payload.projects ?? [];
+            if (prev.length === raw.length) {
+              let same = true;
+              for (let i = 0; i < raw.length; i += 1) {
+                if (
+                  prev[i]?.id !== raw[i]?.id ||
+                  prev[i]?.updated_at !== raw[i]?.updated_at
+                ) {
+                  same = false;
+                  break;
+                }
+              }
+              if (same) return prev;
+            }
+
+            const nextProjects = raw.map(normalizeProject);
+            return reconcileById(
+              prev,
+              nextProjects,
+              (a, b) => a.updated_at === b.updated_at,
+            );
+          });
         }
         if (payload.settings) {
           setSettings(normalizeSettings(payload.settings));
@@ -808,10 +955,10 @@ function App() {
     setEditingTaskId(task.id);
   }
 
-  async function handleReminderSnooze5() {
+  async function handleReminderSnooze(preset: SnoozePresetId) {
     if (!reminderTask) return;
     const taskId = reminderTask.id;
-    const until = Math.floor(Date.now() / 1000) + 5 * 60;
+    const until = computeSnoozeUntilSeconds(preset);
 
     // Update UI first so the overlay reacts instantly (show next reminder or hide if none).
     setForcedQueueIds((prev) => {
@@ -858,8 +1005,8 @@ function App() {
     await completeTask(taskId);
   }
 
-  async function handleNormalSnooze(task: Task) {
-    const until = Math.floor(Date.now() / 1000) + 5 * 60;
+  async function handleNormalSnooze(task: Task, preset: SnoozePresetId) {
+    const until = computeSnoozeUntilSeconds(preset);
     await snoozeTask(task.id, until);
     setNormalQueueIds((prev) => prev.filter((id) => id !== task.id));
   }
@@ -1165,7 +1312,7 @@ function App() {
             queueIndex={reminderQueueIndex}
             queueTotal={reminderQueueTotal}
             onDismiss={handleReminderDismiss}
-            onSnooze5={handleReminderSnooze5}
+            onSnooze={handleReminderSnooze}
             onComplete={handleReminderComplete}
           />
         )}

@@ -460,9 +460,19 @@
     background-color: transparent;
 }
 
+:root[data-view="settings"]:not([data-platform="macos"]) {
+    background-color: transparent;
+}
+
 :root[data-view="main"]:not([data-platform="macos"]) body,
 :root[data-view="main"]:not([data-platform="macos"]) #root,
 :root[data-view="main"]:not([data-platform="macos"]) .app-container {
+    background-color: transparent;
+}
+
+:root[data-view="settings"]:not([data-platform="macos"]) body,
+:root[data-view="settings"]:not([data-platform="macos"]) #root,
+:root[data-view="settings"]:not([data-platform="macos"]) .app-container {
     background-color: transparent;
 }
 
@@ -1766,6 +1776,8 @@ textarea:focus-visible {
 .notification-actions {
     display: flex;
     gap: 6px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
 }
 
 /* ----------------------------- Forced reminder overlay ----------------------------- */
