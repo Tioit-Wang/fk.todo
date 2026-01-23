@@ -28,7 +28,7 @@ use crate::tray::init_tray;
 #[cfg(all(feature = "app", not(test)))]
 use crate::tray::update_tray_count;
 #[cfg(all(feature = "app", not(test)))]
-use crate::windows::hide_quick_window;
+use crate::windows::{hide_quick_window, hide_settings_window};
 
 #[cfg_attr(all(mobile, feature = "app"), tauri::mobile_entry_point)]
 #[cfg(all(feature = "app", not(test)))]
@@ -170,6 +170,25 @@ pub fn run() {
 
             reminder_builder.build()?;
 
+            let settings_builder = WebviewWindowBuilder::new(
+                app,
+                "settings",
+                tauri::WebviewUrl::App("/#/settings".into()),
+            )
+            .title("MustDo")
+            .inner_size(820.0, 900.0)
+            .min_inner_size(820.0, 900.0)
+            .max_inner_size(820.0, 900.0)
+            .resizable(false)
+            .decorations(false)
+            .visible(false);
+
+            // macOS builds skip `transparent` because Tauri gates it behind `macos-private-api`.
+            #[cfg(not(target_os = "macos"))]
+            let settings_builder = settings_builder.transparent(true);
+
+            settings_builder.build()?;
+
             // The app uses custom titlebars; remove maximization to keep the layout predictable.
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_maximizable(false);
@@ -178,6 +197,9 @@ pub fn run() {
                 let _ = window.set_maximizable(false);
             }
             if let Some(window) = app.get_webview_window("reminder") {
+                let _ = window.set_maximizable(false);
+            }
+            if let Some(window) = app.get_webview_window("settings") {
                 let _ = window.set_maximizable(false);
             }
 
@@ -207,6 +229,11 @@ pub fn run() {
                     api.prevent_close();
                     return;
                 }
+                if label == "settings" {
+                    hide_settings_window(window.app_handle());
+                    api.prevent_close();
+                    return;
+                }
                 if label == "main" {
                     let state = window.app_handle().state::<AppState>();
                     let settings = state.settings();
@@ -231,6 +258,7 @@ pub fn run() {
             complete_task,
             bulk_complete_tasks,
             update_settings,
+            show_settings_window,
             snooze_task,
             dismiss_forced,
             delete_task,

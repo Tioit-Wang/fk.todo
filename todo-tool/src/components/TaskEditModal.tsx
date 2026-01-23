@@ -170,26 +170,6 @@ export function TaskEditModal({
             />
           </div>
 
-          <div className="task-modal-actions">
-            <button type="button" className="task-edit-btn ghost" onClick={handleReset} disabled={saving}>
-              {t("common.reset")}
-            </button>
-            <div className="task-modal-actions-right">
-              <button type="button" className="task-edit-btn ghost" onClick={onClose} disabled={saving}>
-                {t("common.cancel")}
-              </button>
-              <button
-                type="button"
-                className="task-edit-btn"
-                onClick={() => void handleSave()}
-                disabled={saving || !draftTitle.trim()}
-                title={!draftTitle.trim() ? t("taskEdit.validation.titleRequired") : t("common.save")}
-              >
-                {t("common.save")}
-              </button>
-            </div>
-          </div>
-
           <div className="inline-config">
             <div className="inline-config-group">
               <span className="inline-config-label">{t("taskEdit.section.reminder")}</span>
@@ -486,6 +466,28 @@ export function TaskEditModal({
               />
             </div>
           )}
+        </div>
+
+        <div className="task-modal-footer">
+          <div className="task-modal-actions">
+            <button type="button" className="task-edit-btn ghost" onClick={handleReset} disabled={saving}>
+              {t("common.reset")}
+            </button>
+            <div className="task-modal-actions-right">
+              <button type="button" className="task-edit-btn ghost" onClick={onClose} disabled={saving}>
+                {t("common.cancel")}
+              </button>
+              <button
+                type="button"
+                className="task-edit-btn"
+                onClick={() => void handleSave()}
+                disabled={saving || !draftTitle.trim()}
+                title={!draftTitle.trim() ? t("taskEdit.validation.titleRequired") : t("common.save")}
+              >
+                {t("common.save")}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

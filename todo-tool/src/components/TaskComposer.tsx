@@ -5,9 +5,16 @@ import { Icons } from "./icons";
 
 import { fromDateTimeLocal, toDateTimeLocal } from "../date";
 import { useI18n } from "../i18n";
-import { buildReminderKindOptions, buildReminderOffsetPresets } from "../reminder";
+import {
+  buildReminderKindOptions,
+  buildReminderOffsetPresets,
+} from "../reminder";
 import { defaultDueAt } from "../scheduler";
-import { defaultRepeatRule, buildRepeatTypeOptions, buildWeekdayOptions } from "../repeat";
+import {
+  defaultRepeatRule,
+  buildRepeatTypeOptions,
+  buildWeekdayOptions,
+} from "../repeat";
 import { extractTagsFromTitle } from "../tags";
 import type { ReminderKind, RepeatRule } from "../types";
 
@@ -31,7 +38,9 @@ export function TaskComposer({
   const { t } = useI18n();
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [title, setTitle] = useState("");
-  const [activePopup, setActivePopup] = useState<"due" | "reminder" | "repeat" | null>(null);
+  const [activePopup, setActivePopup] = useState<
+    "due" | "reminder" | "repeat" | null
+  >(null);
 
   // Used for disabling "past" presets (e.g. selecting "today 18:00" after 18:00).
   // This is evaluated on each render; opening the popup triggers a render, so it's current enough for UI gating.
@@ -67,7 +76,10 @@ export function TaskComposer({
   );
 
   const reminderKindOptions = useMemo(() => buildReminderKindOptions(t), [t]);
-  const reminderOffsetPresets = useMemo(() => buildReminderOffsetPresets(t), [t]);
+  const reminderOffsetPresets = useMemo(
+    () => buildReminderOffsetPresets(t),
+    [t],
+  );
   const repeatTypeOptions = useMemo(() => buildRepeatTypeOptions(t), [t]);
   const weekdayOptions = useMemo(() => buildWeekdayOptions(t), [t]);
 
@@ -101,7 +113,10 @@ export function TaskComposer({
 
     function onKeyDown(event: KeyboardEvent) {
       if (!activePopup) return;
-      if (event.key === "Escape") setActivePopup(null);
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setActivePopup(null);
+      }
     }
 
     window.addEventListener("mousedown", onPointerDown);
@@ -184,8 +199,12 @@ export function TaskComposer({
           <IconButton
             className={`composer-action-btn ${important ? "active" : ""}`}
             onClick={() => setImportant((prev) => !prev)}
-            title={important ? t("task.unmarkImportant") : t("task.markImportant")}
-            label={important ? t("task.unmarkImportant") : t("task.markImportant")}
+            title={
+              important ? t("task.unmarkImportant") : t("task.markImportant")
+            }
+            label={
+              important ? t("task.unmarkImportant") : t("task.markImportant")
+            }
             aria-pressed={important}
           >
             <Icons.Star />
@@ -193,9 +212,15 @@ export function TaskComposer({
         </div>
 
         {activePopup === "due" && (
-          <div className="composer-popup" role="dialog" aria-label={t("composer.popup.due")}>
+          <div
+            className="composer-popup"
+            role="dialog"
+            aria-label={t("composer.popup.due")}
+          >
             <div className="composer-popup-section">
-              <div className="composer-popup-title">{t("composer.title.due")}</div>
+              <div className="composer-popup-title">
+                {t("composer.title.due")}
+              </div>
               <div className="composer-popup-row">
                 {quickDuePresets.map((preset) => {
                   const target = new Date(nowForPresets);
@@ -203,7 +228,9 @@ export function TaskComposer({
                   target.setHours(18, 0, 0, 0);
 
                   // If it's already past 18:00 today, "today 18:00" becomes an invalid shortcut.
-                  const disabled = preset.offsetDays === 0 && nowForPresets.getTime() > target.getTime();
+                  const disabled =
+                    preset.offsetDays === 0 &&
+                    nowForPresets.getTime() > target.getTime();
 
                   return (
                     <button
@@ -211,7 +238,11 @@ export function TaskComposer({
                       type="button"
                       className="pill"
                       disabled={disabled}
-                      title={disabled ? t("composer.preset.todayDisabled") : undefined}
+                      title={
+                        disabled
+                          ? t("composer.preset.todayDisabled")
+                          : undefined
+                      }
                       onClick={() => {
                         if (disabled) return;
                         setDueAt(Math.floor(target.getTime() / 1000));
@@ -221,12 +252,18 @@ export function TaskComposer({
                     </button>
                   );
                 })}
-                <button type="button" className="pill" onClick={() => setDueAt(quickDueSunday)}>
+                <button
+                  type="button"
+                  className="pill"
+                  onClick={() => setDueAt(quickDueSunday)}
+                >
                   {t("composer.preset.sunday")}
                 </button>
               </div>
 
-              <div className="composer-popup-title">{t("composer.section.relative")}</div>
+              <div className="composer-popup-title">
+                {t("composer.section.relative")}
+              </div>
               <div className="composer-popup-row">
                 {quickDueRelativePresets.map((preset) => (
                   <button
@@ -239,7 +276,9 @@ export function TaskComposer({
                       now.setMinutes(now.getMinutes() + preset.minutes);
                       setDueAt(Math.floor(now.getTime() / 1000));
                     }}
-                    title={t("composer.relative.sinceNow", { label: preset.label })}
+                    title={t("composer.relative.sinceNow", {
+                      label: preset.label,
+                    })}
                   >
                     {preset.label}
                   </button>
@@ -259,9 +298,15 @@ export function TaskComposer({
         )}
 
         {activePopup === "reminder" && (
-          <div className="composer-popup" role="dialog" aria-label={t("composer.popup.reminder")}>
+          <div
+            className="composer-popup"
+            role="dialog"
+            aria-label={t("composer.popup.reminder")}
+          >
             <div className="composer-popup-section">
-              <div className="composer-popup-title">{t("composer.title.reminder")}</div>
+              <div className="composer-popup-title">
+                {t("composer.title.reminder")}
+              </div>
               <div className="composer-popup-row">
                 {reminderKindOptions.map((opt) => (
                   <button
@@ -280,7 +325,10 @@ export function TaskComposer({
               </div>
 
               {reminderKind !== "none" && (
-                <div className="composer-popup-row" aria-label={t("composer.title.reminder")}>
+                <div
+                  className="composer-popup-row"
+                  aria-label={t("composer.title.reminder")}
+                >
                   {reminderOffsetPresets.map((preset) => (
                     <button
                       key={preset.id}
@@ -291,7 +339,9 @@ export function TaskComposer({
                       title={
                         preset.minutes === 0
                           ? t("reminder.offset.titleAtDue")
-                          : t("reminder.offset.titleBefore", { label: preset.label })
+                          : t("reminder.offset.titleBefore", {
+                              label: preset.label,
+                            })
                       }
                     >
                       {preset.label}
@@ -307,7 +357,9 @@ export function TaskComposer({
                     min={0}
                     className="composer-popup-number"
                     value={reminderOffset}
-                    onChange={(event) => setReminderOffset(Number(event.currentTarget.value) || 0)}
+                    onChange={(event) =>
+                      setReminderOffset(Number(event.currentTarget.value) || 0)
+                    }
                   />
                   <span>{t("reminder.offset.minutes")}</span>
                 </div>
@@ -317,9 +369,15 @@ export function TaskComposer({
         )}
 
         {activePopup === "repeat" && (
-          <div className="composer-popup" role="dialog" aria-label={t("composer.popup.repeat")}>
+          <div
+            className="composer-popup"
+            role="dialog"
+            aria-label={t("composer.popup.repeat")}
+          >
             <div className="composer-popup-section">
-              <div className="composer-popup-title">{t("composer.title.repeat")}</div>
+              <div className="composer-popup-title">
+                {t("composer.title.repeat")}
+              </div>
               <div className="composer-popup-row">
                 {repeatTypeOptions.map((opt) => (
                   <button
@@ -390,7 +448,10 @@ export function TaskComposer({
                     onChange={(event) =>
                       setRepeat({
                         type: "monthly",
-                        day: Math.min(31, Math.max(1, Number(event.currentTarget.value) || 1)),
+                        day: Math.min(
+                          31,
+                          Math.max(1, Number(event.currentTarget.value) || 1),
+                        ),
                       })
                     }
                   />
@@ -410,7 +471,10 @@ export function TaskComposer({
                     onChange={(event) =>
                       setRepeat({
                         type: "yearly",
-                        month: Math.min(12, Math.max(1, Number(event.currentTarget.value) || 1)),
+                        month: Math.min(
+                          12,
+                          Math.max(1, Number(event.currentTarget.value) || 1),
+                        ),
                         day: repeat.day,
                       })
                     }
@@ -426,7 +490,10 @@ export function TaskComposer({
                       setRepeat({
                         type: "yearly",
                         month: repeat.month,
-                        day: Math.min(31, Math.max(1, Number(event.currentTarget.value) || 1)),
+                        day: Math.min(
+                          31,
+                          Math.max(1, Number(event.currentTarget.value) || 1),
+                        ),
                       })
                     }
                   />
@@ -435,7 +502,7 @@ export function TaskComposer({
               )}
             </div>
           </div>
-      )}
+        )}
       </div>
     </div>
   );

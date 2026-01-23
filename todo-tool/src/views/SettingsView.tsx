@@ -464,318 +464,359 @@ export function SettingsView({
     return t("settings.permission.unknown");
   }, [permissionStatus, t]);
 
+  const scrollToSection = useCallback((id: string) => {
+    const node = document.getElementById(id);
+    if (!node) return;
+    node.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
   return (
-    <div className="main-window">
+    <div className="settings-window">
       <WindowTitlebar
         variant="main"
         title={t("settings.title")}
         onMinimize={handleMinimize}
-        right={
-          <button
-            type="button"
-            className="main-toggle"
-            onClick={() => void handleBack()}
-            title={t("common.back")}
-          >
-            <span className="settings-back-icon" aria-hidden="true">
-              <Icons.ChevronRight />
-            </span>
-            {t("common.back")}
-          </button>
-        }
       />
 
-         <div className="main-content settings-page">
-         {!settings ? (
-           <div className="settings-empty">{t("common.loading")}</div>
-         ) : (
-           <div className="settings-panel settings-page-panel">
-             <div className="settings-section">
-               <div className="settings-row">
-                 <label>{t("settings.update.currentVersion")}</label>
-                 <span className="settings-status">
-                   {appVersion === null ? t("common.loading") : appVersion || "-"}
-                 </span>
-               </div>
-               <div className="settings-row">
-                 <label>{t("settings.update")}</label>
-                 <button
-                   type="button"
-                   className="pill"
-                   onClick={() => void handleCheckUpdate()}
-                   disabled={import.meta.env.DEV || updateBusy || updateCheckBusy}
-                 >
-                   {t("settings.update.check")}
-                 </button>
-                 {updateStatus && (
-                   <span className={`settings-status ${updateStatus.tone}`}>{updateStatus.text}</span>
-                 )}
-               </div>
-             </div>
-
-             <div className="settings-section">
-              <div className="settings-row">
-                <label>{t("settings.shortcut")}</label>
-                <button
-                  type="button"
-                  className={`shortcut-capture ${shortcutCapturing ? "capturing" : ""}`}
-                  onClick={() => {
-                    if (shortcutCapturing) {
-                      setShortcutCapturing(false);
-                      setShortcutHint(null);
-                      return;
-                    }
-                    setShortcutCapturing(true);
-                  }}
-                  title={t("settings.shortcutHint")}
-                >
-                  {shortcutCapturing
-                    ? t("settings.shortcutCapturing")
-                    : shortcutDraft || t("settings.shortcutCapture")}
-                </button>
-                {shortcutHint && <span className="settings-status">{shortcutHint}</span>}
-              </div>
-              <div className="settings-row">
-                <label>{t("settings.theme")}</label>
-                <select
-                  value={themeValue}
-                  onChange={(event) =>
-                    void onUpdateSettings({
-                      ...settings,
-                      theme: event.currentTarget.value,
-                    })
-                  }
-                >
-                  <option value="retro">{t("settings.theme.retro")}</option>
-                  <option value="tech">{t("settings.theme.tech")}</option>
-                  <option value="calm">{t("settings.theme.calm")}</option>
-                  <option value="vscode">{t("settings.theme.vscode")}</option>
-                </select>
-              </div>
-              <div className="settings-row">
-                <label>{t("settings.language")}</label>
-                <select
-                  value={settings.language}
-                  onChange={(event) =>
-                    void onUpdateSettings({
-                      ...settings,
-                      language: event.currentTarget.value as Settings["language"],
-                    })
-                  }
-                >
-                  <option value="auto">{t("settings.language.auto")}</option>
-                  <option value="zh">{t("settings.language.zh")}</option>
-                  <option value="en">{t("settings.language.en")}</option>
-                </select>
-              </div>
-              <div className="settings-row">
-                <label>{t("settings.quickBlur")}</label>
-                <button
-                  type="button"
-                  className={`pill ${settings.quick_blur_enabled ? "active" : ""}`}
-                  onClick={() =>
-                    void onUpdateSettings({
-                      ...settings,
-                      quick_blur_enabled: !settings.quick_blur_enabled,
-                    })
-                  }
-                  aria-pressed={settings.quick_blur_enabled}
-                >
-                  {settings.quick_blur_enabled ? t("common.on") : t("common.off")}
-                </button>
-              </div>
-              <div className="settings-row">
-                <label>{t("settings.sound")}</label>
-                <button
-                  type="button"
-                  className={`pill ${settings.sound_enabled ? "active" : ""}`}
-                  onClick={() =>
-                    void onUpdateSettings({
-                      ...settings,
-                      sound_enabled: !settings.sound_enabled,
-                    })
-                  }
-                  aria-pressed={settings.sound_enabled}
-                >
-                  {settings.sound_enabled ? t("common.on") : t("common.off")}
-                </button>
-              </div>
-              <div className="settings-row">
-                <label>{t("settings.minimizeBehavior")}</label>
-                <select
-                  value={settings.minimize_behavior}
-                  onChange={(event) =>
-                    void onUpdateSettings({
-                      ...settings,
-                      minimize_behavior: event.currentTarget.value as MinimizeBehavior,
-                    })
-                  }
-                >
-                  <option value="hide_to_tray">{t("settings.minimizeBehavior.hide")}</option>
-                  <option value="minimize">{t("settings.minimizeBehavior.minimize")}</option>
-                </select>
-              </div>
-              <div className="settings-row">
-                <label>{t("settings.closeBehavior")}</label>
-                <select
-                  value={settings.close_behavior}
-                  onChange={(event) =>
-                    void onUpdateSettings({
-                      ...settings,
-                      close_behavior: event.currentTarget.value as Settings["close_behavior"],
-                    })
-                  }
-                >
-                  <option value="hide_to_tray">{t("settings.closeBehavior.hide")}</option>
-                  <option value="exit">{t("settings.closeBehavior.exit")}</option>
-                </select>
-              </div>
-              <div className="settings-row">
-                <label>{t("settings.forcedColor")}</label>
-                <input
-                  type="color"
-                  value={settings.forced_reminder_color}
-                  onChange={(event) =>
-                    void onUpdateSettings({
-                      ...settings,
-                      forced_reminder_color: event.currentTarget.value,
-                    })
-                  }
-                />
-              </div>
+      <div className="settings-content">
+        {!settings ? (
+          <div className="settings-empty">{t("common.loading")}</div>
+        ) : (
+          <div className="settings-layout">
+            <div className="settings-nav" aria-label={t("settings.nav")}>
+              <button type="button" className="settings-nav-btn" onClick={() => scrollToSection("settings-about")}>
+                {t("settings.section.about")}
+              </button>
+              <button type="button" className="settings-nav-btn" onClick={() => scrollToSection("settings-general")}>
+                {t("settings.section.general")}
+              </button>
+              <button type="button" className="settings-nav-btn" onClick={() => scrollToSection("settings-notifications")}>
+                {t("settings.section.notifications")}
+              </button>
+              <button type="button" className="settings-nav-btn" onClick={() => scrollToSection("settings-backups")}>
+                {t("settings.section.backups")}
+              </button>
+              <button type="button" className="settings-nav-btn" onClick={() => scrollToSection("settings-export")}>
+                {t("settings.section.export")}
+              </button>
+              <button type="button" className="settings-nav-btn" onClick={() => scrollToSection("settings-samples")}>
+                {t("settings.section.samples")}
+              </button>
+              <button type="button" className="settings-nav-close" onClick={() => void handleBack()}>
+                {t("common.close")}
+              </button>
             </div>
 
-            <div className="settings-section">
-              <div className="settings-row">
-                <label>{t("settings.notificationPermission")}</label>
-                <span className="settings-status">
-                  {permissionLabel}
-                </span>
-                <button type="button" className="pill" onClick={() => void requestNotificationPermission()}>
-                  {t("settings.permission.request")}
-                </button>
-                {permissionStatus !== "granted" && (
-                  <button type="button" className="pill" onClick={() => void openNotificationSettings()}>
-                    <Icons.ExternalLink />
-                    {t("settings.permission.systemSettings")}
-                  </button>
-                )}
-              </div>
-            </div>
+            <div className="settings-main">
+              <section id="settings-about" className="settings-card">
+                <div className="settings-card-header">
+                  <h2 className="settings-card-title">{t("settings.section.about")}</h2>
+                </div>
+                <div className="settings-card-body">
+                  <div className="settings-row">
+                    <label>{t("settings.update.currentVersion")}</label>
+                    <span className="settings-status">{appVersion === null ? t("common.loading") : appVersion || "-"}</span>
+                  </div>
+                  <div className="settings-row">
+                    <label>{t("settings.update")}</label>
+                    <button
+                      type="button"
+                      className="pill"
+                      onClick={() => void handleCheckUpdate()}
+                      disabled={import.meta.env.DEV || updateBusy || updateCheckBusy}
+                    >
+                      {t("settings.update.check")}
+                    </button>
+                    {updateStatus && <span className={`settings-status ${updateStatus.tone}`}>{updateStatus.text}</span>}
+                  </div>
+                </div>
+              </section>
 
-            <div className="settings-section">
-              <div className="settings-row">
-                <label>{t("settings.backup")}</label>
-                <select
-                  value={settings.backup_schedule}
-                  onChange={(event) =>
-                    void onUpdateSettings({
-                      ...settings,
-                      backup_schedule: event.currentTarget.value as BackupSchedule,
-                    })
-                  }
-                >
-                  <option value="none">{t("settings.backup.none")}</option>
-                  <option value="daily">{t("settings.backup.daily")}</option>
-                  <option value="weekly">{t("settings.backup.weekly")}</option>
-                  <option value="monthly">{t("settings.backup.monthly")}</option>
-                </select>
-                <button type="button" className="pill" onClick={() => void handleCreateBackup()}>
-                  {t("settings.backup.manual")}
-                </button>
-              </div>
-              <div className="settings-row">
-                <label>{t("settings.backup.list")}</label>
-                <button type="button" className="pill" onClick={() => void refreshBackups()}>
-                  {t("common.refresh")}
-                </button>
-              </div>
-              <div className="backup-list">
-                {backups.length === 0 ? (
-                  <div className="backup-empty">{t("settings.backup.empty")}</div>
-                ) : (
-                  backups.map((backup) => (
-                    <div key={backup.name} className="backup-item">
-                      <span>{backup.name}</span>
-                      <button type="button" className="pill" onClick={() => void handleRestoreBackup(backup.name)}>
-                        {t("settings.backup.restore")}
+              <section id="settings-general" className="settings-card">
+                <div className="settings-card-header">
+                  <h2 className="settings-card-title">{t("settings.section.general")}</h2>
+                </div>
+                <div className="settings-card-body">
+                  <div className="settings-row">
+                    <label>{t("settings.shortcut")}</label>
+                    <button
+                      type="button"
+                      className={`shortcut-capture ${shortcutCapturing ? "capturing" : ""}`}
+                      onClick={() => {
+                        if (shortcutCapturing) {
+                          setShortcutCapturing(false);
+                          setShortcutHint(null);
+                          return;
+                        }
+                        setShortcutCapturing(true);
+                      }}
+                      title={t("settings.shortcutHint")}
+                    >
+                      {shortcutCapturing ? t("settings.shortcutCapturing") : shortcutDraft || t("settings.shortcutCapture")}
+                    </button>
+                    {shortcutHint && <span className="settings-status">{shortcutHint}</span>}
+                  </div>
+                  <div className="settings-row">
+                    <label>{t("settings.theme")}</label>
+                    <select
+                      value={themeValue}
+                      onChange={(event) =>
+                        void onUpdateSettings({
+                          ...settings,
+                          theme: event.currentTarget.value,
+                        })
+                      }
+                    >
+                      <option value="retro">{t("settings.theme.retro")}</option>
+                      <option value="tech">{t("settings.theme.tech")}</option>
+                      <option value="calm">{t("settings.theme.calm")}</option>
+                      <option value="vscode">{t("settings.theme.vscode")}</option>
+                    </select>
+                  </div>
+                  <div className="settings-row">
+                    <label>{t("settings.language")}</label>
+                    <select
+                      value={settings.language}
+                      onChange={(event) =>
+                        void onUpdateSettings({
+                          ...settings,
+                          language: event.currentTarget.value as Settings["language"],
+                        })
+                      }
+                    >
+                      <option value="auto">{t("settings.language.auto")}</option>
+                      <option value="zh">{t("settings.language.zh")}</option>
+                      <option value="en">{t("settings.language.en")}</option>
+                    </select>
+                  </div>
+                  <div className="settings-row">
+                    <label>{t("settings.quickBlur")}</label>
+                    <button
+                      type="button"
+                      className={`pill ${settings.quick_blur_enabled ? "active" : ""}`}
+                      onClick={() =>
+                        void onUpdateSettings({
+                          ...settings,
+                          quick_blur_enabled: !settings.quick_blur_enabled,
+                        })
+                      }
+                      aria-pressed={settings.quick_blur_enabled}
+                    >
+                      {settings.quick_blur_enabled ? t("common.on") : t("common.off")}
+                    </button>
+                  </div>
+                  <div className="settings-row">
+                    <label>{t("settings.sound")}</label>
+                    <button
+                      type="button"
+                      className={`pill ${settings.sound_enabled ? "active" : ""}`}
+                      onClick={() =>
+                        void onUpdateSettings({
+                          ...settings,
+                          sound_enabled: !settings.sound_enabled,
+                        })
+                      }
+                      aria-pressed={settings.sound_enabled}
+                    >
+                      {settings.sound_enabled ? t("common.on") : t("common.off")}
+                    </button>
+                  </div>
+                  <div className="settings-row">
+                    <label>{t("settings.minimizeBehavior")}</label>
+                    <select
+                      value={settings.minimize_behavior}
+                      onChange={(event) =>
+                        void onUpdateSettings({
+                          ...settings,
+                          minimize_behavior: event.currentTarget.value as MinimizeBehavior,
+                        })
+                      }
+                    >
+                      <option value="hide_to_tray">{t("settings.minimizeBehavior.hide")}</option>
+                      <option value="minimize">{t("settings.minimizeBehavior.minimize")}</option>
+                    </select>
+                  </div>
+                  <div className="settings-row">
+                    <label>{t("settings.closeBehavior")}</label>
+                    <select
+                      value={settings.close_behavior}
+                      onChange={(event) =>
+                        void onUpdateSettings({
+                          ...settings,
+                          close_behavior: event.currentTarget.value as Settings["close_behavior"],
+                        })
+                      }
+                    >
+                      <option value="hide_to_tray">{t("settings.closeBehavior.hide")}</option>
+                      <option value="exit">{t("settings.closeBehavior.exit")}</option>
+                    </select>
+                  </div>
+                  <div className="settings-row">
+                    <label>{t("settings.forcedColor")}</label>
+                    <input
+                      type="color"
+                      value={settings.forced_reminder_color}
+                      onChange={(event) =>
+                        void onUpdateSettings({
+                          ...settings,
+                          forced_reminder_color: event.currentTarget.value,
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <section id="settings-notifications" className="settings-card">
+                <div className="settings-card-header">
+                  <h2 className="settings-card-title">{t("settings.section.notifications")}</h2>
+                </div>
+                <div className="settings-card-body">
+                  <div className="settings-row">
+                    <label>{t("settings.notificationPermission")}</label>
+                    <span className="settings-status">{permissionLabel}</span>
+                    <button type="button" className="pill" onClick={() => void requestNotificationPermission()}>
+                      {t("settings.permission.request")}
+                    </button>
+                    {permissionStatus !== "granted" && (
+                      <button type="button" className="pill" onClick={() => void openNotificationSettings()}>
+                        <Icons.ExternalLink />
+                        {t("settings.permission.systemSettings")}
                       </button>
-                      <button type="button" className="pill" onClick={() => void handleDeleteBackup(backup.name)}>
-                        {t("settings.backup.delete")}
+                    )}
+                  </div>
+                </div>
+              </section>
+
+              <section id="settings-backups" className="settings-card">
+                <div className="settings-card-header">
+                  <h2 className="settings-card-title">{t("settings.section.backups")}</h2>
+                </div>
+                <div className="settings-card-body">
+                  <div className="settings-row">
+                    <label>{t("settings.backup")}</label>
+                    <select
+                      value={settings.backup_schedule}
+                      onChange={(event) =>
+                        void onUpdateSettings({
+                          ...settings,
+                          backup_schedule: event.currentTarget.value as BackupSchedule,
+                        })
+                      }
+                    >
+                      <option value="none">{t("settings.backup.none")}</option>
+                      <option value="daily">{t("settings.backup.daily")}</option>
+                      <option value="weekly">{t("settings.backup.weekly")}</option>
+                      <option value="monthly">{t("settings.backup.monthly")}</option>
+                    </select>
+                    <button type="button" className="pill" onClick={() => void handleCreateBackup()}>
+                      {t("settings.backup.manual")}
+                    </button>
+                  </div>
+                  <div className="settings-row">
+                    <label>{t("settings.backup.list")}</label>
+                    <button type="button" className="pill" onClick={() => void refreshBackups()}>
+                      {t("common.refresh")}
+                    </button>
+                  </div>
+                  <div className="backup-list">
+                    {backups.length === 0 ? (
+                      <div className="backup-empty">{t("settings.backup.empty")}</div>
+                    ) : (
+                      backups.map((backup) => (
+                        <div key={backup.name} className="backup-item">
+                          <span>{backup.name}</span>
+                          <button type="button" className="pill" onClick={() => void handleRestoreBackup(backup.name)}>
+                            {t("settings.backup.restore")}
+                          </button>
+                          <button type="button" className="pill" onClick={() => void handleDeleteBackup(backup.name)}>
+                            {t("settings.backup.delete")}
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  <div className="settings-row">
+                    <label>{t("settings.backup.import")}</label>
+                    <input
+                      placeholder={t("settings.backup.importPlaceholder")}
+                      value={importPath}
+                      onChange={(event) => setImportPath(event.currentTarget.value)}
+                    />
+                    <button
+                      type="button"
+                      className="pill"
+                      onClick={() => void handleImportBackup()}
+                      disabled={!importPath.trim()}
+                      title={!importPath.trim() ? t("settings.backup.importHintEmpty") : t("settings.backup.importAction")}
+                    >
+                      {t("settings.backup.importAction")}
+                    </button>
+                  </div>
+                </div>
+              </section>
+
+              <section id="settings-export" className="settings-card">
+                <div className="settings-card-header">
+                  <h2 className="settings-card-title">{t("settings.section.export")}</h2>
+                </div>
+                <div className="settings-card-body">
+                  <div className="settings-row">
+                    <label>{t("settings.export")}</label>
+                    <button type="button" className="pill" onClick={() => void handleExport("json")} disabled={exportBusy}>
+                      {t("settings.export.json")}
+                    </button>
+                    <button type="button" className="pill" onClick={() => void handleExport("csv")} disabled={exportBusy}>
+                      {t("settings.export.csv")}
+                    </button>
+                    <button type="button" className="pill" onClick={() => void handleExport("md")} disabled={exportBusy}>
+                      {t("settings.export.md")}
+                    </button>
+                    {exportError && <span className="settings-status danger">{t("settings.export.failed", { error: exportError })}</span>}
+                  </div>
+                  {exportPath && (
+                    <div className="settings-row">
+                      <label>{t("settings.export.last")}</label>
+                      <span className="settings-status">{exportPath}</span>
+                      <button type="button" className="pill" onClick={() => void handleCopyExportPath()}>
+                        {t("settings.export.copy")}
                       </button>
                     </div>
-                  ))
-                )}
-              </div>
-              <div className="settings-row">
-                <label>{t("settings.backup.import")}</label>
-                <input
-                  placeholder={t("settings.backup.importPlaceholder")}
-                  value={importPath}
-                  onChange={(event) => setImportPath(event.currentTarget.value)}
-                />
-                <button
-                  type="button"
-                  className="pill"
-                  onClick={() => void handleImportBackup()}
-                  disabled={!importPath.trim()}
-                  title={!importPath.trim() ? t("settings.backup.importHintEmpty") : t("settings.backup.importAction")}
-                >
-                  {t("settings.backup.importAction")}
-                </button>
-              </div>
-            </div>
-
-            <div className="settings-section">
-              <div className="settings-row">
-                <label>{t("settings.export")}</label>
-                <button type="button" className="pill" onClick={() => void handleExport("json")} disabled={exportBusy}>
-                  {t("settings.export.json")}
-                </button>
-                <button type="button" className="pill" onClick={() => void handleExport("csv")} disabled={exportBusy}>
-                  {t("settings.export.csv")}
-                </button>
-                <button type="button" className="pill" onClick={() => void handleExport("md")} disabled={exportBusy}>
-                  {t("settings.export.md")}
-                </button>
-                {exportError && <span className="settings-status danger">{t("settings.export.failed", { error: exportError })}</span>}
-              </div>
-              {exportPath && (
-                <div className="settings-row">
-                  <label>{t("settings.export.last")}</label>
-                  <span className="settings-status">{exportPath}</span>
-                  <button type="button" className="pill" onClick={() => void handleCopyExportPath()}>
-                    {t("settings.export.copy")}
-                  </button>
+                  )}
                 </div>
-              )}
-            </div>
+              </section>
 
-            <div className="settings-section">
-              <div className="settings-row">
-                <label>{t("settings.samples")}</label>
-                <button
-                  type="button"
-                  className="pill"
-                  onClick={() => void handleAddAiNovelAssistantSamples()}
-                  disabled={seedBusy}
-                  title={t("settings.samples.tooltip")}
-                >
-                  {seedBusy ? t("settings.samples.adding") : t("settings.samples.add")}
-                </button>
-                <button
-                  type="button"
-                  className="pill"
-                  onClick={() => void handleDeleteAiNovelAssistantSamples()}
-                  disabled={sampleDeleteBusy || tasks.every((task) => !taskIsAiNovelAssistantSample(task))}
-                  title={t("settings.samples.deleteTooltip")}
-                >
-                  {sampleDeleteBusy ? t("settings.samples.deleting") : t("settings.samples.delete")}
-                </button>
-              </div>
+              <section id="settings-samples" className="settings-card">
+                <div className="settings-card-header">
+                  <h2 className="settings-card-title">{t("settings.section.samples")}</h2>
+                </div>
+                <div className="settings-card-body">
+                  <div className="settings-row">
+                    <label>{t("settings.samples")}</label>
+                    <button
+                      type="button"
+                      className="pill"
+                      onClick={() => void handleAddAiNovelAssistantSamples()}
+                      disabled={seedBusy}
+                      title={t("settings.samples.tooltip")}
+                    >
+                      {seedBusy ? t("settings.samples.adding") : t("settings.samples.add")}
+                    </button>
+                    <button
+                      type="button"
+                      className="pill"
+                      onClick={() => void handleDeleteAiNovelAssistantSamples()}
+                      disabled={sampleDeleteBusy || tasks.every((task) => !taskIsAiNovelAssistantSample(task))}
+                      title={t("settings.samples.deleteTooltip")}
+                    >
+                      {sampleDeleteBusy ? t("settings.samples.deleting") : t("settings.samples.delete")}
+                    </button>
+                  </div>
+                </div>
+              </section>
             </div>
           </div>
-      )}
+        )}
       </div>
 
       {confirmDialog}

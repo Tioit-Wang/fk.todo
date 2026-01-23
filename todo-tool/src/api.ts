@@ -38,6 +38,10 @@ export async function updateSettings(settings: Settings) {
   return invoke<CommandResult<Settings>>("update_settings", { settings });
 }
 
+export async function showSettingsWindow() {
+  return invoke<CommandResult<boolean>>("show_settings_window");
+}
+
 export async function setShortcutCaptureActive(active: boolean) {
   return invoke<CommandResult<boolean>>("set_shortcut_capture_active", { active });
 }

@@ -129,16 +129,10 @@ pub fn init_tray(app: &mut App, settings: &Settings) -> Result<(), Box<dyn std::
                 }
             }
             "show_settings" => {
-                if let Some(window) = app.get_webview_window("main") {
+                if let Some(window) = app.get_webview_window("settings") {
                     let _ = window.unminimize();
                     let _ = window.show();
                     let _ = window.set_focus();
-                    let _ = window.emit(
-                        EVENT_NAVIGATE,
-                        NavigatePayload {
-                            hash: "#/main/settings".to_string(),
-                        },
-                    );
                 }
             }
             _ => {}

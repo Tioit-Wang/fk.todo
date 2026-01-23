@@ -63,7 +63,8 @@ export function TaskCard({
   const stepAddInputRef = useRef<HTMLInputElement | null>(null);
 
   const showInlineNotes = mode === "main" && Boolean(showNotesPreview);
-  const canEditNotes = Boolean(onUpdateTask) && !task.completed && showInlineNotes;
+  const canEditNotes =
+    Boolean(onUpdateTask) && !task.completed && showInlineNotes;
   const [notesDraft, setNotesDraft] = useState(task.notes ?? "");
   const [notesDirty, setNotesDirty] = useState(false);
   const [notesBusy, setNotesBusy] = useState(false);
@@ -81,7 +82,10 @@ export function TaskCard({
     };
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setRescheduleOpen(false);
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setRescheduleOpen(false);
+      }
     };
 
     window.addEventListener("mousedown", onPointerDown);
@@ -176,7 +180,11 @@ export function TaskCard({
     setNotesBusy(true);
     try {
       const now = Math.floor(Date.now() / 1000);
-      await onUpdateTask({ ...task, notes: next || undefined, updated_at: now });
+      await onUpdateTask({
+        ...task,
+        notes: next || undefined,
+        updated_at: now,
+      });
       setNotesDirty(false);
     } finally {
       setNotesBusy(false);
@@ -207,8 +215,12 @@ export function TaskCard({
           type="button"
           className="task-checkbox"
           onClick={onToggleComplete}
-          title={task.completed ? t("task.markIncomplete") : t("task.markComplete")}
-          aria-label={task.completed ? t("task.markIncomplete") : t("task.markComplete")}
+          title={
+            task.completed ? t("task.markIncomplete") : t("task.markComplete")
+          }
+          aria-label={
+            task.completed ? t("task.markIncomplete") : t("task.markComplete")
+          }
           aria-pressed={task.completed}
         >
           {task.completed && <Icons.Check />}
@@ -227,12 +239,17 @@ export function TaskCard({
               </span>
             )}
             {task.repeat.type !== "none" && (
-              <span className="task-chip" title={formatRepeatRule(task.repeat, t)}>
+              <span
+                className="task-chip"
+                title={formatRepeatRule(task.repeat, t)}
+              >
                 <Icons.Repeat />
               </span>
             )}
             {task.reminder.kind !== "none" && (
-              <span className={`task-chip ${task.reminder.kind === "forced" ? "danger" : ""}`}>
+              <span
+                className={`task-chip ${task.reminder.kind === "forced" ? "danger" : ""}`}
+              >
                 <Icons.Bell />
               </span>
             )}
@@ -244,14 +261,27 @@ export function TaskCard({
                   {tag}
                 </span>
               ))}
-              {task.tags.length > 2 && <span className="tag-chip small more">+{task.tags.length - 2}</span>}
+              {task.tags.length > 2 && (
+                <span className="tag-chip small more">
+                  +{task.tags.length - 2}
+                </span>
+              )}
             </div>
           )}
           {!expanded && task.steps.length > 0 && (
-            <div className="task-steps-preview" aria-label={t("taskEdit.section.steps")}>
+            <div
+              className="task-steps-preview"
+              aria-label={t("taskEdit.section.steps")}
+            >
               {task.steps.slice(0, 3).map((step) => (
-                <div key={step.id} className={`task-step-preview ${step.completed ? "completed" : ""}`}>
-                  <span className="task-step-preview-checkbox" aria-hidden="true">
+                <div
+                  key={step.id}
+                  className={`task-step-preview ${step.completed ? "completed" : ""}`}
+                >
+                  <span
+                    className="task-step-preview-checkbox"
+                    aria-hidden="true"
+                  >
                     {step.completed && <Icons.Check />}
                   </span>
                   <span className="task-step-preview-title">{step.title}</span>
@@ -269,10 +299,20 @@ export function TaskCard({
         <div className="task-icons">
           {showMove && (
             <>
-              <IconButton className="task-icon-btn" onClick={onMoveUp} title={t("task.moveUp")} label={t("task.moveUp")}>
+              <IconButton
+                className="task-icon-btn"
+                onClick={onMoveUp}
+                title={t("task.moveUp")}
+                label={t("task.moveUp")}
+              >
                 <Icons.ArrowUp />
               </IconButton>
-              <IconButton className="task-icon-btn" onClick={onMoveDown} title={t("task.moveDown")} label={t("task.moveDown")}>
+              <IconButton
+                className="task-icon-btn"
+                onClick={onMoveDown}
+                title={t("task.moveDown")}
+                label={t("task.moveDown")}
+              >
                 <Icons.ArrowDown />
               </IconButton>
             </>
@@ -292,16 +332,34 @@ export function TaskCard({
           <IconButton
             className={`task-icon-btn important ${task.important ? "active" : ""}`}
             onClick={onToggleImportant}
-            title={task.important ? t("task.unmarkImportant") : t("task.markImportant")}
-            label={task.important ? t("task.unmarkImportant") : t("task.markImportant")}
+            title={
+              task.important
+                ? t("task.unmarkImportant")
+                : t("task.markImportant")
+            }
+            label={
+              task.important
+                ? t("task.unmarkImportant")
+                : t("task.markImportant")
+            }
             aria-pressed={task.important}
           >
             <Icons.Star />
           </IconButton>
-          <IconButton className="task-icon-btn" onClick={onDelete} title={t("common.delete")} label={t("task.delete")}>
+          <IconButton
+            className="task-icon-btn"
+            onClick={onDelete}
+            title={t("common.delete")}
+            label={t("task.delete")}
+          >
             <Icons.Trash />
           </IconButton>
-          <IconButton className="task-icon-btn" onClick={onEdit} title={t("common.edit")} label={t("task.edit")}>
+          <IconButton
+            className="task-icon-btn"
+            onClick={onEdit}
+            title={t("common.edit")}
+            label={t("task.edit")}
+          >
             <Icons.Edit />
           </IconButton>
           <IconButton
@@ -317,7 +375,11 @@ export function TaskCard({
       </div>
 
       {rescheduleOpen && onReschedulePreset && (
-        <div className="task-reschedule-menu" role="menu" aria-label={t("task.reschedule")}>
+        <div
+          className="task-reschedule-menu"
+          role="group"
+          aria-label={t("task.reschedule")}
+        >
           <button
             type="button"
             className="pill"
@@ -369,12 +431,19 @@ export function TaskCard({
             </div>
 
             {task.steps.map((step) => (
-              <div key={step.id} className={`step-item ${step.completed ? "completed" : ""}`}>
+              <div
+                key={step.id}
+                className={`step-item ${step.completed ? "completed" : ""}`}
+              >
                 <button
                   type="button"
                   className="step-checkbox"
                   onClick={() => void handleToggleStep(step.id)}
-                  aria-label={step.completed ? t("taskEdit.stepMarkIncomplete") : t("taskEdit.stepMarkComplete")}
+                  aria-label={
+                    step.completed
+                      ? t("taskEdit.stepMarkIncomplete")
+                      : t("taskEdit.stepMarkComplete")
+                  }
                   aria-pressed={step.completed}
                   disabled={stepBusy || !canEditSteps}
                 >
@@ -401,7 +470,9 @@ export function TaskCard({
                   className="steps-input"
                   placeholder={t("taskEdit.stepPlaceholder")}
                   value={newStepTitle}
-                  onChange={(event) => setNewStepTitle(event.currentTarget.value)}
+                  onChange={(event) =>
+                    setNewStepTitle(event.currentTarget.value)
+                  }
                   onKeyDown={(event) => {
                     if (event.key === "Enter") void handleAddStep();
                     if (event.key === "Escape") {
@@ -465,4 +536,3 @@ export function TaskCard({
     </div>
   );
 }
-

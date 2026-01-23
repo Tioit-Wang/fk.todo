@@ -14,6 +14,8 @@ use crate::storage::{Storage, StorageError};
 #[cfg(all(feature = "app", not(test)))]
 use crate::tray::update_tray_count;
 #[cfg(all(feature = "app", not(test)))]
+use crate::windows::show_settings_window as show_settings_window_impl;
+#[cfg(all(feature = "app", not(test)))]
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 #[cfg(all(feature = "app", not(test)))]
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
@@ -533,6 +535,13 @@ pub fn update_settings(
 ) -> CommandResult<Settings> {
     let ctx = TauriCommandCtx { app: &app };
     update_settings_impl(&ctx, state.inner(), settings)
+}
+
+#[cfg(all(feature = "app", not(test)))]
+#[tauri::command]
+pub fn show_settings_window(app: AppHandle) -> CommandResult<bool> {
+    show_settings_window_impl(&app);
+    ok(true)
 }
 
 #[cfg(all(feature = "app", not(test)))]

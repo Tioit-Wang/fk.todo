@@ -1,7 +1,7 @@
 {
   "identifier": "desktop-capability",
   "platforms": ["macOS", "windows", "linux"],
-  "windows": ["main", "quick", "reminder"],
+  "windows": ["main", "quick", "reminder", "settings"],
   "permissions": [
     "core:default",
     "core:window:default",

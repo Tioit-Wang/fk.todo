@@ -1,4 +1,12 @@
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { Icons } from "./icons";
 
@@ -21,9 +29,19 @@ type ToastContextValue = {
 
 const ToastContext = createContext<ToastContextValue | null>(null);
 
+function resolveToastCloseLabel() {
+  const lang = (
+    document.documentElement.lang ||
+    navigator.language ||
+    "en"
+  ).toLowerCase();
+  return lang.startsWith("zh") ? "关闭" : "Close";
+}
+
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<ToastItem[]>([]);
   const timers = useRef<Map<string, number>>(new Map());
+  const closeLabel = resolveToastCloseLabel();
 
   const dismiss = useCallback((id: string) => {
     const timer = timers.current.get(id);
@@ -38,7 +56,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       if (!text) return;
 
       const tone: ToastTone = options?.tone ?? "default";
-      const durationMs = Math.min(15_000, Math.max(1200, options?.durationMs ?? 3200));
+      const durationMs = Math.min(
+        15_000,
+        Math.max(1200, options?.durationMs ?? 3200),
+      );
 
       const id = crypto.randomUUID();
       const toast: ToastItem = { id, message: text, tone };
@@ -56,19 +77,29 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <div className="toast-viewport" aria-live="polite" aria-relevant="additions">
+      <div
+        className="toast-viewport"
+        aria-live="polite"
+        aria-relevant="additions"
+      >
         {items.map((item) => (
           <div key={item.id} className={`toast ${item.tone}`} role="status">
             <span className="toast-icon" aria-hidden="true">
-              {item.tone === "success" ? <Icons.Check /> : item.tone === "danger" ? <Icons.AlertCircle /> : <Icons.AlertCircle />}
+              {item.tone === "success" ? (
+                <Icons.Check />
+              ) : item.tone === "danger" ? (
+                <Icons.AlertCircle />
+              ) : (
+                <Icons.AlertCircle />
+              )}
             </span>
             <span className="toast-message">{item.message}</span>
             <button
               type="button"
               className="toast-close"
               onClick={() => dismiss(item.id)}
-              aria-label="Dismiss"
-              title="Dismiss"
+              aria-label={closeLabel}
+              title={closeLabel}
             >
               <Icons.X />
             </button>
@@ -86,4 +117,3 @@ export function useToast() {
   }
   return ctx;
 }
-

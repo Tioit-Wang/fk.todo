@@ -32,6 +32,7 @@ import { useConfirmDialog } from "./components/useConfirmDialog";
 import { MainView } from "./views/MainView";
 import { QuickView } from "./views/QuickView";
 import { SettingsView } from "./views/SettingsView";
+import { CalendarView } from "./views/CalendarView";
 
 import {
   bulkCompleteTasks,
@@ -43,6 +44,7 @@ import {
   dismissForced,
   loadState,
   snoozeTask,
+  showSettingsWindow,
   updateSettings,
   updateTask,
 } from "./api";
@@ -117,20 +119,20 @@ function playBeep() {
 }
 
 function App() {
-  const getViewFromHash = (): "quick" | "main" | "reminder" => {
+  type AppView = "quick" | "main" | "reminder" | "settings";
+
+  const getViewFromHash = (): AppView => {
     const raw = window.location.hash.replace("#", "");
     const path = raw.startsWith("/") ? raw.slice(1) : raw;
     const view = path.split("/")[0];
     const label = getCurrentWindow().label;
-    if (label === "main" || label === "quick" || label === "reminder")
+    if (label === "main" || label === "quick" || label === "reminder" || label === "settings")
       return label;
-    if (view === "main" || view === "quick" || view === "reminder") return view;
+    if (view === "main" || view === "quick" || view === "reminder" || view === "settings") return view;
     return "main";
   };
 
-  const [view, setView] = useState<"quick" | "main" | "reminder">(
-    getViewFromHash(),
-  );
+  const [view, setView] = useState<AppView>(getViewFromHash());
   const [locationHash, setLocationHash] = useState(() => window.location.hash);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -449,6 +451,7 @@ function App() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      if (event.defaultPrevented) return;
       if (confirmDeleteTaskId) return;
       if (editingTaskId) {
         setEditingTaskId(null);
@@ -588,6 +591,21 @@ function App() {
       setSettings(normalizeSettings(result.data));
     }
     return true;
+  }
+
+  function handleOpenToday() {
+    window.location.hash = "#/main/today";
+  }
+
+  function handleOpenCalendar() {
+    window.location.hash = "#/main/calendar";
+  }
+
+  async function handleOpenSettingsWindow() {
+    const res = await showSettingsWindow();
+    if (!res.ok) {
+      toast.notify(res.error ?? t("settings.openFailed"), { tone: "danger", durationMs: 6000 });
+    }
   }
 
   async function handleCreateFromComposer(draft: TaskComposerDraft) {
@@ -826,8 +844,9 @@ function App() {
     if (import.meta.env.DEV) {
       return { status: "error", error: "updater disabled in dev mode" };
     }
-    if (getCurrentWindow().label !== "main") {
-      return { status: "error", error: "updater must run in main window" };
+    const label = getCurrentWindow().label;
+    if (label !== "main" && label !== "settings") {
+      return { status: "error", error: "updater must run in main/settings window" };
     }
     if (updateBusy) {
       return { status: "error", error: "updater is busy" };
@@ -854,24 +873,27 @@ function App() {
     const path = raw.startsWith("/") ? raw.slice(1) : raw;
     const parts = path.split("/").filter(Boolean);
 
-    // Supported routes for the main window:
-    // - #/main
-    // - #/main/settings
-    // - #/main/today
-    // - #/settings (handy when triggered from native code)
+    // Supported routes:
+    // - main window: #/main, #/main/today, #/main/calendar
+    // - settings window: #/settings
+    // - legacy: #/main/settings (main window will redirect to settings window)
     if (parts[0] === "settings") return "settings";
     if (parts[0] === "main" && parts[1] === "settings") return "settings";
+    if (parts[0] === "calendar") return "calendar";
+    if (parts[0] === "main" && parts[1] === "calendar") return "calendar";
     if (parts[0] === "today") return "today";
     if (parts[0] === "main" && parts[1] === "today") return "today";
     return "home";
   })();
 
   useEffect(() => {
-    // Settings is a dedicated page; ensure no task modals leak into it.
+    // Legacy route: settings is now a separate window; redirect the main window back home.
     if (view !== "main") return;
     if (mainPage !== "settings") return;
     setEditingTaskId(null);
     setConfirmDeleteTaskId(null);
+    void showSettingsWindow().catch(() => {});
+    window.location.hash = "#/main";
   }, [view, mainPage]);
 
   // Daily "today focus" prompt: show it only in the main window home page and only once per day.
@@ -963,7 +985,7 @@ function App() {
         />
       )}
 
-      {view === "main" && mainPage === "settings" && (
+      {view === "settings" && (
         <SettingsView
           tasks={tasks}
           settings={settings}
@@ -971,7 +993,9 @@ function App() {
           updateBusy={updateBusy}
           onCheckUpdate={handleManualUpdateCheck}
           onBack={() => {
-            window.location.hash = "#/main";
+            void getCurrentWindow()
+              .hide()
+              .catch(() => {});
           }}
         />
       )}
@@ -981,6 +1005,24 @@ function App() {
           tasks={tasks}
           settings={settings}
           onUpdateSettings={handleUpdateSettings}
+          onBack={() => {
+            window.location.hash = "#/main";
+          }}
+        />
+      )}
+
+      {view === "main" && mainPage === "calendar" && (
+        <CalendarView
+          tasks={tasks}
+          settings={settings}
+          normalTasks={normalTasks}
+          onNormalSnooze={handleNormalSnooze}
+          onNormalComplete={handleNormalComplete}
+          onUpdateTask={handleUpdateTask}
+          onToggleComplete={handleToggleComplete}
+          onToggleImportant={handleToggleImportant}
+          onRequestDelete={handleRequestDelete}
+          onEditTask={handleEditTask}
           onBack={() => {
             window.location.hash = "#/main";
           }}
@@ -1002,6 +1044,9 @@ function App() {
 	          onToggleImportant={handleToggleImportant}
 	          onRequestDelete={handleRequestDelete}
           onEditTask={handleEditTask}
+          onOpenSettings={() => void handleOpenSettingsWindow()}
+          onOpenToday={handleOpenToday}
+          onOpenCalendar={handleOpenCalendar}
           onNormalSnooze={handleNormalSnooze}
           onNormalComplete={handleNormalComplete}
         />

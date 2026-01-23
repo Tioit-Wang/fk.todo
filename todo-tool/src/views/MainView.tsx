@@ -7,12 +7,24 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { NotificationBanner } from "../components/NotificationBanner";
 import { IconButton } from "../components/IconButton";
 import { TaskCard } from "../components/TaskCard";
-import { TaskComposer, type TaskComposerDraft } from "../components/TaskComposer";
+import {
+  TaskComposer,
+  type TaskComposerDraft,
+} from "../components/TaskComposer";
 import { WindowTitlebar } from "../components/WindowTitlebar";
 import { Icons } from "../components/icons";
 import { useI18n } from "../i18n";
-import { computeRescheduleDueAt, rescheduleTask, type ReschedulePresetId } from "../reschedule";
-import { isDueInFuture, isDueToday, isDueTomorrow, isOverdue } from "../scheduler";
+import {
+  computeRescheduleDueAt,
+  rescheduleTask,
+  type ReschedulePresetId,
+} from "../reschedule";
+import {
+  isDueInFuture,
+  isDueToday,
+  isDueTomorrow,
+  isOverdue,
+} from "../scheduler";
 import { taskMatchesQuery } from "../search";
 import type { Settings, Task } from "../types";
 
@@ -21,7 +33,13 @@ type DueFilterId = "all" | "overdue" | "today" | "tomorrow" | "future";
 type ImportanceFilterId = "all" | "important" | "normal";
 type RepeatFilterId = "all" | "repeat" | "none";
 type ReminderFilterId = "all" | "remind" | "none" | "forced" | "normal";
-type ListTabId = "all" | "overdue" | "today" | "tomorrow" | "future" | "completed";
+type ListTabId =
+  | "all"
+  | "overdue"
+  | "today"
+  | "tomorrow"
+  | "future"
+  | "completed";
 
 export function MainView({
   tasks,
@@ -37,6 +55,9 @@ export function MainView({
   onToggleImportant,
   onRequestDelete,
   onEditTask,
+  onOpenSettings,
+  onOpenToday,
+  onOpenCalendar,
   onNormalSnooze,
   onNormalComplete,
 }: {
@@ -53,6 +74,9 @@ export function MainView({
   onToggleImportant: (task: Task) => Promise<void> | void;
   onRequestDelete: (task: Task) => void;
   onEditTask: (task: Task) => void;
+  onOpenSettings: () => void;
+  onOpenToday: () => void;
+  onOpenCalendar: () => void;
   onNormalSnooze: (task: Task) => Promise<void> | void;
   onNormalComplete: (task: Task) => Promise<void> | void;
 }) {
@@ -67,7 +91,8 @@ export function MainView({
   const [confirmBulkComplete, setConfirmBulkComplete] = useState(false);
 
   const [dueFilter, setDueFilter] = useState<DueFilterId>("all");
-  const [importanceFilter, setImportanceFilter] = useState<ImportanceFilterId>("all");
+  const [importanceFilter, setImportanceFilter] =
+    useState<ImportanceFilterId>("all");
   const [repeatFilter, setRepeatFilter] = useState<RepeatFilterId>("all");
   const [reminderFilter, setReminderFilter] = useState<ReminderFilterId>("all");
   const [tagFilter, setTagFilter] = useState<string>("all");
@@ -141,10 +166,30 @@ export function MainView({
 
   const quadrants = useMemo(
     () => [
-      { id: 1, title: t("quadrant.q1.title"), sublabel: t("quadrant.q1.sublabel"), className: "quadrant-red" },
-      { id: 2, title: t("quadrant.q2.title"), sublabel: t("quadrant.q2.sublabel"), className: "quadrant-amber" },
-      { id: 3, title: t("quadrant.q3.title"), sublabel: t("quadrant.q3.sublabel"), className: "quadrant-blue" },
-      { id: 4, title: t("quadrant.q4.title"), sublabel: t("quadrant.q4.sublabel"), className: "quadrant-gray" },
+      {
+        id: 1,
+        title: t("quadrant.q1.title"),
+        sublabel: t("quadrant.q1.sublabel"),
+        className: "quadrant-red",
+      },
+      {
+        id: 2,
+        title: t("quadrant.q2.title"),
+        sublabel: t("quadrant.q2.sublabel"),
+        className: "quadrant-amber",
+      },
+      {
+        id: 3,
+        title: t("quadrant.q3.title"),
+        sublabel: t("quadrant.q3.sublabel"),
+        className: "quadrant-blue",
+      },
+      {
+        id: 4,
+        title: t("quadrant.q4.title"),
+        sublabel: t("quadrant.q4.sublabel"),
+        className: "quadrant-gray",
+      },
     ],
     [t],
   );
@@ -152,7 +197,11 @@ export function MainView({
   const filteredTasks = useMemo(() => {
     const now = new Date();
     return tasks.filter((task) => {
-      if (dueFilter === "overdue" && !isOverdue(task, Math.floor(now.getTime() / 1000))) return false;
+      if (
+        dueFilter === "overdue" &&
+        !isOverdue(task, Math.floor(now.getTime() / 1000))
+      )
+        return false;
       if (dueFilter === "today" && !isDueToday(task, now)) return false;
       if (dueFilter === "tomorrow" && !isDueTomorrow(task, now)) return false;
       if (dueFilter === "future" && !isDueInFuture(task, now)) return false;
@@ -160,22 +209,40 @@ export function MainView({
       if (importanceFilter === "important" && !task.important) return false;
       if (importanceFilter === "normal" && task.important) return false;
 
-      if (repeatFilter === "repeat" && task.repeat.type === "none") return false;
+      if (repeatFilter === "repeat" && task.repeat.type === "none")
+        return false;
       if (repeatFilter === "none" && task.repeat.type !== "none") return false;
 
-      if (reminderFilter === "remind" && task.reminder.kind === "none") return false;
-      if (reminderFilter === "none" && task.reminder.kind !== "none") return false;
-      if (reminderFilter === "forced" && task.reminder.kind !== "forced") return false;
-      if (reminderFilter === "normal" && task.reminder.kind !== "normal") return false;
+      if (reminderFilter === "remind" && task.reminder.kind === "none")
+        return false;
+      if (reminderFilter === "none" && task.reminder.kind !== "none")
+        return false;
+      if (reminderFilter === "forced" && task.reminder.kind !== "forced")
+        return false;
+      if (reminderFilter === "normal" && task.reminder.kind !== "normal")
+        return false;
 
       if (tagFilter === "none" && task.tags.length > 0) return false;
-      if (tagFilter !== "all" && tagFilter !== "none" && !task.tags.includes(tagFilter)) return false;
+      if (
+        tagFilter !== "all" &&
+        tagFilter !== "none" &&
+        !task.tags.includes(tagFilter)
+      )
+        return false;
 
       if (!taskMatchesQuery(task, searchQuery)) return false;
 
       return true;
     });
-  }, [tasks, dueFilter, importanceFilter, repeatFilter, reminderFilter, tagFilter, searchQuery]);
+  }, [
+    tasks,
+    dueFilter,
+    importanceFilter,
+    repeatFilter,
+    reminderFilter,
+    tagFilter,
+    searchQuery,
+  ]);
 
   const sortedTasks = useMemo(() => {
     const list = [...filteredTasks];
@@ -230,9 +297,21 @@ export function MainView({
     return [
       { id: "all", label: t("main.tab.all"), tasks: [...allOpen, ...allDone] },
       { id: "overdue", label: t("main.tab.overdue"), tasks: overdue },
-      { id: "today", label: t("main.tab.today"), tasks: [...todayOpen, ...todayDone] },
-      { id: "tomorrow", label: t("main.tab.tomorrow"), tasks: [...tomorrowOpen, ...tomorrowDone] },
-      { id: "future", label: t("main.tab.future"), tasks: [...futureOpen, ...futureDone] },
+      {
+        id: "today",
+        label: t("main.tab.today"),
+        tasks: [...todayOpen, ...todayDone],
+      },
+      {
+        id: "tomorrow",
+        label: t("main.tab.tomorrow"),
+        tasks: [...tomorrowOpen, ...tomorrowDone],
+      },
+      {
+        id: "future",
+        label: t("main.tab.future"),
+        tasks: [...futureOpen, ...futureDone],
+      },
       { id: "completed", label: t("main.tab.completed"), tasks: completed },
     ];
   }, [sortedTasks, t]);
@@ -241,7 +320,11 @@ export function MainView({
     return (
       listSections.find((section) => section.id === listTab) ??
       listSections[0] ??
-      ({ id: listTab, label: "", tasks: [] } as { id: string; label: string; tasks: Task[] })
+      ({ id: listTab, label: "", tasks: [] } as {
+        id: string;
+        label: string;
+        tasks: Task[];
+      })
     );
   }, [listSections, listTab]);
 
@@ -261,7 +344,10 @@ export function MainView({
     return counts;
   }, [tasks]);
 
-  const bulkSelectedSet = useMemo(() => new Set(bulkSelectedIds), [bulkSelectedIds]);
+  const bulkSelectedSet = useMemo(
+    () => new Set(bulkSelectedIds),
+    [bulkSelectedIds],
+  );
   const bulkSelectedTasks = useMemo(() => {
     if (bulkSelectedIds.length === 0) return [];
     return tasks.filter((task) => bulkSelectedSet.has(task.id));
@@ -275,11 +361,16 @@ export function MainView({
     [bulkSelectedIncomplete],
   );
   const bulkSelectedRepeatCount = useMemo(
-    () => bulkSelectedIncomplete.filter((task) => task.repeat.type !== "none").length,
+    () =>
+      bulkSelectedIncomplete.filter((task) => task.repeat.type !== "none")
+        .length,
     [bulkSelectedIncomplete],
   );
 
-  const bulkVisibleIds = useMemo(() => activeListSection.tasks.map((task) => task.id), [activeListSection]);
+  const bulkVisibleIds = useMemo(
+    () => activeListSection.tasks.map((task) => task.id),
+    [activeListSection],
+  );
 
   useEffect(() => {
     // Keep selection stable across state updates (e.g. after persist), but drop ids that no longer exist.
@@ -354,7 +445,11 @@ export function MainView({
     }
   }
 
-  async function handleMoveTask(task: Task, direction: "up" | "down", list: Task[]) {
+  async function handleMoveTask(
+    task: Task,
+    direction: "up" | "down",
+    list: Task[],
+  ) {
     const index = list.findIndex((item) => item.id === task.id);
     const targetIndex = direction === "up" ? index - 1 : index + 1;
     if (index < 0 || targetIndex < 0 || targetIndex >= list.length) return;
@@ -403,6 +498,32 @@ export function MainView({
     }
   }
 
+  const MAIN_VIEW_TAB_LIST = "main-view-tab-list";
+  const MAIN_VIEW_TAB_QUADRANT = "main-view-tab-quadrant";
+  const MAIN_VIEW_PANEL_LIST = "main-view-panel-list";
+  const MAIN_VIEW_PANEL_QUADRANT = "main-view-panel-quadrant";
+  const LIST_PANEL_ID = "main-list-panel";
+
+  const focusElement = (id: string) => {
+    window.requestAnimationFrame(() => {
+      const el = document.getElementById(id) as HTMLElement | null;
+      el?.focus();
+    });
+  };
+
+  const switchToList = () => {
+    setMainView("list");
+  };
+
+  const switchToQuadrant = () => {
+    // Bulk operations are list-only; switching views exits bulk mode.
+    setBulkMode(false);
+    clearBulkSelection();
+    setConfirmBulkDelete(false);
+    setConfirmBulkComplete(false);
+    setMainView("quadrant");
+  };
+
   return (
     <div className="main-window">
       <WindowTitlebar
@@ -411,27 +532,46 @@ export function MainView({
         onMinimize={handleMinimize}
         right={
           <div className="main-titlebar-actions">
-            <div className="segment" role="tablist" aria-label={t("main.view.label")}>
+            <div
+              className="segment"
+              role="tablist"
+              aria-label={t("main.view.label")}
+            >
               <button
+                id={MAIN_VIEW_TAB_LIST}
                 type="button"
+                role="tab"
                 className={`segment-btn ${mainView === "list" ? "active" : ""}`}
-                onClick={() => setMainView("list")}
+                onClick={switchToList}
                 aria-selected={mainView === "list"}
+                aria-controls={MAIN_VIEW_PANEL_LIST}
+                tabIndex={mainView === "list" ? 0 : -1}
+                onKeyDown={(event) => {
+                  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight")
+                    return;
+                  event.preventDefault();
+                  switchToQuadrant();
+                  focusElement(MAIN_VIEW_TAB_QUADRANT);
+                }}
               >
                 {t("main.view.list")}
               </button>
               <button
+                id={MAIN_VIEW_TAB_QUADRANT}
                 type="button"
+                role="tab"
                 className={`segment-btn ${mainView === "quadrant" ? "active" : ""}`}
-                onClick={() => {
-                  // Bulk operations are list-only; switching views exits bulk mode.
-                  setBulkMode(false);
-                  clearBulkSelection();
-                  setConfirmBulkDelete(false);
-                  setConfirmBulkComplete(false);
-                  setMainView("quadrant");
-                }}
+                onClick={switchToQuadrant}
                 aria-selected={mainView === "quadrant"}
+                aria-controls={MAIN_VIEW_PANEL_QUADRANT}
+                tabIndex={mainView === "quadrant" ? 0 : -1}
+                onKeyDown={(event) => {
+                  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight")
+                    return;
+                  event.preventDefault();
+                  switchToList();
+                  focusElement(MAIN_VIEW_TAB_LIST);
+                }}
               >
                 {t("main.view.quadrant")}
               </button>
@@ -439,17 +579,27 @@ export function MainView({
             <IconButton
               className="icon-btn"
               onClick={() => {
-                window.location.hash = "#/main/today";
+                onOpenToday();
               }}
               title={t("today.title")}
               label={t("today.title")}
+            >
+              <Icons.Clock />
+            </IconButton>
+            <IconButton
+              className="icon-btn"
+              onClick={() => {
+                onOpenCalendar();
+              }}
+              title={t("calendar.title")}
+              label={t("calendar.title")}
             >
               <Icons.Calendar />
             </IconButton>
             <IconButton
               className="icon-btn"
               onClick={() => {
-                window.location.hash = "#/main/settings";
+                onOpenSettings();
               }}
               title={t("main.settings")}
               label={t("main.settings")}
@@ -461,12 +611,21 @@ export function MainView({
       />
 
       <div className="main-content">
-        <NotificationBanner tasks={normalTasks} onSnooze={onNormalSnooze} onComplete={onNormalComplete} />
+        <NotificationBanner
+          tasks={normalTasks}
+          onSnooze={onNormalSnooze}
+          onComplete={onNormalComplete}
+        />
 
         <div className="main-filters">
           <div className="filter-group">
             <Icons.Filter />
-            <select value={dueFilter} onChange={(event) => setDueFilter(event.currentTarget.value as DueFilterId)}>
+            <select
+              value={dueFilter}
+              onChange={(event) =>
+                setDueFilter(event.currentTarget.value as DueFilterId)
+              }
+            >
               {dueFilterOptions.map((opt) => (
                 <option key={opt.id} value={opt.id}>
                   {opt.label}
@@ -475,7 +634,11 @@ export function MainView({
             </select>
             <select
               value={importanceFilter}
-              onChange={(event) => setImportanceFilter(event.currentTarget.value as ImportanceFilterId)}
+              onChange={(event) =>
+                setImportanceFilter(
+                  event.currentTarget.value as ImportanceFilterId,
+                )
+              }
             >
               {importanceFilterOptions.map((opt) => (
                 <option key={opt.id} value={opt.id}>
@@ -483,7 +646,12 @@ export function MainView({
                 </option>
               ))}
             </select>
-            <select value={repeatFilter} onChange={(event) => setRepeatFilter(event.currentTarget.value as RepeatFilterId)}>
+            <select
+              value={repeatFilter}
+              onChange={(event) =>
+                setRepeatFilter(event.currentTarget.value as RepeatFilterId)
+              }
+            >
               {repeatFilterOptions.map((opt) => (
                 <option key={opt.id} value={opt.id}>
                   {opt.label}
@@ -492,7 +660,9 @@ export function MainView({
             </select>
             <select
               value={reminderFilter}
-              onChange={(event) => setReminderFilter(event.currentTarget.value as ReminderFilterId)}
+              onChange={(event) =>
+                setReminderFilter(event.currentTarget.value as ReminderFilterId)
+              }
             >
               {reminderFilterOptions.map((opt) => (
                 <option key={opt.id} value={opt.id}>
@@ -500,7 +670,10 @@ export function MainView({
                 </option>
               ))}
             </select>
-            <select value={tagFilter} onChange={(event) => setTagFilter(event.currentTarget.value)}>
+            <select
+              value={tagFilter}
+              onChange={(event) => setTagFilter(event.currentTarget.value)}
+            >
               {tagFilterOptions.map((opt) => (
                 <option key={opt.id} value={opt.id}>
                   {opt.label}
@@ -510,7 +683,12 @@ export function MainView({
           </div>
           <div className="filter-group">
             <Icons.Sort />
-            <select value={mainSort} onChange={(event) => setMainSort(event.currentTarget.value as MainSortId)}>
+            <select
+              value={mainSort}
+              onChange={(event) =>
+                setMainSort(event.currentTarget.value as MainSortId)
+              }
+            >
               {mainSortOptions.map((opt) => (
                 <option key={opt.id} value={opt.id}>
                   {opt.label}
@@ -563,7 +741,9 @@ export function MainView({
 
         {mainView === "list" && bulkMode && (
           <div className="batch-bar">
-            <span>{t("batch.selected", { count: bulkSelectedIds.length })}</span>
+            <span>
+              {t("batch.selected", { count: bulkSelectedIds.length })}
+            </span>
             <button
               type="button"
               className="batch-btn"
@@ -634,12 +814,16 @@ export function MainView({
             >
               {t("reschedule.nextWorkday0900")}
             </button>
-
           </div>
         )}
 
         {mainView === "quadrant" && (
-          <div className="quadrant-grid">
+          <div
+            id={MAIN_VIEW_PANEL_QUADRANT}
+            role="tabpanel"
+            aria-labelledby={MAIN_VIEW_TAB_QUADRANT}
+            className="quadrant-grid"
+          >
             {quadrants.map((quad) => (
               <div
                 key={quad.id}
@@ -654,14 +838,17 @@ export function MainView({
                   <div>
                     <h2 className="quadrant-title">{quad.title}</h2>
                     <span className="quadrant-sublabel">
-                      {quad.sublabel} · {quadrantCounts[quad.id].completed}/{quadrantCounts[quad.id].total}
+                      {quad.sublabel} {quadrantCounts[quad.id].completed}/
+                      {quadrantCounts[quad.id].total}
                     </span>
                   </div>
                 </div>
 
                 <div className="quadrant-list">
                   {tasksByQuadrant[quad.id].length === 0 ? (
-                    <div className="quadrant-empty">{t("common.emptyTasks")}</div>
+                    <div className="quadrant-empty">
+                      {t("common.emptyTasks")}
+                    </div>
                   ) : (
                     tasksByQuadrant[quad.id].map((task) => (
                       <TaskCard
@@ -671,11 +858,25 @@ export function MainView({
                         showMove={mainSort === "manual"}
                         draggable
                         onDragStart={(event) => handleDragStart(task, event)}
-                        onMoveUp={() => void handleMoveTask(task, "up", tasksByQuadrant[quad.id])}
-                        onMoveDown={() => void handleMoveTask(task, "down", tasksByQuadrant[quad.id])}
+                        onMoveUp={() =>
+                          void handleMoveTask(
+                            task,
+                            "up",
+                            tasksByQuadrant[quad.id],
+                          )
+                        }
+                        onMoveDown={() =>
+                          void handleMoveTask(
+                            task,
+                            "down",
+                            tasksByQuadrant[quad.id],
+                          )
+                        }
                         onToggleComplete={() => onToggleComplete(task)}
                         onToggleImportant={() => onToggleImportant(task)}
-                        onReschedulePreset={(preset) => void handleReschedule(task, preset)}
+                        onReschedulePreset={(preset) =>
+                          void handleReschedule(task, preset)
+                        }
                         onUpdateTask={onUpdateTask}
                         showNotesPreview
                         onDelete={() => onRequestDelete(task)}
@@ -690,23 +891,63 @@ export function MainView({
         )}
 
         {mainView === "list" && (
-          <div className="list-view">
-            <div className="list-tabs" role="tablist" aria-label={t("main.listTabs")}>
-              {listSections.map((section) => (
-                <button
-                  key={section.id}
-                  type="button"
-                  className={`list-tab ${listTab === section.id ? "active" : ""}`}
-                  onClick={() => setListTab(section.id as ListTabId)}
-                  aria-selected={listTab === section.id}
-                >
-                  <span>{section.label}</span>
-                  <span className="list-tab-count">{section.tasks.length}</span>
-                </button>
-              ))}
+          <div
+            id={MAIN_VIEW_PANEL_LIST}
+            role="tabpanel"
+            aria-labelledby={MAIN_VIEW_TAB_LIST}
+            className="list-view"
+          >
+            <div
+              className="list-tabs"
+              role="tablist"
+              aria-label={t("main.listTabs")}
+            >
+              {listSections.map((section, index) => {
+                const selected = listTab === section.id;
+                const tabId = `main-list-tab-${section.id}`;
+                return (
+                  <button
+                    key={section.id}
+                    id={tabId}
+                    type="button"
+                    role="tab"
+                    className={`list-tab ${selected ? "active" : ""}`}
+                    onClick={() => setListTab(section.id as ListTabId)}
+                    aria-selected={selected}
+                    aria-controls={LIST_PANEL_ID}
+                    tabIndex={selected ? 0 : -1}
+                    onKeyDown={(event) => {
+                      if (
+                        event.key !== "ArrowLeft" &&
+                        event.key !== "ArrowRight"
+                      )
+                        return;
+                      event.preventDefault();
+                      if (listSections.length === 0) return;
+                      const dir = event.key === "ArrowLeft" ? -1 : 1;
+                      const nextIndex =
+                        (index + dir + listSections.length) %
+                        listSections.length;
+                      const next = listSections[nextIndex];
+                      setListTab(next.id as ListTabId);
+                      focusElement(`main-list-tab-${next.id}`);
+                    }}
+                  >
+                    <span>{section.label}</span>
+                    <span className="list-tab-count">
+                      {section.tasks.length}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
 
-            <div className="list-panel" role="tabpanel">
+            <div
+              className="list-panel"
+              id={LIST_PANEL_ID}
+              role="tabpanel"
+              aria-labelledby={`main-list-tab-${listTab}`}
+            >
               {activeListSection.tasks.length === 0 ? (
                 <div className="list-empty">{t("common.emptyTasks")}</div>
               ) : (
@@ -721,11 +962,17 @@ export function MainView({
                     showMove={mainSort === "manual"}
                     draggable={!bulkMode}
                     onDragStart={(event) => handleDragStart(task, event)}
-                    onMoveUp={() => void handleMoveTask(task, "up", activeListSection.tasks)}
-                    onMoveDown={() => void handleMoveTask(task, "down", activeListSection.tasks)}
+                    onMoveUp={() =>
+                      void handleMoveTask(task, "up", activeListSection.tasks)
+                    }
+                    onMoveDown={() =>
+                      void handleMoveTask(task, "down", activeListSection.tasks)
+                    }
                     onToggleComplete={() => onToggleComplete(task)}
                     onToggleImportant={() => onToggleImportant(task)}
-                    onReschedulePreset={(preset) => void handleReschedule(task, preset)}
+                    onReschedulePreset={(preset) =>
+                      void handleReschedule(task, preset)
+                    }
                     onUpdateTask={onUpdateTask}
                     showNotesPreview
                     onDelete={() => onRequestDelete(task)}
@@ -736,7 +983,6 @@ export function MainView({
             </div>
           </div>
         )}
-
       </div>
 
       <div className="main-input-bar">
@@ -745,7 +991,9 @@ export function MainView({
 
       <ConfirmDialog
         open={confirmBulkComplete && bulkSelectedIncompleteIds.length > 0}
-        title={t("batch.confirmComplete.title", { count: bulkSelectedIncompleteIds.length })}
+        title={t("batch.confirmComplete.title", {
+          count: bulkSelectedIncompleteIds.length,
+        })}
         description={
           bulkSelectedRepeatCount > 0
             ? t("batch.confirmComplete.descriptionWithRepeat", {
@@ -765,7 +1013,9 @@ export function MainView({
 
       <ConfirmDialog
         open={confirmBulkDelete && bulkSelectedIds.length > 0}
-        title={t("batch.confirmDelete.title", { count: bulkSelectedIds.length })}
+        title={t("batch.confirmDelete.title", {
+          count: bulkSelectedIds.length,
+        })}
         description={t("batch.confirmDelete.description")}
         confirmText={bulkBusy ? t("common.deleting") : t("batch.delete")}
         cancelText={t("common.cancel")}
