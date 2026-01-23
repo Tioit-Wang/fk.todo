@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
+import {
+  isPermissionGranted,
+  requestPermission,
+} from "@tauri-apps/plugin-notification";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 import { getAppVersion } from "../version";
 import {
   createBackup,
+  createProject,
   createTask,
   deleteBackup,
   deleteTasks,
@@ -20,10 +24,21 @@ import {
   type BackupEntry,
 } from "../api";
 import { useI18n } from "../i18n";
-import { buildAiNovelAssistantSampleTasks, taskIsAiNovelAssistantSample } from "../sampleData";
+import {
+  AI_NOVEL_SAMPLE_PROJECT_ID,
+  buildAiNovelAssistantSampleProjects,
+  buildAiNovelAssistantSampleTasks,
+  taskIsAiNovelAssistantSample,
+} from "../sampleData";
 import { captureShortcutFromEvent } from "../shortcut";
 import { normalizeTheme } from "../theme";
-import type { BackupSchedule, MinimizeBehavior, Settings, Task } from "../types";
+import type {
+  BackupSchedule,
+  MinimizeBehavior,
+  Project,
+  Settings,
+  Task,
+} from "../types";
 
 import { WindowTitlebar } from "../components/WindowTitlebar";
 import { useToast } from "../components/ToastProvider";
@@ -39,6 +54,7 @@ type ManualUpdateCheckResult =
 
 export function SettingsView({
   tasks,
+  projects,
   settings,
   onUpdateSettings,
   updateBusy,
@@ -46,6 +62,7 @@ export function SettingsView({
   onBack,
 }: {
   tasks: Task[];
+  projects: Project[];
   settings: Settings | null;
   onUpdateSettings: (
     next: Settings,
@@ -58,7 +75,8 @@ export function SettingsView({
   const { t } = useI18n();
   const toast = useToast();
   const { requestConfirm, dialog: confirmDialog } = useConfirmDialog();
-  const [permissionStatus, setPermissionStatus] = useState<PermissionStatus>("unknown");
+  const [permissionStatus, setPermissionStatus] =
+    useState<PermissionStatus>("unknown");
   const [backups, setBackups] = useState<BackupEntry[]>([]);
   const [importPath, setImportPath] = useState("");
   const [shortcutDraft, setShortcutDraft] = useState("");
@@ -127,7 +145,9 @@ export function SettingsView({
       return;
     }
     if (target === "macos") {
-      await openUrl("x-apple.systempreferences:com.apple.preference.notifications").catch(() => {});
+      await openUrl(
+        "x-apple.systempreferences:com.apple.preference.notifications",
+      ).catch(() => {});
       return;
     }
   }
@@ -222,7 +242,12 @@ export function SettingsView({
   async function handleAddAiNovelAssistantSamples() {
     if (!settings) return;
     if (seedBusy) return;
-    const samples = buildAiNovelAssistantSampleTasks(new Date());
+    const now = new Date();
+    const sampleProjects = buildAiNovelAssistantSampleProjects(now);
+    const samples = buildAiNovelAssistantSampleTasks(
+      now,
+      AI_NOVEL_SAMPLE_PROJECT_ID,
+    );
     const alreadySeeded = tasks.some(taskIsAiNovelAssistantSample);
 
     const ok = await requestConfirm({
@@ -243,6 +268,16 @@ export function SettingsView({
 
       const errors: string[] = [];
       let created = 0;
+
+      // Create sample projects first so tasks can reference them.
+      for (const project of sampleProjects) {
+        if (projects.some((existing) => existing.id === project.id)) continue;
+        const res = await createProject(project);
+        if (!res.ok) {
+          errors.push(res.error ?? `unknown error: ${project.name}`);
+        }
+      }
+
       for (const task of samples) {
         const res = await createTask(task);
         if (!res.ok) {
@@ -282,7 +317,9 @@ export function SettingsView({
     if (sampleTasks.length === 0) return;
     const ok = await requestConfirm({
       title: t("settings.samples.delete"),
-      description: t("settings.samples.deleteConfirm", { count: sampleTasks.length }),
+      description: t("settings.samples.deleteConfirm", {
+        count: sampleTasks.length,
+      }),
       confirmText: t("common.delete"),
       cancelText: t("common.cancel"),
       tone: "danger",
@@ -300,16 +337,19 @@ export function SettingsView({
     async (nextOverride?: string) => {
       if (!settings) return;
       const nextShortcut = (nextOverride ?? shortcutDraft).trim();
-    if (!nextShortcut) {
-      setShortcutDraft(settings.shortcut);
-      return;
-    }
-    if (nextShortcut === settings.shortcut) return;
-    const ok = await onUpdateSettings({ ...settings, shortcut: nextShortcut });
-    if (!ok) {
-      // Keep the input consistent with persisted settings on failure.
-      setShortcutDraft(settings.shortcut);
-    }
+      if (!nextShortcut) {
+        setShortcutDraft(settings.shortcut);
+        return;
+      }
+      if (nextShortcut === settings.shortcut) return;
+      const ok = await onUpdateSettings({
+        ...settings,
+        shortcut: nextShortcut,
+      });
+      if (!ok) {
+        // Keep the input consistent with persisted settings on failure.
+        setShortcutDraft(settings.shortcut);
+      }
     },
     [onUpdateSettings, settings, shortcutDraft],
   );
@@ -441,7 +481,9 @@ export function SettingsView({
     if (updateCheckResult.status === "update") {
       return {
         tone: "warning",
-        text: t("settings.update.available", { version: updateCheckResult.version }),
+        text: t("settings.update.available", {
+          version: updateCheckResult.version,
+        }),
       };
     }
     const error =
@@ -484,25 +526,53 @@ export function SettingsView({
         ) : (
           <div className="settings-layout">
             <div className="settings-nav" aria-label={t("settings.nav")}>
-              <button type="button" className="settings-nav-btn" onClick={() => scrollToSection("settings-about")}>
+              <button
+                type="button"
+                className="settings-nav-btn"
+                onClick={() => scrollToSection("settings-about")}
+              >
                 {t("settings.section.about")}
               </button>
-              <button type="button" className="settings-nav-btn" onClick={() => scrollToSection("settings-general")}>
+              <button
+                type="button"
+                className="settings-nav-btn"
+                onClick={() => scrollToSection("settings-general")}
+              >
                 {t("settings.section.general")}
               </button>
-              <button type="button" className="settings-nav-btn" onClick={() => scrollToSection("settings-notifications")}>
+              <button
+                type="button"
+                className="settings-nav-btn"
+                onClick={() => scrollToSection("settings-notifications")}
+              >
                 {t("settings.section.notifications")}
               </button>
-              <button type="button" className="settings-nav-btn" onClick={() => scrollToSection("settings-backups")}>
+              <button
+                type="button"
+                className="settings-nav-btn"
+                onClick={() => scrollToSection("settings-backups")}
+              >
                 {t("settings.section.backups")}
               </button>
-              <button type="button" className="settings-nav-btn" onClick={() => scrollToSection("settings-export")}>
+              <button
+                type="button"
+                className="settings-nav-btn"
+                onClick={() => scrollToSection("settings-export")}
+              >
                 {t("settings.section.export")}
               </button>
-              <button type="button" className="settings-nav-btn" onClick={() => scrollToSection("settings-samples")}>
+              <button
+                type="button"
+                className="settings-nav-btn"
+                onClick={() => scrollToSection("settings-samples")}
+              >
                 {t("settings.section.samples")}
               </button>
-              <button type="button" className="settings-nav-close" onClick={() => void handleBack()}>
+              <button
+                type="button"
+                className="settings-nav-close"
+                onClick={() => void handleBack()}
+              >
                 {t("common.close")}
               </button>
             </div>
@@ -510,12 +580,18 @@ export function SettingsView({
             <div className="settings-main">
               <section id="settings-about" className="settings-card">
                 <div className="settings-card-header">
-                  <h2 className="settings-card-title">{t("settings.section.about")}</h2>
+                  <h2 className="settings-card-title">
+                    {t("settings.section.about")}
+                  </h2>
                 </div>
                 <div className="settings-card-body">
                   <div className="settings-row">
                     <label>{t("settings.update.currentVersion")}</label>
-                    <span className="settings-status">{appVersion === null ? t("common.loading") : appVersion || "-"}</span>
+                    <span className="settings-status">
+                      {appVersion === null
+                        ? t("common.loading")
+                        : appVersion || "-"}
+                    </span>
                   </div>
                   <div className="settings-row">
                     <label>{t("settings.update")}</label>
@@ -523,18 +599,26 @@ export function SettingsView({
                       type="button"
                       className="pill"
                       onClick={() => void handleCheckUpdate()}
-                      disabled={import.meta.env.DEV || updateBusy || updateCheckBusy}
+                      disabled={
+                        import.meta.env.DEV || updateBusy || updateCheckBusy
+                      }
                     >
                       {t("settings.update.check")}
                     </button>
-                    {updateStatus && <span className={`settings-status ${updateStatus.tone}`}>{updateStatus.text}</span>}
+                    {updateStatus && (
+                      <span className={`settings-status ${updateStatus.tone}`}>
+                        {updateStatus.text}
+                      </span>
+                    )}
                   </div>
                 </div>
               </section>
 
               <section id="settings-general" className="settings-card">
                 <div className="settings-card-header">
-                  <h2 className="settings-card-title">{t("settings.section.general")}</h2>
+                  <h2 className="settings-card-title">
+                    {t("settings.section.general")}
+                  </h2>
                 </div>
                 <div className="settings-card-body">
                   <div className="settings-row">
@@ -552,9 +636,13 @@ export function SettingsView({
                       }}
                       title={t("settings.shortcutHint")}
                     >
-                      {shortcutCapturing ? t("settings.shortcutCapturing") : shortcutDraft || t("settings.shortcutCapture")}
+                      {shortcutCapturing
+                        ? t("settings.shortcutCapturing")
+                        : shortcutDraft || t("settings.shortcutCapture")}
                     </button>
-                    {shortcutHint && <span className="settings-status">{shortcutHint}</span>}
+                    {shortcutHint && (
+                      <span className="settings-status">{shortcutHint}</span>
+                    )}
                   </div>
                   <div className="settings-row">
                     <label>{t("settings.theme")}</label>
@@ -570,7 +658,9 @@ export function SettingsView({
                       <option value="retro">{t("settings.theme.retro")}</option>
                       <option value="tech">{t("settings.theme.tech")}</option>
                       <option value="calm">{t("settings.theme.calm")}</option>
-                      <option value="vscode">{t("settings.theme.vscode")}</option>
+                      <option value="vscode">
+                        {t("settings.theme.vscode")}
+                      </option>
                     </select>
                   </div>
                   <div className="settings-row">
@@ -580,11 +670,14 @@ export function SettingsView({
                       onChange={(event) =>
                         void onUpdateSettings({
                           ...settings,
-                          language: event.currentTarget.value as Settings["language"],
+                          language: event.currentTarget
+                            .value as Settings["language"],
                         })
                       }
                     >
-                      <option value="auto">{t("settings.language.auto")}</option>
+                      <option value="auto">
+                        {t("settings.language.auto")}
+                      </option>
                       <option value="zh">{t("settings.language.zh")}</option>
                       <option value="en">{t("settings.language.en")}</option>
                     </select>
@@ -602,7 +695,9 @@ export function SettingsView({
                       }
                       aria-pressed={settings.quick_blur_enabled}
                     >
-                      {settings.quick_blur_enabled ? t("common.on") : t("common.off")}
+                      {settings.quick_blur_enabled
+                        ? t("common.on")
+                        : t("common.off")}
                     </button>
                   </div>
                   <div className="settings-row">
@@ -618,7 +713,9 @@ export function SettingsView({
                       }
                       aria-pressed={settings.sound_enabled}
                     >
-                      {settings.sound_enabled ? t("common.on") : t("common.off")}
+                      {settings.sound_enabled
+                        ? t("common.on")
+                        : t("common.off")}
                     </button>
                   </div>
                   <div className="settings-row">
@@ -628,12 +725,17 @@ export function SettingsView({
                       onChange={(event) =>
                         void onUpdateSettings({
                           ...settings,
-                          minimize_behavior: event.currentTarget.value as MinimizeBehavior,
+                          minimize_behavior: event.currentTarget
+                            .value as MinimizeBehavior,
                         })
                       }
                     >
-                      <option value="hide_to_tray">{t("settings.minimizeBehavior.hide")}</option>
-                      <option value="minimize">{t("settings.minimizeBehavior.minimize")}</option>
+                      <option value="hide_to_tray">
+                        {t("settings.minimizeBehavior.hide")}
+                      </option>
+                      <option value="minimize">
+                        {t("settings.minimizeBehavior.minimize")}
+                      </option>
                     </select>
                   </div>
                   <div className="settings-row">
@@ -643,12 +745,17 @@ export function SettingsView({
                       onChange={(event) =>
                         void onUpdateSettings({
                           ...settings,
-                          close_behavior: event.currentTarget.value as Settings["close_behavior"],
+                          close_behavior: event.currentTarget
+                            .value as Settings["close_behavior"],
                         })
                       }
                     >
-                      <option value="hide_to_tray">{t("settings.closeBehavior.hide")}</option>
-                      <option value="exit">{t("settings.closeBehavior.exit")}</option>
+                      <option value="hide_to_tray">
+                        {t("settings.closeBehavior.hide")}
+                      </option>
+                      <option value="exit">
+                        {t("settings.closeBehavior.exit")}
+                      </option>
                     </select>
                   </div>
                   <div className="settings-row">
@@ -669,17 +776,27 @@ export function SettingsView({
 
               <section id="settings-notifications" className="settings-card">
                 <div className="settings-card-header">
-                  <h2 className="settings-card-title">{t("settings.section.notifications")}</h2>
+                  <h2 className="settings-card-title">
+                    {t("settings.section.notifications")}
+                  </h2>
                 </div>
                 <div className="settings-card-body">
                   <div className="settings-row">
                     <label>{t("settings.notificationPermission")}</label>
                     <span className="settings-status">{permissionLabel}</span>
-                    <button type="button" className="pill" onClick={() => void requestNotificationPermission()}>
+                    <button
+                      type="button"
+                      className="pill"
+                      onClick={() => void requestNotificationPermission()}
+                    >
                       {t("settings.permission.request")}
                     </button>
                     {permissionStatus !== "granted" && (
-                      <button type="button" className="pill" onClick={() => void openNotificationSettings()}>
+                      <button
+                        type="button"
+                        className="pill"
+                        onClick={() => void openNotificationSettings()}
+                      >
                         <Icons.ExternalLink />
                         {t("settings.permission.systemSettings")}
                       </button>
@@ -690,7 +807,9 @@ export function SettingsView({
 
               <section id="settings-backups" className="settings-card">
                 <div className="settings-card-header">
-                  <h2 className="settings-card-title">{t("settings.section.backups")}</h2>
+                  <h2 className="settings-card-title">
+                    {t("settings.section.backups")}
+                  </h2>
                 </div>
                 <div className="settings-card-body">
                   <div className="settings-row">
@@ -700,36 +819,63 @@ export function SettingsView({
                       onChange={(event) =>
                         void onUpdateSettings({
                           ...settings,
-                          backup_schedule: event.currentTarget.value as BackupSchedule,
+                          backup_schedule: event.currentTarget
+                            .value as BackupSchedule,
                         })
                       }
                     >
                       <option value="none">{t("settings.backup.none")}</option>
-                      <option value="daily">{t("settings.backup.daily")}</option>
-                      <option value="weekly">{t("settings.backup.weekly")}</option>
-                      <option value="monthly">{t("settings.backup.monthly")}</option>
+                      <option value="daily">
+                        {t("settings.backup.daily")}
+                      </option>
+                      <option value="weekly">
+                        {t("settings.backup.weekly")}
+                      </option>
+                      <option value="monthly">
+                        {t("settings.backup.monthly")}
+                      </option>
                     </select>
-                    <button type="button" className="pill" onClick={() => void handleCreateBackup()}>
+                    <button
+                      type="button"
+                      className="pill"
+                      onClick={() => void handleCreateBackup()}
+                    >
                       {t("settings.backup.manual")}
                     </button>
                   </div>
                   <div className="settings-row">
                     <label>{t("settings.backup.list")}</label>
-                    <button type="button" className="pill" onClick={() => void refreshBackups()}>
+                    <button
+                      type="button"
+                      className="pill"
+                      onClick={() => void refreshBackups()}
+                    >
                       {t("common.refresh")}
                     </button>
                   </div>
                   <div className="backup-list">
                     {backups.length === 0 ? (
-                      <div className="backup-empty">{t("settings.backup.empty")}</div>
+                      <div className="backup-empty">
+                        {t("settings.backup.empty")}
+                      </div>
                     ) : (
                       backups.map((backup) => (
                         <div key={backup.name} className="backup-item">
                           <span>{backup.name}</span>
-                          <button type="button" className="pill" onClick={() => void handleRestoreBackup(backup.name)}>
+                          <button
+                            type="button"
+                            className="pill"
+                            onClick={() =>
+                              void handleRestoreBackup(backup.name)
+                            }
+                          >
                             {t("settings.backup.restore")}
                           </button>
-                          <button type="button" className="pill" onClick={() => void handleDeleteBackup(backup.name)}>
+                          <button
+                            type="button"
+                            className="pill"
+                            onClick={() => void handleDeleteBackup(backup.name)}
+                          >
                             {t("settings.backup.delete")}
                           </button>
                         </div>
@@ -741,14 +887,20 @@ export function SettingsView({
                     <input
                       placeholder={t("settings.backup.importPlaceholder")}
                       value={importPath}
-                      onChange={(event) => setImportPath(event.currentTarget.value)}
+                      onChange={(event) =>
+                        setImportPath(event.currentTarget.value)
+                      }
                     />
                     <button
                       type="button"
                       className="pill"
                       onClick={() => void handleImportBackup()}
                       disabled={!importPath.trim()}
-                      title={!importPath.trim() ? t("settings.backup.importHintEmpty") : t("settings.backup.importAction")}
+                      title={
+                        !importPath.trim()
+                          ? t("settings.backup.importHintEmpty")
+                          : t("settings.backup.importAction")
+                      }
                     >
                       {t("settings.backup.importAction")}
                     </button>
@@ -758,27 +910,52 @@ export function SettingsView({
 
               <section id="settings-export" className="settings-card">
                 <div className="settings-card-header">
-                  <h2 className="settings-card-title">{t("settings.section.export")}</h2>
+                  <h2 className="settings-card-title">
+                    {t("settings.section.export")}
+                  </h2>
                 </div>
                 <div className="settings-card-body">
                   <div className="settings-row">
                     <label>{t("settings.export")}</label>
-                    <button type="button" className="pill" onClick={() => void handleExport("json")} disabled={exportBusy}>
+                    <button
+                      type="button"
+                      className="pill"
+                      onClick={() => void handleExport("json")}
+                      disabled={exportBusy}
+                    >
                       {t("settings.export.json")}
                     </button>
-                    <button type="button" className="pill" onClick={() => void handleExport("csv")} disabled={exportBusy}>
+                    <button
+                      type="button"
+                      className="pill"
+                      onClick={() => void handleExport("csv")}
+                      disabled={exportBusy}
+                    >
                       {t("settings.export.csv")}
                     </button>
-                    <button type="button" className="pill" onClick={() => void handleExport("md")} disabled={exportBusy}>
+                    <button
+                      type="button"
+                      className="pill"
+                      onClick={() => void handleExport("md")}
+                      disabled={exportBusy}
+                    >
                       {t("settings.export.md")}
                     </button>
-                    {exportError && <span className="settings-status danger">{t("settings.export.failed", { error: exportError })}</span>}
+                    {exportError && (
+                      <span className="settings-status danger">
+                        {t("settings.export.failed", { error: exportError })}
+                      </span>
+                    )}
                   </div>
                   {exportPath && (
                     <div className="settings-row">
                       <label>{t("settings.export.last")}</label>
                       <span className="settings-status">{exportPath}</span>
-                      <button type="button" className="pill" onClick={() => void handleCopyExportPath()}>
+                      <button
+                        type="button"
+                        className="pill"
+                        onClick={() => void handleCopyExportPath()}
+                      >
                         {t("settings.export.copy")}
                       </button>
                     </div>
@@ -788,7 +965,9 @@ export function SettingsView({
 
               <section id="settings-samples" className="settings-card">
                 <div className="settings-card-header">
-                  <h2 className="settings-card-title">{t("settings.section.samples")}</h2>
+                  <h2 className="settings-card-title">
+                    {t("settings.section.samples")}
+                  </h2>
                 </div>
                 <div className="settings-card-body">
                   <div className="settings-row">
@@ -800,16 +979,25 @@ export function SettingsView({
                       disabled={seedBusy}
                       title={t("settings.samples.tooltip")}
                     >
-                      {seedBusy ? t("settings.samples.adding") : t("settings.samples.add")}
+                      {seedBusy
+                        ? t("settings.samples.adding")
+                        : t("settings.samples.add")}
                     </button>
                     <button
                       type="button"
                       className="pill"
                       onClick={() => void handleDeleteAiNovelAssistantSamples()}
-                      disabled={sampleDeleteBusy || tasks.every((task) => !taskIsAiNovelAssistantSample(task))}
+                      disabled={
+                        sampleDeleteBusy ||
+                        tasks.every(
+                          (task) => !taskIsAiNovelAssistantSample(task),
+                        )
+                      }
                       title={t("settings.samples.deleteTooltip")}
                     >
-                      {sampleDeleteBusy ? t("settings.samples.deleting") : t("settings.samples.delete")}
+                      {sampleDeleteBusy
+                        ? t("settings.samples.deleting")
+                        : t("settings.samples.delete")}
                     </button>
                   </div>
                 </div>

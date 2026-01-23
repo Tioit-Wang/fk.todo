@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type DragEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
@@ -19,38 +19,33 @@ import {
   rescheduleTask,
   type ReschedulePresetId,
 } from "../reschedule";
+import type { Project, Settings, Task } from "../types";
 import {
-  isDueInFuture,
-  isDueToday,
-  isDueTomorrow,
-  isOverdue,
-} from "../scheduler";
-import { taskMatchesQuery } from "../search";
-import type { Settings, Task } from "../types";
-
-type MainSortId = "due" | "created" | "manual";
-type DueFilterId = "all" | "overdue" | "today" | "tomorrow" | "future";
-type ImportanceFilterId = "all" | "important" | "normal";
-type RepeatFilterId = "all" | "repeat" | "none";
-type ReminderFilterId = "all" | "remind" | "none" | "forced" | "normal";
-type ListTabId =
-  | "all"
-  | "overdue"
-  | "today"
-  | "tomorrow"
-  | "future"
-  | "completed";
+  buildCompletionSections,
+  cycleMainSort,
+  filterTasksByQuery,
+  filterTasksByScope,
+  findManualReorderTargetIndex,
+  sortTasksWithPinnedImportant,
+  type ListTabId,
+  type MainScope,
+  type MainSortId,
+} from "./mainViewModel";
 
 export function MainView({
   tasks,
+  projects,
   settings,
   normalTasks,
   onUpdateTask,
+  onUpdateProject,
+  onDeleteProject,
   onBulkUpdate,
   onBulkComplete,
   onBulkDelete,
   onRefreshState,
   onCreateFromComposer,
+  onCreateProject,
   onToggleComplete,
   onToggleImportant,
   onRequestDelete,
@@ -62,14 +57,18 @@ export function MainView({
   onNormalComplete,
 }: {
   tasks: Task[];
+  projects: Project[];
   settings: Settings | null;
   normalTasks: Task[];
   onUpdateTask: (next: Task) => Promise<void> | void;
+  onUpdateProject: (next: Project) => Promise<void> | void;
+  onDeleteProject: (projectId: string) => Promise<void> | void;
   onBulkUpdate: (next: Task[]) => Promise<boolean>;
   onBulkComplete: (taskIds: string[]) => Promise<boolean>;
   onBulkDelete: (taskIds: string[]) => Promise<boolean>;
   onRefreshState: () => Promise<void>;
   onCreateFromComposer: (draft: TaskComposerDraft) => Promise<void> | void;
+  onCreateProject: (name: string) => Promise<void> | void;
   onToggleComplete: (task: Task) => Promise<void> | void;
   onToggleImportant: (task: Task) => Promise<void> | void;
   onRequestDelete: (task: Task) => void;
@@ -82,7 +81,7 @@ export function MainView({
 }) {
   const { t } = useI18n();
   const [mainView, setMainView] = useState<"quadrant" | "list">("list");
-  const [listTab, setListTab] = useState<ListTabId>("today");
+  const [listTab, setListTab] = useState<ListTabId>("open");
 
   const [bulkMode, setBulkMode] = useState(false);
   const [bulkSelectedIds, setBulkSelectedIds] = useState<string[]>([]);
@@ -90,79 +89,138 @@ export function MainView({
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [confirmBulkComplete, setConfirmBulkComplete] = useState(false);
 
-  const [dueFilter, setDueFilter] = useState<DueFilterId>("all");
-  const [importanceFilter, setImportanceFilter] =
-    useState<ImportanceFilterId>("all");
-  const [repeatFilter, setRepeatFilter] = useState<RepeatFilterId>("all");
-  const [reminderFilter, setReminderFilter] = useState<ReminderFilterId>("all");
-  const [tagFilter, setTagFilter] = useState<string>("all");
   const [mainSort, setMainSort] = useState<MainSortId>("due");
   const [searchQuery, setSearchQuery] = useState("");
 
-  const mainSortOptions = useMemo(
-    () => [
-      { id: "due", label: t("sort.due") },
-      { id: "created", label: t("sort.created") },
-      { id: "manual", label: t("sort.manual") },
-    ],
-    [t],
-  );
+  const [sidebarSelection, setSidebarSelection] = useState<
+    "today" | "important" | "project"
+  >("today");
+  const [selectedProjectId, setSelectedProjectId] = useState<string>("inbox");
 
-  const dueFilterOptions = useMemo(
-    () => [
-      { id: "all", label: t("filter.all") },
-      { id: "overdue", label: t("filter.overdue") },
-      { id: "today", label: t("filter.today") },
-      { id: "tomorrow", label: t("filter.tomorrow") },
-      { id: "future", label: t("filter.future") },
-    ],
-    [t],
-  );
+  const [projectDraftOpen, setProjectDraftOpen] = useState(false);
+  const [projectDraftName, setProjectDraftName] = useState("");
+  const [projectDraftBusy, setProjectDraftBusy] = useState(false);
+  const projectDraftRef = useRef<HTMLInputElement | null>(null);
 
-  const importanceFilterOptions = useMemo(
-    () => [
-      { id: "all", label: t("filter.all") },
-      { id: "important", label: t("filter.important") },
-      { id: "normal", label: t("filter.normal") },
-    ],
-    [t],
+  const [projectMenu, setProjectMenu] = useState<{
+    projectId: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [confirmDeleteProjectId, setConfirmDeleteProjectId] = useState<
+    string | null
+  >(null);
+  const [renamingProjectId, setRenamingProjectId] = useState<string | null>(
+    null,
   );
+  const [renameDraftName, setRenameDraftName] = useState("");
+  const [projectBusy, setProjectBusy] = useState(false);
+  const renameProjectRef = useRef<HTMLInputElement | null>(null);
 
-  const repeatFilterOptions = useMemo(
-    () => [
-      { id: "all", label: t("filter.all") },
-      { id: "repeat", label: t("filter.repeat") },
-      { id: "none", label: t("filter.noRepeat") },
-    ],
-    [t],
-  );
-
-  const reminderFilterOptions = useMemo(
-    () => [
-      { id: "all", label: t("filter.all") },
-      { id: "remind", label: t("filter.remindAny") },
-      { id: "none", label: t("filter.remindNone") },
-      { id: "forced", label: t("filter.remindForced") },
-      { id: "normal", label: t("filter.remindNormal") },
-    ],
-    [t],
-  );
-
-  const tagFilterOptions = useMemo(() => {
-    const tags = new Set<string>();
-    tasks.forEach((task) => {
-      task.tags.forEach((tag) => {
-        if (tag) tags.add(tag);
-      });
+  useEffect(() => {
+    if (!projectDraftOpen) return;
+    window.requestAnimationFrame(() => {
+      projectDraftRef.current?.focus();
+      projectDraftRef.current?.select();
     });
+  }, [projectDraftOpen]);
 
-    const list = Array.from(tags).sort((a, b) => a.localeCompare(b));
-    return [
-      { id: "all", label: t("filter.tagAll") },
-      { id: "none", label: t("filter.tagNone") },
-      ...list.map((tag) => ({ id: tag, label: `#${tag}` })),
-    ];
-  }, [tasks, t]);
+  useEffect(() => {
+    if (!renamingProjectId) return;
+    window.requestAnimationFrame(() => {
+      renameProjectRef.current?.focus();
+      renameProjectRef.current?.select();
+    });
+  }, [renamingProjectId]);
+
+  useEffect(() => {
+    if (!projectMenu) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setProjectMenu(null);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [projectMenu]);
+
+  useEffect(() => {
+    if (sidebarSelection !== "project") return;
+    if (projects.some((project) => project.id === selectedProjectId)) return;
+    setSelectedProjectId("inbox");
+  }, [projects, sidebarSelection, selectedProjectId]);
+
+  const orderedProjects = useMemo(() => {
+    const list = [...projects];
+    list.sort((a, b) => {
+      const ap = a.pinned ? 1 : 0;
+      const bp = b.pinned ? 1 : 0;
+      if (ap !== bp) return bp - ap;
+      if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
+      return a.created_at - b.created_at;
+    });
+    return list;
+  }, [projects]);
+
+  const projectsById = useMemo(() => {
+    return new Map(projects.map((project) => [project.id, project]));
+  }, [projects]);
+
+  async function handleToggleProjectPin(project: Project) {
+    if (projectBusy) return;
+    if (project.id === "inbox") return;
+    setProjectBusy(true);
+    try {
+      const now = Math.floor(Date.now() / 1000);
+      await Promise.resolve(
+        onUpdateProject({ ...project, pinned: !project.pinned, updated_at: now }),
+      );
+    } finally {
+      setProjectBusy(false);
+    }
+  }
+
+  async function handleRenameProject(project: Project) {
+    if (projectBusy) return;
+    if (project.id === "inbox") return;
+    const trimmed = renameDraftName.trim();
+    if (!trimmed) return;
+    if (trimmed === project.name) {
+      setRenamingProjectId(null);
+      setRenameDraftName("");
+      return;
+    }
+
+    setProjectBusy(true);
+    try {
+      const now = Math.floor(Date.now() / 1000);
+      await Promise.resolve(
+        onUpdateProject({ ...project, name: trimmed, updated_at: now }),
+      );
+      setRenamingProjectId(null);
+      setRenameDraftName("");
+    } finally {
+      setProjectBusy(false);
+    }
+  }
+
+  async function handleConfirmDeleteProject() {
+    const projectId = confirmDeleteProjectId;
+    if (!projectId) return;
+    if (projectBusy) return;
+    if (projectId === "inbox") return;
+
+    setProjectBusy(true);
+    try {
+      await Promise.resolve(onDeleteProject(projectId));
+      setConfirmDeleteProjectId(null);
+    } finally {
+      setProjectBusy(false);
+    }
+  }
 
   const quadrants = useMemo(
     () => [
@@ -194,127 +252,57 @@ export function MainView({
     [t],
   );
 
-  const filteredTasks = useMemo(() => {
+  const scope = useMemo<MainScope>(() => {
+    if (sidebarSelection === "today") return { kind: "today" };
+    if (sidebarSelection === "important") return { kind: "important" };
+    return { kind: "project", projectId: selectedProjectId };
+  }, [sidebarSelection, selectedProjectId]);
+
+  const scopedTasks = useMemo(() => {
     const now = new Date();
-    return tasks.filter((task) => {
-      if (
-        dueFilter === "overdue" &&
-        !isOverdue(task, Math.floor(now.getTime() / 1000))
-      )
-        return false;
-      if (dueFilter === "today" && !isDueToday(task, now)) return false;
-      if (dueFilter === "tomorrow" && !isDueTomorrow(task, now)) return false;
-      if (dueFilter === "future" && !isDueInFuture(task, now)) return false;
+    const base = filterTasksByScope(tasks, scope, now);
+    const searched = filterTasksByQuery(base, searchQuery);
+    return sortTasksWithPinnedImportant(searched, mainSort);
+  }, [tasks, scope, searchQuery, mainSort]);
 
-      if (importanceFilter === "important" && !task.important) return false;
-      if (importanceFilter === "normal" && task.important) return false;
+  const completionSections = useMemo(
+    () => buildCompletionSections(scopedTasks),
+    [scopedTasks],
+  );
 
-      if (repeatFilter === "repeat" && task.repeat.type === "none")
-        return false;
-      if (repeatFilter === "none" && task.repeat.type !== "none") return false;
+  const listSections = useMemo(
+    () => [
+      {
+        id: "all" as const,
+        label: t("main.tab.all"),
+        tasks: completionSections.all,
+      },
+      {
+        id: "open" as const,
+        label: t("main.tab.open"),
+        tasks: completionSections.open,
+      },
+      {
+        id: "done" as const,
+        label: t("main.tab.completed"),
+        tasks: completionSections.done,
+      },
+    ],
+    [completionSections, t],
+  );
 
-      if (reminderFilter === "remind" && task.reminder.kind === "none")
-        return false;
-      if (reminderFilter === "none" && task.reminder.kind !== "none")
-        return false;
-      if (reminderFilter === "forced" && task.reminder.kind !== "forced")
-        return false;
-      if (reminderFilter === "normal" && task.reminder.kind !== "normal")
-        return false;
-
-      if (tagFilter === "none" && task.tags.length > 0) return false;
-      if (
-        tagFilter !== "all" &&
-        tagFilter !== "none" &&
-        !task.tags.includes(tagFilter)
-      )
-        return false;
-
-      if (!taskMatchesQuery(task, searchQuery)) return false;
-
-      return true;
-    });
-  }, [
-    tasks,
-    dueFilter,
-    importanceFilter,
-    repeatFilter,
-    reminderFilter,
-    tagFilter,
-    searchQuery,
-  ]);
-
-  const sortedTasks = useMemo(() => {
-    const list = [...filteredTasks];
-    if (mainSort === "created") {
-      return list.sort((a, b) => a.created_at - b.created_at);
-    }
-    if (mainSort === "manual") {
-      return list.sort((a, b) => a.sort_order - b.sort_order);
-    }
-    return list.sort((a, b) => a.due_at - b.due_at);
-  }, [filteredTasks, mainSort]);
+  const openScopedTasks = useMemo(
+    () => scopedTasks.filter((task) => !task.completed),
+    [scopedTasks],
+  );
 
   const tasksByQuadrant = useMemo(() => {
     const map: Record<number, Task[]> = { 1: [], 2: [], 3: [], 4: [] };
-    sortedTasks.forEach((task) => {
+    openScopedTasks.forEach((task) => {
       map[task.quadrant]?.push(task);
     });
     return map;
-  }, [sortedTasks]);
-
-  const listSections = useMemo(() => {
-    const now = new Date();
-    const allOpen: Task[] = [];
-    const allDone: Task[] = [];
-    const overdue: Task[] = [];
-    const todayOpen: Task[] = [];
-    const todayDone: Task[] = [];
-    const tomorrowOpen: Task[] = [];
-    const tomorrowDone: Task[] = [];
-    const futureOpen: Task[] = [];
-    const futureDone: Task[] = [];
-    const completed: Task[] = [];
-
-    sortedTasks.forEach((task) => {
-      if (task.completed) {
-        allDone.push(task);
-        completed.push(task);
-      } else {
-        allOpen.push(task);
-      }
-      if (isOverdue(task, Math.floor(now.getTime() / 1000))) {
-        overdue.push(task);
-      } else if (isDueToday(task, now)) {
-        (task.completed ? todayDone : todayOpen).push(task);
-      } else if (isDueTomorrow(task, now)) {
-        (task.completed ? tomorrowDone : tomorrowOpen).push(task);
-      } else if (isDueInFuture(task, now)) {
-        (task.completed ? futureDone : futureOpen).push(task);
-      }
-    });
-
-    return [
-      { id: "all", label: t("main.tab.all"), tasks: [...allOpen, ...allDone] },
-      { id: "overdue", label: t("main.tab.overdue"), tasks: overdue },
-      {
-        id: "today",
-        label: t("main.tab.today"),
-        tasks: [...todayOpen, ...todayDone],
-      },
-      {
-        id: "tomorrow",
-        label: t("main.tab.tomorrow"),
-        tasks: [...tomorrowOpen, ...tomorrowDone],
-      },
-      {
-        id: "future",
-        label: t("main.tab.future"),
-        tasks: [...futureOpen, ...futureDone],
-      },
-      { id: "completed", label: t("main.tab.completed"), tasks: completed },
-    ];
-  }, [sortedTasks, t]);
+  }, [openScopedTasks]);
 
   const activeListSection = useMemo(() => {
     return (
@@ -335,14 +323,14 @@ export function MainView({
       3: { total: 0, completed: 0 },
       4: { total: 0, completed: 0 },
     };
-    tasks.forEach((task) => {
+    scopedTasks.forEach((task) => {
       const entry = counts[task.quadrant];
       if (!entry) return;
       entry.total += 1;
       if (task.completed) entry.completed += 1;
     });
     return counts;
-  }, [tasks]);
+  }, [scopedTasks]);
 
   const bulkSelectedSet = useMemo(
     () => new Set(bulkSelectedIds),
@@ -450,12 +438,10 @@ export function MainView({
     direction: "up" | "down",
     list: Task[],
   ) {
-    const index = list.findIndex((item) => item.id === task.id);
-    const targetIndex = direction === "up" ? index - 1 : index + 1;
-    if (index < 0 || targetIndex < 0 || targetIndex >= list.length) return;
-    const current = list[index];
+    const targetIndex = findManualReorderTargetIndex(list, task.id, direction);
+    if (targetIndex === null) return;
     const target = list[targetIndex];
-    const result = await swapSortOrder(current.id, target.id);
+    const result = await swapSortOrder(task.id, target.id);
     if (!result.ok) {
       await onRefreshState();
     }
@@ -617,259 +603,487 @@ export function MainView({
           onComplete={onNormalComplete}
         />
 
-        <div className="main-filters">
-          <div className="filter-group">
-            <Icons.Filter />
-            <select
-              value={dueFilter}
-              onChange={(event) =>
-                setDueFilter(event.currentTarget.value as DueFilterId)
-              }
-            >
-              {dueFilterOptions.map((opt) => (
-                <option key={opt.id} value={opt.id}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-            <select
-              value={importanceFilter}
-              onChange={(event) =>
-                setImportanceFilter(
-                  event.currentTarget.value as ImportanceFilterId,
-                )
-              }
-            >
-              {importanceFilterOptions.map((opt) => (
-                <option key={opt.id} value={opt.id}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-            <select
-              value={repeatFilter}
-              onChange={(event) =>
-                setRepeatFilter(event.currentTarget.value as RepeatFilterId)
-              }
-            >
-              {repeatFilterOptions.map((opt) => (
-                <option key={opt.id} value={opt.id}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-            <select
-              value={reminderFilter}
-              onChange={(event) =>
-                setReminderFilter(event.currentTarget.value as ReminderFilterId)
-              }
-            >
-              {reminderFilterOptions.map((opt) => (
-                <option key={opt.id} value={opt.id}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-            <select
-              value={tagFilter}
-              onChange={(event) => setTagFilter(event.currentTarget.value)}
-            >
-              {tagFilterOptions.map((opt) => (
-                <option key={opt.id} value={opt.id}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="filter-group">
-            <Icons.Sort />
-            <select
-              value={mainSort}
-              onChange={(event) =>
-                setMainSort(event.currentTarget.value as MainSortId)
-              }
-            >
-              {mainSortOptions.map((opt) => (
-                <option key={opt.id} value={opt.id}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="filter-group search">
-            <Icons.Search />
-            <input
-              className="search-input"
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.currentTarget.value)}
-              placeholder={t("search.placeholder")}
-            />
-            <IconButton
-              className="icon-btn"
-              onClick={() => setSearchQuery("")}
-              title={t("search.clear")}
-              label={t("search.clear")}
-              disabled={!searchQuery.trim()}
-            >
-              <Icons.X />
-            </IconButton>
-          </div>
-          {mainView === "list" && (
-            <div className="filter-group">
+        <div className="main-split">
+          <aside className="main-sidebar" aria-label={t("nav.sidebar")}>
+            <div className="sidebar-section">
               <button
                 type="button"
-                className={`pill ${bulkMode ? "active" : ""}`}
+                className={`sidebar-item ${sidebarSelection === "today" ? "active" : ""}`}
                 onClick={() => {
-                  setBulkMode((prev) => {
-                    const next = !prev;
-                    if (!next) {
-                      clearBulkSelection();
-                      setConfirmBulkDelete(false);
-                      setConfirmBulkComplete(false);
-                    }
-                    return next;
-                  });
+                  setSidebarSelection("today");
+                  setListTab("open");
+                  setMainView("list");
                 }}
-                aria-pressed={bulkMode}
-                title={bulkMode ? t("batch.exit") : t("batch.toggle")}
               >
-                {bulkMode ? t("batch.exit") : t("batch.toggle")}
+                <Icons.Calendar />
+                <span>{t("nav.today")}</span>
+              </button>
+
+              <button
+                type="button"
+                className={`sidebar-item ${sidebarSelection === "important" ? "active" : ""}`}
+                onClick={() => {
+                  setSidebarSelection("important");
+                  setListTab("open");
+                  setMainView("list");
+                }}
+              >
+                <Icons.Star />
+                <span>{t("nav.important")}</span>
               </button>
             </div>
-          )}
-        </div>
 
-        {mainView === "list" && bulkMode && (
-          <div className="batch-bar">
-            <span>
-              {t("batch.selected", { count: bulkSelectedIds.length })}
-            </span>
-            <button
-              type="button"
-              className="batch-btn"
-              onClick={selectAllVisible}
-              disabled={bulkBusy || bulkVisibleIds.length === 0}
-              title={t("batch.selectAll")}
-            >
-              {t("batch.selectAll")}
-            </button>
-            <button
-              type="button"
-              className="batch-btn"
-              onClick={clearBulkSelection}
-              disabled={bulkBusy || bulkSelectedIds.length === 0}
-              title={t("batch.clear")}
-            >
-              {t("batch.clear")}
-            </button>
-            <button
-              type="button"
-              className="batch-btn"
-              onClick={() => setConfirmBulkComplete(true)}
-              disabled={bulkBusy || bulkSelectedIncompleteIds.length === 0}
-              title={t("batch.complete")}
-            >
-              {t("batch.complete")}
-            </button>
-            <button
-              type="button"
-              className="batch-btn danger"
-              onClick={() => setConfirmBulkDelete(true)}
-              disabled={bulkBusy || bulkSelectedIds.length === 0}
-              title={t("batch.delete")}
-            >
-              {t("batch.delete")}
-            </button>
+            <div className="sidebar-section">
+              <div className="sidebar-section-header">
+                <div className="sidebar-section-title">{t("nav.projects")}</div>
+                <IconButton
+                  className="icon-btn"
+                  onClick={() => {
+                    setProjectDraftName("");
+                    setProjectDraftOpen(true);
+                  }}
+                  title={t("nav.projects.add")}
+                  label={t("nav.projects.add")}
+                >
+                  <Icons.Plus />
+                </IconButton>
+              </div>
 
-            <span>{t("batch.reschedule")}</span>
-            <button
-              type="button"
-              className="batch-btn"
-              onClick={() => void handleBulkReschedule("plus10m")}
-              disabled={bulkBusy || bulkSelectedIncompleteIds.length === 0}
-            >
-              {t("reschedule.plus10m")}
-            </button>
-            <button
-              type="button"
-              className="batch-btn"
-              onClick={() => void handleBulkReschedule("plus1h")}
-              disabled={bulkBusy || bulkSelectedIncompleteIds.length === 0}
-            >
-              {t("reschedule.plus1h")}
-            </button>
-            <button
-              type="button"
-              className="batch-btn"
-              onClick={() => void handleBulkReschedule("tomorrow1800")}
-              disabled={bulkBusy || bulkSelectedIncompleteIds.length === 0}
-            >
-              {t("reschedule.tomorrow1800")}
-            </button>
-            <button
-              type="button"
-              className="batch-btn"
-              onClick={() => void handleBulkReschedule("nextWorkday0900")}
-              disabled={bulkBusy || bulkSelectedIncompleteIds.length === 0}
-            >
-              {t("reschedule.nextWorkday0900")}
-            </button>
-          </div>
-        )}
+              {projectDraftOpen && (
+                <div className="sidebar-project-draft">
+                  <input
+                    ref={projectDraftRef}
+                    className="sidebar-project-input"
+                    value={projectDraftName}
+                    onChange={(event) =>
+                      setProjectDraftName(event.currentTarget.value)
+                    }
+                    placeholder={t("nav.projects.placeholder")}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        event.preventDefault();
+                        setProjectDraftOpen(false);
+                        setProjectDraftName("");
+                        return;
+                      }
+                      if (event.key !== "Enter") return;
+                      event.preventDefault();
+                      if (projectDraftBusy) return;
+                      const name = projectDraftName.trim();
+                      if (!name) return;
+                      setProjectDraftBusy(true);
+                      Promise.resolve(onCreateProject(name))
+                        .catch(() => {})
+                        .finally(() => {
+                          setProjectDraftBusy(false);
+                          setProjectDraftOpen(false);
+                          setProjectDraftName("");
+                        });
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="pill active"
+                    disabled={projectDraftBusy || !projectDraftName.trim()}
+                    onClick={() => {
+                      if (projectDraftBusy) return;
+                      const name = projectDraftName.trim();
+                      if (!name) return;
+                      setProjectDraftBusy(true);
+                      Promise.resolve(onCreateProject(name))
+                        .catch(() => {})
+                        .finally(() => {
+                          setProjectDraftBusy(false);
+                          setProjectDraftOpen(false);
+                          setProjectDraftName("");
+                        });
+                    }}
+                  >
+                    {projectDraftBusy ? t("common.saving") : t("common.add")}
+                  </button>
+                </div>
+              )}
 
-        {mainView === "quadrant" && (
-          <div
-            id={MAIN_VIEW_PANEL_QUADRANT}
-            role="tabpanel"
-            aria-labelledby={MAIN_VIEW_TAB_QUADRANT}
-            className="quadrant-grid"
-          >
-            {quadrants.map((quad) => (
+              <div className="sidebar-project-list">
+                {orderedProjects.map((project) => {
+                  const active =
+                    sidebarSelection === "project" &&
+                    project.id === selectedProjectId;
+                  const isInbox = project.id === "inbox";
+                  const label = isInbox ? t("nav.inbox") : project.name;
+                  const renaming = renamingProjectId === project.id && !isInbox;
+
+                  if (renaming) {
+                    return (
+                      <div
+                        key={project.id}
+                        className={`sidebar-item ${active ? "active" : ""}`}
+                      >
+                        <span
+                          className="sidebar-project-dot"
+                          aria-hidden="true"
+                        />
+                        <input
+                          ref={renameProjectRef}
+                          className="sidebar-project-input sidebar-project-rename-input"
+                          value={renameDraftName}
+                          onChange={(event) =>
+                            setRenameDraftName(event.currentTarget.value)
+                          }
+                          placeholder={t("nav.projects.placeholder")}
+                          disabled={projectBusy}
+                          onKeyDown={(event) => {
+                            if (event.key === "Escape") {
+                              event.preventDefault();
+                              setRenamingProjectId(null);
+                              setRenameDraftName("");
+                              return;
+                            }
+                            if (event.key !== "Enter") return;
+                            event.preventDefault();
+                            void handleRenameProject(project);
+                          }}
+                          onBlur={() => {
+                            setRenamingProjectId(null);
+                            setRenameDraftName("");
+                          }}
+                        />
+                      </div>
+                    );
+                  }
+                  return (
+                    <button
+                      key={project.id}
+                      type="button"
+                      className={`sidebar-item ${active ? "active" : ""}`}
+                      onClick={() => {
+                        setSidebarSelection("project");
+                        setSelectedProjectId(project.id);
+                        setListTab("open");
+                        setMainView("list");
+                      }}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        setProjectMenu({
+                          projectId: project.id,
+                          x: event.clientX,
+                          y: event.clientY,
+                        });
+                      }}
+                    >
+                      <span
+                        className="sidebar-project-dot"
+                        aria-hidden="true"
+                      />
+                      <span className="sidebar-project-name">{label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </aside>
+
+          <div className="main-pane">
+            <div className="main-filters">
+              <div className="filter-group search">
+                <Icons.Search />
+                <input
+                  className="search-input"
+                  value={searchQuery}
+                  onChange={(event) =>
+                    setSearchQuery(event.currentTarget.value)
+                  }
+                  placeholder={t("search.placeholder")}
+                />
+                <IconButton
+                  className="icon-btn"
+                  onClick={() => setSearchQuery("")}
+                  title={t("search.clear")}
+                  label={t("search.clear")}
+                  disabled={!searchQuery.trim()}
+                >
+                  <Icons.X />
+                </IconButton>
+              </div>
+              <div className="filter-group">
+                <button
+                  type="button"
+                  className="pill"
+                  onClick={() => setMainSort((prev) => cycleMainSort(prev))}
+                  title={t("sort.cycle")}
+                >
+                  <Icons.Sort />
+                  <span>
+                    {mainSort === "due"
+                      ? t("sort.due")
+                      : mainSort === "created"
+                        ? t("sort.created")
+                        : t("sort.manual")}
+                  </span>
+                </button>
+              </div>
+              {mainView === "list" && (
+                <div className="filter-group">
+                  <button
+                    type="button"
+                    className={`pill ${bulkMode ? "active" : ""}`}
+                    onClick={() => {
+                      setBulkMode((prev) => {
+                        const next = !prev;
+                        if (!next) {
+                          clearBulkSelection();
+                          setConfirmBulkDelete(false);
+                          setConfirmBulkComplete(false);
+                        }
+                        return next;
+                      });
+                    }}
+                    aria-pressed={bulkMode}
+                    title={bulkMode ? t("batch.exit") : t("batch.toggle")}
+                  >
+                    {bulkMode ? t("batch.exit") : t("batch.toggle")}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {mainView === "list" && bulkMode && (
+              <div className="batch-bar">
+                <span>
+                  {t("batch.selected", { count: bulkSelectedIds.length })}
+                </span>
+                <button
+                  type="button"
+                  className="batch-btn"
+                  onClick={selectAllVisible}
+                  disabled={bulkBusy || bulkVisibleIds.length === 0}
+                  title={t("batch.selectAll")}
+                >
+                  {t("batch.selectAll")}
+                </button>
+                <button
+                  type="button"
+                  className="batch-btn"
+                  onClick={clearBulkSelection}
+                  disabled={bulkBusy || bulkSelectedIds.length === 0}
+                  title={t("batch.clear")}
+                >
+                  {t("batch.clear")}
+                </button>
+                <button
+                  type="button"
+                  className="batch-btn"
+                  onClick={() => setConfirmBulkComplete(true)}
+                  disabled={bulkBusy || bulkSelectedIncompleteIds.length === 0}
+                  title={t("batch.complete")}
+                >
+                  {t("batch.complete")}
+                </button>
+                <button
+                  type="button"
+                  className="batch-btn danger"
+                  onClick={() => setConfirmBulkDelete(true)}
+                  disabled={bulkBusy || bulkSelectedIds.length === 0}
+                  title={t("batch.delete")}
+                >
+                  {t("batch.delete")}
+                </button>
+
+                <span>{t("batch.reschedule")}</span>
+                <button
+                  type="button"
+                  className="batch-btn"
+                  onClick={() => void handleBulkReschedule("plus10m")}
+                  disabled={bulkBusy || bulkSelectedIncompleteIds.length === 0}
+                >
+                  {t("reschedule.plus10m")}
+                </button>
+                <button
+                  type="button"
+                  className="batch-btn"
+                  onClick={() => void handleBulkReschedule("plus1h")}
+                  disabled={bulkBusy || bulkSelectedIncompleteIds.length === 0}
+                >
+                  {t("reschedule.plus1h")}
+                </button>
+                <button
+                  type="button"
+                  className="batch-btn"
+                  onClick={() => void handleBulkReschedule("tomorrow1800")}
+                  disabled={bulkBusy || bulkSelectedIncompleteIds.length === 0}
+                >
+                  {t("reschedule.tomorrow1800")}
+                </button>
+                <button
+                  type="button"
+                  className="batch-btn"
+                  onClick={() => void handleBulkReschedule("nextWorkday0900")}
+                  disabled={bulkBusy || bulkSelectedIncompleteIds.length === 0}
+                >
+                  {t("reschedule.nextWorkday0900")}
+                </button>
+              </div>
+            )}
+
+            {mainView === "quadrant" && (
               <div
-                key={quad.id}
-                className={`quadrant ${quad.className}`}
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={(event) => {
-                  const id = event.dataTransfer.getData("text/plain");
-                  if (id) handleDropToQuadrant(quad.id, id);
-                }}
+                id={MAIN_VIEW_PANEL_QUADRANT}
+                role="tabpanel"
+                aria-labelledby={MAIN_VIEW_TAB_QUADRANT}
+                className="quadrant-grid"
               >
-                <div className="quadrant-header">
-                  <div>
-                    <h2 className="quadrant-title">{quad.title}</h2>
-                    <span className="quadrant-sublabel">
-                      {quad.sublabel} {quadrantCounts[quad.id].completed}/
-                      {quadrantCounts[quad.id].total}
-                    </span>
+                {quadrants.map((quad) => (
+                  <div
+                    key={quad.id}
+                    className={`quadrant ${quad.className}`}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) => {
+                      const id = event.dataTransfer.getData("text/plain");
+                      if (id) handleDropToQuadrant(quad.id, id);
+                    }}
+                  >
+                    <div className="quadrant-header">
+                      <div>
+                        <h2 className="quadrant-title">{quad.title}</h2>
+                        <span className="quadrant-sublabel">
+                          {quad.sublabel} {quadrantCounts[quad.id].completed}/
+                          {quadrantCounts[quad.id].total}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="quadrant-list">
+                      {tasksByQuadrant[quad.id].length === 0 ? (
+                        <div className="quadrant-empty">
+                          {t("common.emptyTasks")}
+                        </div>
+                      ) : (
+                        tasksByQuadrant[quad.id].map((task) => (
+                          <TaskCard
+                            key={task.id}
+                            task={task}
+                            mode="main"
+                            showMove={mainSort === "manual"}
+                            draggable
+                            onDragStart={(event) =>
+                              handleDragStart(task, event)
+                            }
+                            onMoveUp={() =>
+                              void handleMoveTask(
+                                task,
+                                "up",
+                                tasksByQuadrant[quad.id],
+                              )
+                            }
+                            onMoveDown={() =>
+                              void handleMoveTask(
+                                task,
+                                "down",
+                                tasksByQuadrant[quad.id],
+                              )
+                            }
+                            onToggleComplete={() => onToggleComplete(task)}
+                            onToggleImportant={() => onToggleImportant(task)}
+                            onReschedulePreset={(preset) =>
+                              void handleReschedule(task, preset)
+                            }
+                            onUpdateTask={onUpdateTask}
+                            showNotesPreview
+                            onDelete={() => onRequestDelete(task)}
+                            onEdit={() => onEditTask(task)}
+                          />
+                        ))
+                      )}
+                    </div>
                   </div>
+                ))}
+              </div>
+            )}
+
+            {mainView === "list" && (
+              <div
+                id={MAIN_VIEW_PANEL_LIST}
+                role="tabpanel"
+                aria-labelledby={MAIN_VIEW_TAB_LIST}
+                className="list-view"
+              >
+                <div
+                  className="list-tabs"
+                  role="tablist"
+                  aria-label={t("main.listTabs")}
+                >
+                  {listSections.map((section, index) => {
+                    const selected = listTab === section.id;
+                    const tabId = `main-list-tab-${section.id}`;
+                    return (
+                      <button
+                        key={section.id}
+                        id={tabId}
+                        type="button"
+                        role="tab"
+                        className={`list-tab ${selected ? "active" : ""}`}
+                        onClick={() => setListTab(section.id as ListTabId)}
+                        aria-selected={selected}
+                        aria-controls={LIST_PANEL_ID}
+                        tabIndex={selected ? 0 : -1}
+                        onKeyDown={(event) => {
+                          if (
+                            event.key !== "ArrowLeft" &&
+                            event.key !== "ArrowRight"
+                          )
+                            return;
+                          event.preventDefault();
+                          if (listSections.length === 0) return;
+                          const dir = event.key === "ArrowLeft" ? -1 : 1;
+                          const nextIndex =
+                            (index + dir + listSections.length) %
+                            listSections.length;
+                          const next = listSections[nextIndex];
+                          setListTab(next.id as ListTabId);
+                          focusElement(`main-list-tab-${next.id}`);
+                        }}
+                      >
+                        <span>{section.label}</span>
+                        <span className="list-tab-count">
+                          {section.tasks.length}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
 
-                <div className="quadrant-list">
-                  {tasksByQuadrant[quad.id].length === 0 ? (
-                    <div className="quadrant-empty">
-                      {t("common.emptyTasks")}
-                    </div>
+                <div
+                  className="list-panel"
+                  id={LIST_PANEL_ID}
+                  role="tabpanel"
+                  aria-labelledby={`main-list-tab-${listTab}`}
+                >
+                  {activeListSection.tasks.length === 0 ? (
+                    <div className="list-empty">{t("common.emptyTasks")}</div>
                   ) : (
-                    tasksByQuadrant[quad.id].map((task) => (
+                    activeListSection.tasks.map((task) => (
                       <TaskCard
                         key={task.id}
                         task={task}
                         mode="main"
+                        selectable={bulkMode}
+                        selected={bulkSelectedSet.has(task.id)}
+                        onToggleSelected={() => toggleBulkSelected(task.id)}
                         showMove={mainSort === "manual"}
-                        draggable
+                        draggable={!bulkMode}
                         onDragStart={(event) => handleDragStart(task, event)}
                         onMoveUp={() =>
                           void handleMoveTask(
                             task,
                             "up",
-                            tasksByQuadrant[quad.id],
+                            activeListSection.tasks,
                           )
                         }
                         onMoveDown={() =>
                           void handleMoveTask(
                             task,
                             "down",
-                            tasksByQuadrant[quad.id],
+                            activeListSection.tasks,
                           )
                         }
                         onToggleComplete={() => onToggleComplete(task)}
@@ -886,108 +1100,114 @@ export function MainView({
                   )}
                 </div>
               </div>
-            ))}
+            )}
           </div>
-        )}
-
-        {mainView === "list" && (
-          <div
-            id={MAIN_VIEW_PANEL_LIST}
-            role="tabpanel"
-            aria-labelledby={MAIN_VIEW_TAB_LIST}
-            className="list-view"
-          >
-            <div
-              className="list-tabs"
-              role="tablist"
-              aria-label={t("main.listTabs")}
-            >
-              {listSections.map((section, index) => {
-                const selected = listTab === section.id;
-                const tabId = `main-list-tab-${section.id}`;
-                return (
-                  <button
-                    key={section.id}
-                    id={tabId}
-                    type="button"
-                    role="tab"
-                    className={`list-tab ${selected ? "active" : ""}`}
-                    onClick={() => setListTab(section.id as ListTabId)}
-                    aria-selected={selected}
-                    aria-controls={LIST_PANEL_ID}
-                    tabIndex={selected ? 0 : -1}
-                    onKeyDown={(event) => {
-                      if (
-                        event.key !== "ArrowLeft" &&
-                        event.key !== "ArrowRight"
-                      )
-                        return;
-                      event.preventDefault();
-                      if (listSections.length === 0) return;
-                      const dir = event.key === "ArrowLeft" ? -1 : 1;
-                      const nextIndex =
-                        (index + dir + listSections.length) %
-                        listSections.length;
-                      const next = listSections[nextIndex];
-                      setListTab(next.id as ListTabId);
-                      focusElement(`main-list-tab-${next.id}`);
-                    }}
-                  >
-                    <span>{section.label}</span>
-                    <span className="list-tab-count">
-                      {section.tasks.length}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div
-              className="list-panel"
-              id={LIST_PANEL_ID}
-              role="tabpanel"
-              aria-labelledby={`main-list-tab-${listTab}`}
-            >
-              {activeListSection.tasks.length === 0 ? (
-                <div className="list-empty">{t("common.emptyTasks")}</div>
-              ) : (
-                activeListSection.tasks.map((task) => (
-                  <TaskCard
-                    key={task.id}
-                    task={task}
-                    mode="main"
-                    selectable={bulkMode}
-                    selected={bulkSelectedSet.has(task.id)}
-                    onToggleSelected={() => toggleBulkSelected(task.id)}
-                    showMove={mainSort === "manual"}
-                    draggable={!bulkMode}
-                    onDragStart={(event) => handleDragStart(task, event)}
-                    onMoveUp={() =>
-                      void handleMoveTask(task, "up", activeListSection.tasks)
-                    }
-                    onMoveDown={() =>
-                      void handleMoveTask(task, "down", activeListSection.tasks)
-                    }
-                    onToggleComplete={() => onToggleComplete(task)}
-                    onToggleImportant={() => onToggleImportant(task)}
-                    onReschedulePreset={(preset) =>
-                      void handleReschedule(task, preset)
-                    }
-                    onUpdateTask={onUpdateTask}
-                    showNotesPreview
-                    onDelete={() => onRequestDelete(task)}
-                    onEdit={() => onEditTask(task)}
-                  />
-                ))
-              )}
-            </div>
-          </div>
-        )}
+        </div>
       </div>
 
       <div className="main-input-bar">
-        <TaskComposer onSubmit={onCreateFromComposer} />
+        <TaskComposer
+          projectId={
+            sidebarSelection === "project" ? selectedProjectId : "inbox"
+          }
+          onSubmit={onCreateFromComposer}
+        />
       </div>
+
+      {projectMenu &&
+        (() => {
+          const project = projectsById.get(projectMenu.projectId);
+          if (!project) return null;
+          const isInbox = project.id === "inbox";
+          const left = Math.min(projectMenu.x, window.innerWidth - 220);
+          const top = Math.min(projectMenu.y, window.innerHeight - 180);
+          return (
+            <div
+              className="context-menu-overlay"
+              onMouseDown={() => setProjectMenu(null)}
+            >
+              <div
+                className="context-menu"
+                style={{ left, top }}
+                onMouseDown={(event) => event.stopPropagation()}
+              >
+                {!isInbox && (
+                  <button
+                    type="button"
+                    className="context-menu-item"
+                    disabled={projectBusy}
+                    onClick={() => {
+                      setProjectMenu(null);
+                      void handleToggleProjectPin(project);
+                    }}
+                  >
+                    <Icons.Pin />
+                    <span>
+                      {project.pinned
+                        ? t("project.menu.unpin")
+                        : t("project.menu.pin")}
+                    </span>
+                  </button>
+                )}
+
+                {!isInbox && (
+                  <button
+                    type="button"
+                    className="context-menu-item"
+                    disabled={projectBusy}
+                    onClick={() => {
+                      setProjectMenu(null);
+                      setRenamingProjectId(project.id);
+                      setRenameDraftName(project.name);
+                    }}
+                  >
+                    <Icons.Edit />
+                    <span>{t("project.menu.rename")}</span>
+                  </button>
+                )}
+
+                {!isInbox && (
+                  <button
+                    type="button"
+                    className="context-menu-item danger"
+                    disabled={projectBusy}
+                    onClick={() => {
+                      setProjectMenu(null);
+                      setConfirmDeleteProjectId(project.id);
+                    }}
+                  >
+                    <Icons.Trash />
+                    <span>{t("common.delete")}</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
+      <ConfirmDialog
+        open={
+          Boolean(confirmDeleteProjectId) &&
+          Boolean(
+            confirmDeleteProjectId &&
+              projectsById.get(confirmDeleteProjectId) &&
+              confirmDeleteProjectId !== "inbox",
+          )
+        }
+        title={t("project.confirmDelete.title", {
+          name: projectsById.get(confirmDeleteProjectId ?? "")?.name ?? "",
+        })}
+        description={t("project.confirmDelete.description")}
+        confirmText={projectBusy ? t("common.deleting") : t("common.delete")}
+        cancelText={t("common.cancel")}
+        tone="danger"
+        busy={projectBusy}
+        onConfirm={() => void handleConfirmDeleteProject()}
+        onCancel={() => {
+          if (projectBusy) return;
+          setConfirmDeleteProjectId(null);
+        }}
+      />
 
       <ConfirmDialog
         open={confirmBulkComplete && bulkSelectedIncompleteIds.length > 0}

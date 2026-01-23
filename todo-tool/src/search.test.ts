@@ -7,6 +7,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
   const now = Math.floor(Date.now() / 1000);
   return {
     id: "t",
+    project_id: "inbox",
     title: "Write weekly report",
     due_at: now,
     important: false,

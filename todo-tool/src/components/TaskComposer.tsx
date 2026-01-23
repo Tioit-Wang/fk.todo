@@ -20,6 +20,7 @@ import type { ReminderKind, RepeatRule } from "../types";
 
 export type TaskComposerDraft = {
   title: string;
+  project_id: string;
   tags: string[];
   due_at: number;
   important: boolean;
@@ -30,9 +31,11 @@ export type TaskComposerDraft = {
 
 export function TaskComposer({
   placeholder,
+  projectId,
   onSubmit,
 }: {
   placeholder?: string;
+  projectId?: string;
   onSubmit: (draft: TaskComposerDraft) => Promise<void> | void;
 }) {
   const { t } = useI18n();
@@ -132,6 +135,7 @@ export function TaskComposer({
     if (!parsedTitle) return;
     await onSubmit({
       title: parsedTitle,
+      project_id: projectId ?? "inbox",
       tags,
       due_at: dueAt,
       important,

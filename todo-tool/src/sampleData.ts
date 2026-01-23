@@ -1,15 +1,22 @@
 import { buildReminderConfig } from "./reminder";
-import type { ReminderKind, RepeatRule, Step, Task } from "./types";
+import type { Project, ReminderKind, RepeatRule, Step, Task } from "./types";
 
 const AI_NOVEL_SAMPLE_TAG = "ai-novel-assistant-v1";
 const AI_NOVEL_SEED_MARKER = "seed:ai-novel-assistant-v1";
 const AI_NOVEL_TITLE_PREFIX = "AI小说助手 · ";
+export const AI_NOVEL_SAMPLE_PROJECT_ID =
+  "sample-project-ai-novel-assistant-v1";
 
 function toSeconds(date: Date): number {
   return Math.floor(date.getTime() / 1000);
 }
 
-function atLocalDayTime(base: Date, offsetDays: number, hour: number, minute: number): Date {
+function atLocalDayTime(
+  base: Date,
+  offsetDays: number,
+  hour: number,
+  minute: number,
+): Date {
   const d = new Date(base);
   d.setDate(d.getDate() + offsetDays);
   d.setHours(hour, minute, 0, 0);
@@ -23,7 +30,10 @@ function minutesFrom(base: Date, minutes: number): Date {
   return d;
 }
 
-function makeSteps(createdAt: number, items: Array<{ title: string; completed?: boolean }>): Step[] {
+function makeSteps(
+  createdAt: number,
+  items: Array<{ title: string; completed?: boolean }>,
+): Step[] {
   return items.map((item, index) => {
     const completed = Boolean(item.completed);
     const stepCreatedAt = createdAt + index;
@@ -49,7 +59,27 @@ function makeSeedNotes(extra?: string): string {
 
 type SeedReminder = { kind: ReminderKind; offsetMinutes: number };
 
-export function buildAiNovelAssistantSampleTasks(now: Date = new Date()): Task[] {
+export function buildAiNovelAssistantSampleProjects(
+  now: Date = new Date(),
+): Project[] {
+  const nowSeconds = toSeconds(now);
+  return [
+    {
+      id: AI_NOVEL_SAMPLE_PROJECT_ID,
+      name: "AI 小说助手",
+      pinned: true,
+      sort_order: Date.now(),
+      created_at: nowSeconds,
+      updated_at: nowSeconds,
+      sample_tag: AI_NOVEL_SAMPLE_TAG,
+    },
+  ];
+}
+
+export function buildAiNovelAssistantSampleTasks(
+  now: Date = new Date(),
+  projectId: string = AI_NOVEL_SAMPLE_PROJECT_ID,
+): Task[] {
   const nowSeconds = toSeconds(now);
   let offset = 0;
 
@@ -78,18 +108,28 @@ export function buildAiNovelAssistantSampleTasks(now: Date = new Date()): Task[]
   }): Task => {
     const created_at = nowSeconds - offset * 120;
     const updated_at = created_at;
-    const completed_at = completed ? Math.min(nowSeconds, created_at + 600) : undefined;
+    const completed_at = completed
+      ? Math.min(nowSeconds, created_at + 600)
+      : undefined;
     offset += 1;
 
     const reminderConfig = reminder
-      ? buildReminderConfig(reminder.kind, dueAtSeconds, reminder.offsetMinutes, nowSeconds)
+      ? buildReminderConfig(
+          reminder.kind,
+          dueAtSeconds,
+          reminder.offsetMinutes,
+          nowSeconds,
+        )
       : buildReminderConfig("none", dueAtSeconds, 0, nowSeconds);
 
     const resolvedTags = Array.isArray(tags) ? tags : ["示例", "AI小说助手"];
 
     return {
       id: crypto.randomUUID(),
-      title: title.startsWith(AI_NOVEL_TITLE_PREFIX) ? title : `${AI_NOVEL_TITLE_PREFIX}${title}`,
+      project_id: projectId,
+      title: title.startsWith(AI_NOVEL_TITLE_PREFIX)
+        ? title
+        : `${AI_NOVEL_TITLE_PREFIX}${title}`,
       due_at: dueAtSeconds,
       important,
       completed,
@@ -184,14 +224,18 @@ export function buildAiNovelAssistantSampleTasks(now: Date = new Date()): Task[]
       quadrant: 2,
       dueAtSeconds: plus5Days1800,
       important: true,
-      notes: makeSeedNotes("目标：让 AI 更稳定地理解世界观约束，减少设定打架。"),
+      notes: makeSeedNotes(
+        "目标：让 AI 更稳定地理解世界观约束，减少设定打架。",
+      ),
     }),
     makeTask({
       title: "角色设定卡片与关系图结构设计",
       quadrant: 2,
       dueAtSeconds: plus4Days1800,
       important: true,
-      notes: makeSeedNotes("输出：角色卡字段 + 关系边类型（亲属/敌对/盟友/债务等）。"),
+      notes: makeSeedNotes(
+        "输出：角色卡字段 + 关系边类型（亲属/敌对/盟友/债务等）。",
+      ),
     }),
     makeTask({
       title: "每周: 用户反馈回收与 Prompt 迭代",

@@ -1,5 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { CommandResult, Settings, Task } from "./types";
+import type {
+  CommandResult,
+  Project,
+  Settings,
+  StatePayload,
+  Task,
+} from "./types";
 
 export interface BackupEntry {
   name: string;
@@ -7,7 +13,26 @@ export interface BackupEntry {
 }
 
 export async function loadState() {
-  return invoke<CommandResult<[Task[], Settings]>>("load_state");
+  return invoke<CommandResult<StatePayload>>("load_state");
+}
+
+export async function createProject(project: Project) {
+  return invoke<CommandResult<Project>>("create_project", { project });
+}
+
+export async function updateProject(project: Project) {
+  return invoke<CommandResult<Project>>("update_project", { project });
+}
+
+export async function swapProjectSortOrder(firstId: string, secondId: string) {
+  return invoke<CommandResult<boolean>>("swap_project_sort_order", {
+    firstId,
+    secondId,
+  });
+}
+
+export async function deleteProject(projectId: string) {
+  return invoke<CommandResult<boolean>>("delete_project", { projectId });
 }
 
 export async function createTask(task: Task) {
@@ -23,7 +48,10 @@ export async function bulkUpdateTasks(tasks: Task[]) {
 }
 
 export async function swapSortOrder(firstId: string, secondId: string) {
-  return invoke<CommandResult<boolean>>("swap_sort_order", { firstId, secondId });
+  return invoke<CommandResult<boolean>>("swap_sort_order", {
+    firstId,
+    secondId,
+  });
 }
 
 export async function completeTask(taskId: string) {
@@ -43,7 +71,9 @@ export async function showSettingsWindow() {
 }
 
 export async function setShortcutCaptureActive(active: boolean) {
-  return invoke<CommandResult<boolean>>("set_shortcut_capture_active", { active });
+  return invoke<CommandResult<boolean>>("set_shortcut_capture_active", {
+    active,
+  });
 }
 
 export async function snoozeTask(taskId: string, until: number) {

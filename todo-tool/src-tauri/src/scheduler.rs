@@ -55,6 +55,7 @@ fn persist_reminder_state(app: &AppHandle, state: &AppState) {
     }
     let payload = StatePayload {
         tasks: state.tasks(),
+        projects: state.projects(),
         settings: state.settings(),
     };
     let _ = app.emit(EVENT_STATE_UPDATED, payload);
@@ -111,6 +112,7 @@ mod tests {
     ) -> Task {
         Task {
             id: id.to_string(),
+            project_id: "inbox".to_string(),
             title: format!("task-{id}"),
             due_at,
             important,
@@ -226,6 +228,7 @@ mod tests {
                 forced_dismissed,
                 already_fired,
             ],
+            Vec::new(),
             crate::models::Settings::default(),
         );
 

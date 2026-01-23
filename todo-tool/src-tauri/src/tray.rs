@@ -2,9 +2,9 @@ use chrono::{Local, TimeZone};
 #[cfg(all(feature = "app", not(test)))]
 use sys_locale::get_locale;
 
-use crate::models::Task;
 #[cfg(all(feature = "app", not(test)))]
 use crate::models::Settings;
+use crate::models::Task;
 
 #[cfg(all(feature = "app", not(test)))]
 use crate::events::{NavigatePayload, EVENT_NAVIGATE};
@@ -80,8 +80,13 @@ fn build_tray_menu<R: Runtime, M: Manager<R>>(
     let labels = tray_labels(lang);
     let show_quick = MenuItem::with_id(app, "show_quick", labels.show_quick, true, None::<&str>)?;
     let show_main = MenuItem::with_id(app, "show_main", labels.show_main, true, None::<&str>)?;
-    let show_settings =
-        MenuItem::with_id(app, "show_settings", labels.show_settings, true, None::<&str>)?;
+    let show_settings = MenuItem::with_id(
+        app,
+        "show_settings",
+        labels.show_settings,
+        true,
+        None::<&str>,
+    )?;
     let quit = MenuItem::with_id(app, "quit", labels.quit, true, None::<&str>)?;
     Ok(Menu::with_items(
         app,
@@ -207,6 +212,7 @@ mod tests {
     fn make_task(id: &str, due_at: i64, completed: bool) -> Task {
         Task {
             id: id.to_string(),
+            project_id: "inbox".to_string(),
             title: format!("task-{id}"),
             due_at,
             important: false,

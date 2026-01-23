@@ -252,6 +252,7 @@ mod tests {
         TasksFile {
             schema_version: 1,
             tasks: Vec::new(),
+            projects: Vec::new(),
         }
     }
 
@@ -568,8 +569,11 @@ mod tests {
         storage.ensure_dirs().unwrap();
 
         let data_path = root.path().join(DATA_FILE);
-        fs::write(&data_path, serde_json::to_string_pretty(&sample_tasks_file()).unwrap())
-            .unwrap();
+        fs::write(
+            &data_path,
+            serde_json::to_string_pretty(&sample_tasks_file()).unwrap(),
+        )
+        .unwrap();
 
         storage.create_backup(&data_path).unwrap();
         storage.create_backup(&data_path).unwrap();
@@ -577,8 +581,12 @@ mod tests {
         let date = chrono::Local::now().format("%Y-%m-%d").to_string();
         let backups = storage.list_backups().unwrap();
         let names: Vec<_> = backups.into_iter().map(|(name, _)| name).collect();
-        assert!(names.iter().any(|name| name == &format!("data-{date}.json")));
-        assert!(names.iter().any(|name| name == &format!("data-{date}-2.json")));
+        assert!(names
+            .iter()
+            .any(|name| name == &format!("data-{date}.json")));
+        assert!(names
+            .iter()
+            .any(|name| name == &format!("data-{date}-2.json")));
     }
 
     #[test]
@@ -641,8 +649,11 @@ mod tests {
         }
 
         let data_path = root.path().join(DATA_FILE);
-        fs::write(&data_path, serde_json::to_string_pretty(&sample_tasks_file()).unwrap())
-            .unwrap();
+        fs::write(
+            &data_path,
+            serde_json::to_string_pretty(&sample_tasks_file()).unwrap(),
+        )
+        .unwrap();
 
         let err = storage
             .create_backup(&data_path)

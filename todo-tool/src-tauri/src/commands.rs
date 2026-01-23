@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use crate::events::StatePayload;
 #[cfg(all(feature = "app", not(test)))]
 use crate::events::EVENT_STATE_UPDATED;
-use crate::models::{BackupSchedule, ReminderKind, RepeatRule, Settings, Task};
+use crate::models::{BackupSchedule, Project, ReminderKind, RepeatRule, Settings, Task};
 use crate::repeat::next_due_timestamp;
 use crate::state::AppState;
 use crate::storage::{Storage, StorageError};
@@ -34,6 +34,13 @@ trait CommandCtx {
     fn shortcut_unregister_all(&self);
     fn shortcut_validate(&self, shortcut: &str) -> Result<(), String>;
     fn shortcut_register(&self, shortcut: &str) -> Result<(), String>;
+
+    // Test seam: `serde_json::to_vec_pretty` is effectively infallible for our TasksFile
+    // schema. For 100% coverage (and to keep the error-handling path tested), unit tests can
+    // opt into a forced serialization error.
+    fn force_json_serialize_error(&self) -> bool {
+        false
+    }
 }
 
 fn ok<T>(data: T) -> CommandResult<T> {
@@ -68,6 +75,7 @@ fn persist(ctx: &impl CommandCtx, state: &AppState) -> Result<(), StorageError> 
     ctx.update_tray_count(&state.tasks(), &settings);
     let payload = StatePayload {
         tasks: state.tasks(),
+        projects: state.projects(),
         settings: state.settings(),
     };
     ctx.emit_state_updated(payload);
@@ -179,10 +187,7 @@ impl<R: Runtime> CommandCtx for TauriCommandCtx<'_, R> {
     }
 }
 
-fn load_state_impl(
-    ctx: &impl CommandCtx,
-    state: &AppState,
-) -> CommandResult<(Vec<Task>, Settings)> {
+fn load_state_impl(ctx: &impl CommandCtx, state: &AppState) -> CommandResult<StatePayload> {
     let root = match ctx.app_data_dir() {
         Ok(path) => path,
         Err(e) => return err(&format!("app_data_dir error: {e}")),
@@ -191,22 +196,173 @@ fn load_state_impl(
     if let Err(error) = storage.ensure_dirs() {
         return err(&format!("storage error: {error:?}"));
     }
-    let tasks = storage
+    let tasks_file = storage
         .load_tasks()
-        .map(|data| data.tasks)
-        .unwrap_or_default();
+        .unwrap_or_else(|_| crate::models::TasksFile {
+            schema_version: 1,
+            tasks: Vec::new(),
+            projects: Vec::new(),
+        });
     let settings = storage
         .load_settings()
         .map(|data| data.settings)
         .unwrap_or_else(|_| Settings::default());
+
+    state.replace_projects(tasks_file.projects);
+    state.replace_tasks(tasks_file.tasks);
     state.update_settings(settings.clone());
-    ok((tasks, settings))
+    ok(StatePayload {
+        tasks: state.tasks(),
+        projects: state.projects(),
+        settings: state.settings(),
+    })
+}
+
+fn create_project_impl(
+    ctx: &impl CommandCtx,
+    state: &AppState,
+    project: Project,
+) -> CommandResult<Project> {
+    let mut project = project;
+    project.id = project.id.trim().to_string();
+    project.name = project.name.trim().to_string();
+    if project.id.is_empty() {
+        return err("project id is required");
+    }
+    if project.name.is_empty() {
+        return err("project name is required");
+    }
+    if state
+        .projects()
+        .iter()
+        .any(|existing| existing.id == project.id)
+    {
+        return err("project already exists");
+    }
+
+    let now = Utc::now();
+    if project.created_at == 0 {
+        project.created_at = now.timestamp();
+    }
+    project.updated_at = now.timestamp();
+    if project.sort_order == 0 {
+        project.sort_order = project.created_at * 1000;
+    }
+
+    state.add_project(project.clone());
+    if let Err(error) = persist(ctx, state) {
+        return err(&format!("storage error: {error:?}"));
+    }
+    ok(project)
+}
+
+fn update_project_impl(
+    ctx: &impl CommandCtx,
+    state: &AppState,
+    project: Project,
+) -> CommandResult<Project> {
+    let mut project = project;
+    project.id = project.id.trim().to_string();
+    project.name = project.name.trim().to_string();
+    if project.id.is_empty() {
+        return err("project id is required");
+    }
+    if project.name.is_empty() {
+        return err("project name is required");
+    }
+
+    let existing = match state.projects().into_iter().find(|p| p.id == project.id) {
+        Some(project) => project,
+        None => return err("project not found"),
+    };
+
+    let now = Utc::now();
+    if project.created_at == 0 {
+        project.created_at = existing.created_at;
+    }
+    if project.sort_order == 0 {
+        project.sort_order = existing.sort_order;
+    }
+    // Keep inbox pinned by default so the left nav remains usable.
+    if project.id == "inbox" {
+        project.pinned = true;
+        // Inbox is a built-in project: keep its name stable (UI can localize it).
+        project.name = existing.name.clone();
+    }
+    project.updated_at = now.timestamp();
+
+    state.update_project(project.clone());
+    if let Err(error) = persist(ctx, state) {
+        return err(&format!("storage error: {error:?}"));
+    }
+    ok(project)
+}
+
+fn swap_project_sort_order_impl(
+    ctx: &impl CommandCtx,
+    state: &AppState,
+    first_id: String,
+    second_id: String,
+) -> CommandResult<bool> {
+    let now = Utc::now().timestamp();
+    if !state.swap_project_sort_order(&first_id, &second_id, now) {
+        return err("project not found");
+    }
+    if let Err(error) = persist(ctx, state) {
+        return err(&format!("storage error: {error:?}"));
+    }
+    ok(true)
+}
+
+fn delete_project_impl(
+    ctx: &impl CommandCtx,
+    state: &AppState,
+    project_id: String,
+) -> CommandResult<bool> {
+    let project_id = project_id.trim().to_string();
+    if project_id.is_empty() {
+        return err("project id is required");
+    }
+    if project_id == "inbox" {
+        return err("cannot delete inbox project");
+    }
+    if !state.projects().iter().any(|p| p.id == project_id) {
+        return err("project not found");
+    }
+
+    // Best-effort: move tasks to inbox so we never leave dangling project references.
+    let now = Utc::now().timestamp();
+    let mut tasks_to_move = Vec::new();
+    for task in state.tasks() {
+        if task.project_id == project_id {
+            let mut next = task.clone();
+            next.project_id = "inbox".to_string();
+            next.updated_at = now;
+            tasks_to_move.push(next);
+        }
+    }
+    for task in tasks_to_move {
+        state.update_task(task);
+    }
+
+    state.remove_project(&project_id);
+    if let Err(error) = persist(ctx, state) {
+        return err(&format!("storage error: {error:?}"));
+    }
+    ok(true)
 }
 
 fn create_task_impl(ctx: &impl CommandCtx, state: &AppState, task: Task) -> CommandResult<Task> {
     let mut task = task;
     if task.sort_order == 0 {
         task.sort_order = task.created_at * 1000;
+    }
+    if !state
+        .projects()
+        .iter()
+        .any(|project| project.id == task.project_id)
+    {
+        task.project_id = "inbox".to_string();
     }
     state.add_task(task.clone());
     if let Err(error) = persist(ctx, state) {
@@ -220,6 +376,13 @@ fn update_task_impl(ctx: &impl CommandCtx, state: &AppState, task: Task) -> Comm
     if task.sort_order == 0 {
         task.sort_order = task.created_at * 1000;
     }
+    if !state
+        .projects()
+        .iter()
+        .any(|project| project.id == task.project_id)
+    {
+        task.project_id = "inbox".to_string();
+    }
     state.update_task(task.clone());
     if let Err(error) = persist(ctx, state) {
         return err(&format!("storage error: {error:?}"));
@@ -232,9 +395,13 @@ fn bulk_update_tasks_impl(
     state: &AppState,
     tasks: Vec<Task>,
 ) -> CommandResult<bool> {
+    let projects = state.projects();
     for mut task in tasks {
         if task.sort_order == 0 {
             task.sort_order = task.created_at * 1000;
+        }
+        if !projects.iter().any(|project| project.id == task.project_id) {
+            task.project_id = "inbox".to_string();
         }
         state.update_task(task);
     }
@@ -462,9 +629,54 @@ fn delete_tasks_impl(
 
 #[cfg(all(feature = "app", not(test)))]
 #[tauri::command]
-pub fn load_state(app: AppHandle, state: State<AppState>) -> CommandResult<(Vec<Task>, Settings)> {
+pub fn load_state(app: AppHandle, state: State<AppState>) -> CommandResult<StatePayload> {
     let ctx = TauriCommandCtx { app: &app };
     load_state_impl(&ctx, state.inner())
+}
+
+#[cfg(all(feature = "app", not(test)))]
+#[tauri::command]
+pub fn create_project(
+    app: AppHandle,
+    state: State<AppState>,
+    project: Project,
+) -> CommandResult<Project> {
+    let ctx = TauriCommandCtx { app: &app };
+    create_project_impl(&ctx, state.inner(), project)
+}
+
+#[cfg(all(feature = "app", not(test)))]
+#[tauri::command]
+pub fn update_project(
+    app: AppHandle,
+    state: State<AppState>,
+    project: Project,
+) -> CommandResult<Project> {
+    let ctx = TauriCommandCtx { app: &app };
+    update_project_impl(&ctx, state.inner(), project)
+}
+
+#[cfg(all(feature = "app", not(test)))]
+#[tauri::command]
+pub fn swap_project_sort_order(
+    app: AppHandle,
+    state: State<AppState>,
+    first_id: String,
+    second_id: String,
+) -> CommandResult<bool> {
+    let ctx = TauriCommandCtx { app: &app };
+    swap_project_sort_order_impl(&ctx, state.inner(), first_id, second_id)
+}
+
+#[cfg(all(feature = "app", not(test)))]
+#[tauri::command]
+pub fn delete_project(
+    app: AppHandle,
+    state: State<AppState>,
+    project_id: String,
+) -> CommandResult<bool> {
+    let ctx = TauriCommandCtx { app: &app };
+    delete_project_impl(&ctx, state.inner(), project_id)
 }
 
 #[cfg(all(feature = "app", not(test)))]
@@ -677,10 +889,12 @@ fn restore_backup_impl(
         Ok(data) => data,
         Err(error) => return err(&format!("storage error: {error:?}")),
     };
+    state.replace_projects(data.projects.clone());
     state.replace_tasks(data.tasks.clone());
     ctx.update_tray_count(&state.tasks(), &state.settings());
     let payload = StatePayload {
         tasks: state.tasks(),
+        projects: state.projects(),
         settings: state.settings(),
     };
     ctx.emit_state_updated(payload);
@@ -704,10 +918,12 @@ fn import_backup_impl(
         Ok(data) => data,
         Err(error) => return err(&format!("storage error: {error:?}")),
     };
+    state.replace_projects(data.projects.clone());
     state.replace_tasks(data.tasks.clone());
     ctx.update_tray_count(&state.tasks(), &state.settings());
     let payload = StatePayload {
         tasks: state.tasks(),
+        projects: state.projects(),
         settings: state.settings(),
     };
     ctx.emit_state_updated(payload);
@@ -739,7 +955,25 @@ fn export_tasks_json_impl(ctx: &impl CommandCtx, state: &AppState) -> CommandRes
 
     let path = export_default_path(&root, "json");
     let data = state.tasks_file();
-    let json = match serde_json::to_vec_pretty(&data) {
+    struct ForcedJsonError;
+
+    impl serde::Serialize for ForcedJsonError {
+        fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            Err(<S::Error as serde::ser::Error>::custom(
+                "forced json serialization error",
+            ))
+        }
+    }
+
+    let json = match if ctx.force_json_serialize_error() {
+        // `TasksFile` is expected to be always serializable. This branch exists solely for tests.
+        serde_json::to_vec_pretty(&ForcedJsonError)
+    } else {
+        serde_json::to_vec_pretty(&data)
+    } {
         Ok(bytes) => bytes,
         Err(e) => return err(&format!("json error: {e}")),
     };
@@ -767,7 +1001,7 @@ fn export_tasks_csv_impl(ctx: &impl CommandCtx, state: &AppState) -> CommandResu
     let tasks = state.tasks();
 
     let mut out = String::new();
-    out.push_str("id,title,due_at,important,completed,quadrant,tags,notes,steps\n");
+    out.push_str("id,project_id,title,due_at,important,completed,quadrant,tags,notes,steps\n");
     for task in tasks {
         let tags = task.tags.join(";");
         let notes = task.notes.unwrap_or_default().replace("\r\n", "\n");
@@ -785,6 +1019,8 @@ fn export_tasks_csv_impl(ctx: &impl CommandCtx, state: &AppState) -> CommandResu
             .join(" | ");
 
         out.push_str(&csv_escape(&task.id));
+        out.push(',');
+        out.push_str(&csv_escape(&task.project_id));
         out.push(',');
         out.push_str(&csv_escape(&task.title));
         out.push(',');
@@ -851,11 +1087,20 @@ fn export_tasks_markdown_impl(ctx: &impl CommandCtx, state: &AppState) -> Comman
     future.sort_by_key(|t| t.due_at);
     done.sort_by_key(|t| t.due_at);
 
-    let fmt_due = |ts: i64| Local.timestamp_opt(ts, 0).single().map(|dt| dt.format("%Y-%m-%d %H:%M").to_string()).unwrap_or_else(|| ts.to_string());
+    let fmt_due = |ts: i64| {
+        Local
+            .timestamp_opt(ts, 0)
+            .single()
+            .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
+            .unwrap_or_else(|| ts.to_string())
+    };
 
     let mut out = String::new();
     out.push_str("# MustDo Export\n\n");
-    out.push_str(&format!("Generated at: {}\n\n", now.format("%Y-%m-%d %H:%M:%S")));
+    out.push_str(&format!(
+        "Generated at: {}\n\n",
+        now.format("%Y-%m-%d %H:%M:%S")
+    ));
 
     let mut write_section = |title: &str, tasks: &[Task], checked: bool| {
         out.push_str(&format!("## {title}\n\n"));
@@ -865,7 +1110,11 @@ fn export_tasks_markdown_impl(ctx: &impl CommandCtx, state: &AppState) -> Comman
         }
         for task in tasks {
             let box_mark = if checked { "x" } else { " " };
-            out.push_str(&format!("- [{box_mark}] {} (due: {})\n", task.title, fmt_due(task.due_at)));
+            out.push_str(&format!(
+                "- [{box_mark}] {} (due: {})\n",
+                task.title,
+                fmt_due(task.due_at)
+            ));
             if !task.tags.is_empty() {
                 let tags = task
                     .tags
@@ -971,6 +1220,7 @@ pub fn export_tasks_markdown(app: AppHandle, state: State<AppState>) -> CommandR
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::Step;
     use crate::models::{ReminderConfig, ReminderKind, RepeatRule, Task};
     use std::fs;
     use std::sync::Mutex;
@@ -1069,9 +1319,52 @@ mod tests {
         }
     }
 
+    struct ForceJsonErrorCtx {
+        inner: TestCtx,
+    }
+
+    impl ForceJsonErrorCtx {
+        fn new() -> Self {
+            Self {
+                inner: TestCtx::new(),
+            }
+        }
+    }
+
+    impl CommandCtx for ForceJsonErrorCtx {
+        fn app_data_dir(&self) -> Result<PathBuf, StorageError> {
+            self.inner.app_data_dir()
+        }
+
+        fn emit_state_updated(&self, payload: StatePayload) {
+            self.inner.emit_state_updated(payload);
+        }
+
+        fn update_tray_count(&self, tasks: &[Task], settings: &Settings) {
+            self.inner.update_tray_count(tasks, settings);
+        }
+
+        fn shortcut_unregister_all(&self) {
+            self.inner.shortcut_unregister_all();
+        }
+
+        fn shortcut_validate(&self, shortcut: &str) -> Result<(), String> {
+            self.inner.shortcut_validate(shortcut)
+        }
+
+        fn shortcut_register(&self, shortcut: &str) -> Result<(), String> {
+            self.inner.shortcut_register(shortcut)
+        }
+
+        fn force_json_serialize_error(&self) -> bool {
+            true
+        }
+    }
+
     fn make_task(id: &str, due_at: i64) -> Task {
         Task {
             id: id.to_string(),
+            project_id: "inbox".to_string(),
             title: format!("task-{id}"),
             due_at,
             important: false,
@@ -1094,7 +1387,7 @@ mod tests {
     }
 
     fn make_state(tasks: Vec<Task>) -> AppState {
-        AppState::new(tasks, Settings::default())
+        AppState::new(tasks, Vec::new(), Settings::default())
     }
 
     #[test]
@@ -1195,7 +1488,7 @@ mod tests {
     #[test]
     fn persist_success_and_error_paths() {
         let ctx = TestCtx::new();
-        let state = AppState::new(vec![make_task("a", 1000)], Settings::default());
+        let state = AppState::new(vec![make_task("a", 1000)], Vec::new(), Settings::default());
 
         persist(&ctx, &state).unwrap();
         assert!(ctx.root_path().join("backups").is_dir());
@@ -1239,9 +1532,9 @@ mod tests {
         let ctx3 = TestCtx::new();
         let res = load_state_impl(&ctx3, &state);
         assert!(res.ok);
-        let (tasks, settings) = res.data.unwrap();
-        assert!(tasks.is_empty());
-        assert_eq!(settings.shortcut, Settings::default().shortcut);
+        let payload = res.data.unwrap();
+        assert!(payload.tasks.is_empty());
+        assert_eq!(payload.settings.shortcut, Settings::default().shortcut);
         assert_eq!(state.settings().shortcut, Settings::default().shortcut);
 
         // create_task fills sort_order when missing.
@@ -1563,7 +1856,10 @@ mod tests {
         let ctx_del_ok = TestCtx::new();
         fs::create_dir_all(ctx_del_ok.root_path().join("backups")).unwrap();
         fs::write(
-            ctx_del_ok.root_path().join("backups").join("data-test.json"),
+            ctx_del_ok
+                .root_path()
+                .join("backups")
+                .join("data-test.json"),
             b"{}",
         )
         .unwrap();
@@ -1661,7 +1957,11 @@ mod tests {
         let csv_path = csv.data.unwrap();
         assert!(std::path::Path::new(&csv_path).exists());
         let csv_text = std::fs::read_to_string(&csv_path).unwrap();
-        assert!(csv_text.lines().next().unwrap().contains("id,title,due_at"));
+        assert!(csv_text
+            .lines()
+            .next()
+            .unwrap()
+            .contains("id,project_id,title,due_at"));
 
         let md = export_tasks_markdown_impl(&ctx, &state);
         assert!(md.ok);
@@ -1719,11 +2019,7 @@ mod tests {
         };
 
         let state = make_state(vec![make_task("a", 100), repeating.clone()]);
-        let res = bulk_complete_tasks_impl(
-            &ctx,
-            &state,
-            vec!["a".to_string(), "r".to_string()],
-        );
+        let res = bulk_complete_tasks_impl(&ctx, &state, vec!["a".to_string(), "r".to_string()]);
         assert!(res.ok);
 
         let tasks = state.tasks();
@@ -1743,5 +2039,372 @@ mod tests {
 
         // One persist => one state_updated emission.
         assert_eq!(ctx.emitted.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn project_commands_cover_create_update_swap_and_delete_paths() {
+        let ctx = TestCtx::new();
+        let state = make_state(Vec::new());
+
+        let project = Project {
+            id: "p1".to_string(),
+            name: "Project 1".to_string(),
+            pinned: false,
+            sort_order: 0,
+            created_at: 0,
+            updated_at: 0,
+            sample_tag: None,
+        };
+
+        let res = create_project_impl(&ctx, &state, project.clone());
+        assert!(res.ok);
+        assert!(state.projects().iter().any(|p| p.id == "p1"));
+
+        let mut updated = project.clone();
+        updated.name = "Updated".to_string();
+        let res = update_project_impl(&ctx, &state, updated);
+        assert!(res.ok);
+        assert_eq!(
+            state.projects().iter().find(|p| p.id == "p1").unwrap().name,
+            "Updated"
+        );
+
+        let inbox_before = state
+            .projects()
+            .into_iter()
+            .find(|p| p.id == "inbox")
+            .unwrap();
+        let p1_before = state.projects().into_iter().find(|p| p.id == "p1").unwrap();
+
+        let res = swap_project_sort_order_impl(&ctx, &state, "inbox".into(), "p1".into());
+        assert!(res.ok);
+
+        let inbox_after = state
+            .projects()
+            .into_iter()
+            .find(|p| p.id == "inbox")
+            .unwrap();
+        let p1_after = state.projects().into_iter().find(|p| p.id == "p1").unwrap();
+        assert_eq!(inbox_after.sort_order, p1_before.sort_order);
+        assert_eq!(p1_after.sort_order, inbox_before.sort_order);
+
+        // update_project keeps inbox pinned.
+        let mut inbox = inbox_after.clone();
+        inbox.pinned = false;
+        inbox.name = "Renamed".to_string();
+        let res = update_project_impl(&ctx, &state, inbox);
+        assert!(res.ok);
+        assert!(
+            state
+                .projects()
+                .iter()
+                .find(|p| p.id == "inbox")
+                .unwrap()
+                .pinned
+        );
+        assert_eq!(
+            state
+                .projects()
+                .iter()
+                .find(|p| p.id == "inbox")
+                .unwrap()
+                .name,
+            inbox_after.name
+        );
+
+        // delete_project moves tasks to inbox first.
+        let mut task = make_task("x", 123);
+        task.project_id = "p1".to_string();
+        let res = create_task_impl(&ctx, &state, task);
+        assert!(res.ok);
+        assert_eq!(
+            state
+                .tasks()
+                .iter()
+                .find(|t| t.id == "x")
+                .unwrap()
+                .project_id,
+            "p1"
+        );
+
+        let res = delete_project_impl(&ctx, &state, "p1".to_string());
+        assert!(res.ok);
+        assert!(!state.projects().iter().any(|p| p.id == "p1"));
+        assert_eq!(
+            state
+                .tasks()
+                .iter()
+                .find(|t| t.id == "x")
+                .unwrap()
+                .project_id,
+            "inbox"
+        );
+
+        let res = delete_project_impl(&ctx, &state, "inbox".to_string());
+        assert!(!res.ok);
+    }
+
+    #[test]
+    fn project_commands_cover_validation_and_persist_error_paths() {
+        let ctx = TestCtx::new();
+        let state = make_state(Vec::new());
+
+        let base = Project {
+            id: "p1".to_string(),
+            name: "Project 1".to_string(),
+            pinned: false,
+            sort_order: 0,
+            created_at: 0,
+            updated_at: 0,
+            sample_tag: None,
+        };
+
+        // create_project validations.
+        let mut missing_id = base.clone();
+        missing_id.id = "   ".to_string();
+        let res = create_project_impl(&ctx, &state, missing_id);
+        assert!(!res.ok);
+
+        let mut missing_name = base.clone();
+        missing_name.name = "   ".to_string();
+        let res = create_project_impl(&ctx, &state, missing_name);
+        assert!(!res.ok);
+
+        // create_project duplicate check.
+        assert!(create_project_impl(&ctx, &state, base.clone()).ok);
+        let res = create_project_impl(&ctx, &state, base.clone());
+        assert!(!res.ok);
+
+        // create_project persist error.
+        let ctx_fail = TestCtx::new();
+        fs::write(ctx_fail.root_path().join("backups"), b"x").unwrap();
+        let state_fail = make_state(Vec::new());
+        let mut p2 = base.clone();
+        p2.id = "p2".to_string();
+        let res = create_project_impl(&ctx_fail, &state_fail, p2);
+        assert!(!res.ok);
+
+        // update_project validations and not-found.
+        let mut empty_id = base.clone();
+        empty_id.id = "   ".to_string();
+        let res = update_project_impl(&ctx, &state, empty_id);
+        assert!(!res.ok);
+
+        let mut empty_name = base.clone();
+        empty_name.name = "   ".to_string();
+        let res = update_project_impl(&ctx, &state, empty_name);
+        assert!(!res.ok);
+
+        let mut missing = base.clone();
+        missing.id = "missing".to_string();
+        let res = update_project_impl(&ctx, &state, missing);
+        assert!(!res.ok);
+
+        // update_project persist error.
+        let ctx_fail2 = TestCtx::new();
+        fs::write(ctx_fail2.root_path().join("backups"), b"x").unwrap();
+        let state_fail2 = make_state(Vec::new());
+        state_fail2.add_project(base.clone());
+        let mut updated = base.clone();
+        updated.name = "Updated".to_string();
+        let res = update_project_impl(&ctx_fail2, &state_fail2, updated);
+        assert!(!res.ok);
+
+        // swap_project_sort_order errors.
+        let res = swap_project_sort_order_impl(&ctx, &state, "inbox".into(), "missing".into());
+        assert!(!res.ok);
+
+        let ctx_fail3 = TestCtx::new();
+        fs::write(ctx_fail3.root_path().join("backups"), b"x").unwrap();
+        let state_fail3 = make_state(Vec::new());
+        state_fail3.add_project(base.clone());
+        let res =
+            swap_project_sort_order_impl(&ctx_fail3, &state_fail3, "inbox".into(), "p1".into());
+        assert!(!res.ok);
+
+        // delete_project errors.
+        let res = delete_project_impl(&ctx, &state, "   ".to_string());
+        assert!(!res.ok);
+        let res = delete_project_impl(&ctx, &state, "missing".to_string());
+        assert!(!res.ok);
+
+        let ctx_fail4 = TestCtx::new();
+        fs::write(ctx_fail4.root_path().join("backups"), b"x").unwrap();
+        let state_fail4 = make_state(Vec::new());
+        state_fail4.add_project(base.clone());
+        let res = delete_project_impl(&ctx_fail4, &state_fail4, "p1".to_string());
+        assert!(!res.ok);
+    }
+
+    #[test]
+    fn task_commands_normalize_invalid_project_ids_and_cover_persist_errors() {
+        let ctx = TestCtx::new();
+        let state = make_state(Vec::new());
+
+        let mut t = make_task("invalid-proj", 1000);
+        t.project_id = "missing".to_string();
+        let res = create_task_impl(&ctx, &state, t);
+        assert!(res.ok);
+        assert_eq!(res.data.as_ref().unwrap().project_id, "inbox");
+
+        let mut edited = res.data.unwrap();
+        edited.title = "edited".to_string();
+        edited.project_id = "missing2".to_string();
+        let res = update_task_impl(&ctx, &state, edited);
+        assert!(res.ok);
+        assert_eq!(res.data.as_ref().unwrap().project_id, "inbox");
+
+        // bulk_update normalizes invalid project ids and hits persist error branch.
+        let ctx_fail = TestCtx::new();
+        fs::write(ctx_fail.root_path().join("backups"), b"x").unwrap();
+        let state_fail = make_state(vec![make_task("bu1", 123)]);
+        let mut update = make_task("bu1", 456);
+        update.project_id = "missing".to_string();
+        update.created_at = 2;
+        update.sort_order = 0;
+        let res = bulk_update_tasks_impl(&ctx_fail, &state_fail, vec![update]);
+        assert!(!res.ok);
+        assert_eq!(
+            state_fail
+                .tasks()
+                .into_iter()
+                .find(|t| t.id == "bu1")
+                .unwrap()
+                .project_id,
+            "inbox"
+        );
+    }
+
+    #[test]
+    fn build_next_repeat_task_covers_reminder_none_and_forced_branches() {
+        let mut none = make_task("none", 1000);
+        none.reminder.kind = ReminderKind::None;
+        none.reminder.remind_at = Some(900);
+        let next = build_next_repeat_task(&none, 2000);
+        assert_eq!(next.reminder.remind_at, None);
+
+        let mut forced = make_task("forced", 1000);
+        forced.reminder.kind = ReminderKind::Forced;
+        forced.reminder.remind_at = None;
+        let next = build_next_repeat_task(&forced, 3000);
+        assert_eq!(next.reminder.remind_at, Some(3000));
+    }
+
+    #[test]
+    fn bulk_complete_tasks_covers_missing_id_continue_and_persist_error() {
+        let ctx = TestCtx::new();
+        let mut task = make_task("repeat", 1000);
+        task.repeat = RepeatRule::Daily {
+            workday_only: false,
+        };
+        let state = make_state(vec![task]);
+        let res = bulk_complete_tasks_impl(&ctx, &state, vec!["missing".into(), "repeat".into()]);
+        assert!(res.ok);
+
+        let ctx_fail = TestCtx::new();
+        fs::write(ctx_fail.root_path().join("backups"), b"x").unwrap();
+        let mut task2 = make_task("repeat2", 1000);
+        task2.repeat = RepeatRule::Daily {
+            workday_only: false,
+        };
+        let state2 = make_state(vec![task2]);
+        let res = bulk_complete_tasks_impl(&ctx_fail, &state2, vec!["repeat2".into()]);
+        assert!(!res.ok);
+    }
+
+    #[test]
+    fn export_tasks_json_covers_app_data_dir_and_json_error_paths() {
+        let state = make_state(Vec::new());
+
+        let bad = TestCtx::with_app_data_dir_error("nope");
+        let res = export_tasks_json_impl(&bad, &state);
+        assert!(!res.ok);
+
+        // success path hits default `force_json_serialize_error` implementation (returns false).
+        let ok_ctx = TestCtx::new();
+        let res = export_tasks_json_impl(&ok_ctx, &state);
+        assert!(res.ok);
+
+        // forced serialization error path.
+        let err_ctx = ForceJsonErrorCtx::new();
+        let res = export_tasks_json_impl(&err_ctx, &state);
+        assert!(!res.ok);
+    }
+
+    #[test]
+    fn force_json_error_ctx_forwards_all_trait_methods() {
+        let ctx = ForceJsonErrorCtx::new();
+        ctx.emit_state_updated(StatePayload {
+            tasks: Vec::new(),
+            projects: Vec::new(),
+            settings: Settings::default(),
+        });
+        ctx.update_tray_count(&[], &Settings::default());
+        ctx.shortcut_unregister_all();
+        assert!(ctx.shortcut_validate("CommandOrControl+Shift+P").is_ok());
+        assert!(ctx.shortcut_register("CommandOrControl+Shift+P").is_ok());
+    }
+
+    #[test]
+    fn export_tasks_csv_and_markdown_cover_error_and_formatting_branches() {
+        let now = Local::now();
+        let now_ts = now.timestamp();
+        let today = now.date_naive();
+        let end_of_today = today.and_hms_opt(23, 59, 59).unwrap();
+        let end_of_today_ts = Local
+            .from_local_datetime(&end_of_today)
+            .single()
+            .unwrap()
+            .timestamp();
+        let tomorrow = today.succ_opt().unwrap();
+        let end_of_tomorrow = tomorrow.and_hms_opt(23, 59, 59).unwrap();
+        let end_of_tomorrow_ts = Local
+            .from_local_datetime(&end_of_tomorrow)
+            .single()
+            .unwrap()
+            .timestamp();
+
+        let overdue = make_task("overdue", now_ts - 3600);
+
+        let mut due_today = make_task("today", end_of_today_ts);
+        due_today.tags = vec!["alpha".to_string(), "beta".to_string()];
+        due_today.notes = Some("line1\r\nline2".to_string());
+        due_today.steps = vec![
+            Step {
+                id: "s1".to_string(),
+                title: "done".to_string(),
+                completed: true,
+                created_at: 1,
+                completed_at: Some(1),
+            },
+            Step {
+                id: "s2".to_string(),
+                title: "todo".to_string(),
+                completed: false,
+                created_at: 1,
+                completed_at: None,
+            },
+        ];
+
+        let mut future = make_task("future", end_of_tomorrow_ts);
+        future.important = true;
+
+        let invalid = make_task("invalid-ts", i64::MAX);
+
+        let mut done = make_task("done", now_ts - 10);
+        done.completed = true;
+
+        let state = make_state(vec![overdue, due_today, future, invalid, done]);
+
+        // app_data_dir error paths.
+        let bad = TestCtx::with_app_data_dir_error("nope");
+        assert!(!export_tasks_csv_impl(&bad, &state).ok);
+        assert!(!export_tasks_markdown_impl(&bad, &state).ok);
+
+        // Force write_atomic_bytes to fail by making `exports/` a file.
+        let ctx = TestCtx::new();
+        fs::write(ctx.root_path().join("exports"), b"x").unwrap();
+        assert!(!export_tasks_csv_impl(&ctx, &state).ok);
+        assert!(!export_tasks_markdown_impl(&ctx, &state).ok);
     }
 }

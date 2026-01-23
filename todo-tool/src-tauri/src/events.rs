@@ -1,4 +1,4 @@
-use crate::models::{Settings, Task};
+use crate::models::{Project, Settings, Task};
 
 pub const EVENT_REMINDER: &str = "reminder_fired";
 pub const EVENT_STATE_UPDATED: &str = "state_updated";
@@ -7,6 +7,7 @@ pub const EVENT_NAVIGATE: &str = "fk.todo:navigate";
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct StatePayload {
     pub tasks: Vec<Task>,
+    pub projects: Vec<Project>,
     pub settings: Settings,
 }
 
@@ -23,6 +24,7 @@ mod tests {
     fn make_task(id: &str) -> Task {
         Task {
             id: id.to_string(),
+            project_id: "inbox".to_string(),
             title: format!("task-{id}"),
             due_at: 1,
             important: false,
@@ -49,6 +51,7 @@ mod tests {
 
         let payload = StatePayload {
             tasks: vec![make_task("a")],
+            projects: Vec::new(),
             settings: Settings::default(),
         };
         let value = serde_json::to_value(payload).unwrap();

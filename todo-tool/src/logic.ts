@@ -4,10 +4,15 @@ import type { ReminderConfig, Task } from "./types";
 export type QuickTab = "todo" | "today" | "all" | "done";
 export type QuickSortMode = "default" | "created";
 
-export function newTask(title: string, now: Date): Task {
+export function newTask(
+  title: string,
+  now: Date,
+  projectId: string = "inbox",
+): Task {
   const ts = Math.floor(now.getTime() / 1000);
   return {
     id: crypto.randomUUID(),
+    project_id: projectId,
     title: title.trim(),
     due_at: defaultDueAt(now),
     important: false,
@@ -32,13 +37,20 @@ function defaultReminder(): ReminderConfig {
   };
 }
 
-export function visibleQuickTasks(tasks: Task[], tab: QuickTab, now: Date, sortMode: QuickSortMode): Task[] {
+export function visibleQuickTasks(
+  tasks: Task[],
+  tab: QuickTab,
+  now: Date,
+  sortMode: QuickSortMode,
+): Task[] {
   const ts = Math.floor(now.getTime() / 1000);
 
   let list = tasks;
   if (tab === "todo") {
     // Focused list: overdue + due today (incomplete only).
-    list = tasks.filter((t) => !t.completed && (isOverdue(t, ts) || isDueToday(t, now)));
+    list = tasks.filter(
+      (t) => !t.completed && (isOverdue(t, ts) || isDueToday(t, now)),
+    );
   } else if (tab === "today") {
     // Due today only (incomplete).
     list = tasks.filter((t) => !t.completed && isDueToday(t, now));

@@ -61,10 +61,15 @@ pub fn run() {
             let storage = Storage::new(app.path().app_data_dir()?);
             storage.ensure_dirs()?;
 
-            let tasks = storage
+            let tasks_file = storage
                 .load_tasks()
-                .map(|data| data.tasks)
-                .unwrap_or_default();
+                .unwrap_or_else(|_| crate::models::TasksFile {
+                    schema_version: 1,
+                    tasks: Vec::new(),
+                    projects: Vec::new(),
+                });
+            let tasks = tasks_file.tasks;
+            let projects = tasks_file.projects;
             let mut settings = storage
                 .load_settings()
                 .map(|data| data.settings)
@@ -114,7 +119,7 @@ pub fn run() {
                 }
             };
 
-            let state = AppState::new(tasks, settings);
+            let state = AppState::new(tasks, projects, settings);
             app.manage(state.clone());
 
             // Create the main window programmatically so we can enable transparency on non-macOS
@@ -251,6 +256,10 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             load_state,
+            create_project,
+            update_project,
+            swap_project_sort_order,
+            delete_project,
             create_task,
             update_task,
             bulk_update_tasks,

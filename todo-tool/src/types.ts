@@ -34,8 +34,19 @@ export interface Step {
   completed_at?: number;
 }
 
+export interface Project {
+  id: string;
+  name: string;
+  pinned: boolean;
+  sort_order: number;
+  created_at: number;
+  updated_at: number;
+  sample_tag?: string;
+}
+
 export interface Task {
   id: string;
+  project_id: string;
   title: string;
   due_at: number;
   important: boolean;
@@ -71,6 +82,12 @@ export interface Settings {
   today_focus_date?: string;
   today_focus_ids: string[];
   today_prompted_date?: string;
+}
+
+export interface StatePayload {
+  tasks: Task[];
+  projects: Project[];
+  settings: Settings;
 }
 
 export interface CommandResult<T> {

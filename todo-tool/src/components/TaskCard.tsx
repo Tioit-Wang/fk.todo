@@ -50,6 +50,15 @@ export function TaskCard({
   const { t } = useI18n();
   const now = Math.floor(Date.now() / 1000);
   const overdue = isOverdue(task, now);
+  const overdueFlag = overdue
+    ? (() => {
+        const delta = Math.max(0, now - task.due_at);
+        const days = Math.floor(delta / 86400);
+        if (days > 0) return t("task.overdueFlag.days", { days });
+        const hours = Math.max(1, Math.floor(delta / 3600));
+        return t("task.overdueFlag.hours", { hours });
+      })()
+    : null;
 
   const cardRef = useRef<HTMLDivElement | null>(null);
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
@@ -233,6 +242,11 @@ export function TaskCard({
               <Icons.Clock />
               {formatDue(task.due_at)}
             </span>
+            {overdueFlag && (
+              <span className="task-overdue-flag" title={overdueFlag}>
+                {overdueFlag}
+              </span>
+            )}
             {task.important && (
               <span className="task-chip important">
                 <Icons.Star />

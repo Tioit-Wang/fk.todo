@@ -38,13 +38,16 @@ import {
   bulkCompleteTasks,
   bulkUpdateTasks,
   completeTask,
+  createProject,
   createTask,
+  deleteProject,
   deleteTask,
   deleteTasks,
   dismissForced,
   loadState,
   snoozeTask,
   showSettingsWindow,
+  updateProject,
   updateSettings,
   updateTask,
 } from "./api";
@@ -55,7 +58,7 @@ import { TAURI_NAVIGATE } from "./events";
 import { detectPlatform } from "./platform";
 import { buildReminderConfig } from "./reminder";
 import { normalizeTheme } from "./theme";
-import type { Settings, Task } from "./types";
+import type { Project, Settings, Task } from "./types";
 import { TodayView } from "./views/TodayView";
 
 const NOTIFICATION_ACTION_TYPE = "todo-reminder";
@@ -66,7 +69,18 @@ function normalizeTask(task: Task) {
   const sort_order = task.sort_order || task.created_at * 1000;
   const quadrant = [1, 2, 3, 4].includes(task.quadrant) ? task.quadrant : 1;
   const tags = Array.isArray(task.tags) ? task.tags : [];
-  return { ...task, sort_order, quadrant, tags };
+  const project_id =
+    typeof task.project_id === "string" && task.project_id.trim()
+      ? task.project_id
+      : "inbox";
+  return { ...task, sort_order, quadrant, tags, project_id };
+}
+
+function normalizeProject(project: Project) {
+  const sort_order = project.sort_order || project.created_at * 1000;
+  const pinned = Boolean(project.pinned);
+  const name = typeof project.name === "string" ? project.name : "";
+  return { ...project, sort_order, pinned, name };
 }
 
 function normalizeSettings(settings: Settings): Settings {
@@ -82,7 +96,12 @@ function normalizeSettings(settings: Settings): Settings {
     typeof settings.today_prompted_date === "string"
       ? settings.today_prompted_date
       : undefined;
-  return { ...settings, today_focus_ids, today_focus_date, today_prompted_date };
+  return {
+    ...settings,
+    today_focus_ids,
+    today_focus_date,
+    today_prompted_date,
+  };
 }
 
 function mergeUniqueIds(existing: string[], incoming: string[]) {
@@ -126,15 +145,27 @@ function App() {
     const path = raw.startsWith("/") ? raw.slice(1) : raw;
     const view = path.split("/")[0];
     const label = getCurrentWindow().label;
-    if (label === "main" || label === "quick" || label === "reminder" || label === "settings")
+    if (
+      label === "main" ||
+      label === "quick" ||
+      label === "reminder" ||
+      label === "settings"
+    )
       return label;
-    if (view === "main" || view === "quick" || view === "reminder" || view === "settings") return view;
+    if (
+      view === "main" ||
+      view === "quick" ||
+      view === "reminder" ||
+      view === "settings"
+    )
+      return view;
     return "main";
   };
 
   const [view, setView] = useState<AppView>(getViewFromHash());
   const [locationHash, setLocationHash] = useState(() => window.location.hash);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
 
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
@@ -310,18 +341,22 @@ function App() {
     void (async () => {
       const res = await loadState();
       if (res.ok && res.data) {
-        const [loadedTasks, loadedSettings] = res.data;
-        setTasks(loadedTasks.map(normalizeTask));
-        setSettings(normalizeSettings(loadedSettings));
+        setTasks(res.data.tasks.map(normalizeTask));
+        setProjects(res.data.projects.map(normalizeProject));
+        setSettings(normalizeSettings(res.data.settings));
       }
 
       const stateListener = await listen("state_updated", (event) => {
         const payload = event.payload as {
           tasks?: Task[];
+          projects?: Project[];
           settings?: Settings;
         };
         if (payload.tasks) {
           setTasks(payload.tasks.map(normalizeTask));
+        }
+        if (payload.projects) {
+          setProjects(payload.projects.map(normalizeProject));
         }
         if (payload.settings) {
           setSettings(normalizeSettings(payload.settings));
@@ -567,13 +602,16 @@ function App() {
   async function refreshState() {
     const res = await loadState();
     if (res.ok && res.data) {
-      const [loadedTasks, loadedSettings] = res.data;
-      setTasks(loadedTasks.map(normalizeTask));
-      setSettings(normalizeSettings(loadedSettings));
+      setTasks(res.data.tasks.map(normalizeTask));
+      setProjects(res.data.projects.map(normalizeProject));
+      setSettings(normalizeSettings(res.data.settings));
     }
   }
 
-  async function handleUpdateSettings(next: Settings, options?: UpdateSettingsOptions): Promise<boolean> {
+  async function handleUpdateSettings(
+    next: Settings,
+    options?: UpdateSettingsOptions,
+  ): Promise<boolean> {
     const previous = settingsRef.current ?? settings;
     setSettings(next);
     const result = await updateSettings(next);
@@ -604,12 +642,57 @@ function App() {
   async function handleOpenSettingsWindow() {
     const res = await showSettingsWindow();
     if (!res.ok) {
-      toast.notify(res.error ?? t("settings.openFailed"), { tone: "danger", durationMs: 6000 });
+      toast.notify(res.error ?? t("settings.openFailed"), {
+        tone: "danger",
+        durationMs: 6000,
+      });
+    }
+  }
+
+  async function handleCreateProject(name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const project: Project = {
+      id: crypto.randomUUID(),
+      name: trimmed,
+      pinned: false,
+      sort_order: Date.now(),
+      created_at: nowSeconds,
+      updated_at: nowSeconds,
+    };
+
+    const res = await createProject(project);
+    if (!res.ok) {
+      toast.notify(res.error ?? t("alert.operationFailed"), {
+        tone: "danger",
+        durationMs: 6000,
+      });
+    }
+  }
+
+  async function handleUpdateProject(next: Project) {
+    const res = await updateProject(next);
+    if (!res.ok) {
+      toast.notify(res.error ?? t("alert.operationFailed"), {
+        tone: "danger",
+        durationMs: 6000,
+      });
+    }
+  }
+
+  async function handleDeleteProject(projectId: string) {
+    const res = await deleteProject(projectId);
+    if (!res.ok) {
+      toast.notify(res.error ?? t("alert.operationFailed"), {
+        tone: "danger",
+        durationMs: 6000,
+      });
     }
   }
 
   async function handleCreateFromComposer(draft: TaskComposerDraft) {
-    const task = newTask(draft.title, new Date());
+    const task = newTask(draft.title, new Date(), draft.project_id);
     task.due_at = draft.due_at;
     task.important = draft.important;
     task.tags = draft.tags;
@@ -663,7 +746,10 @@ function App() {
     try {
       const result = await deleteTask(deleteCandidate.id);
       if (!result.ok) {
-        toast.notify(result.error ?? t("alert.deleteFailed"), { tone: "danger", durationMs: 6000 });
+        toast.notify(result.error ?? t("alert.deleteFailed"), {
+          tone: "danger",
+          durationMs: 6000,
+        });
         return;
       }
       setConfirmDeleteTaskId(null);
@@ -680,7 +766,10 @@ function App() {
     if (nextTasks.length === 0) return true;
     const result = await bulkUpdateTasks(nextTasks);
     if (!result.ok) {
-      toast.notify(result.error ?? t("alert.operationFailed"), { tone: "danger", durationMs: 6000 });
+      toast.notify(result.error ?? t("alert.operationFailed"), {
+        tone: "danger",
+        durationMs: 6000,
+      });
       await refreshState();
       return false;
     }
@@ -691,7 +780,10 @@ function App() {
     if (taskIds.length === 0) return true;
     const result = await bulkCompleteTasks(taskIds);
     if (!result.ok) {
-      toast.notify(result.error ?? t("alert.operationFailed"), { tone: "danger", durationMs: 6000 });
+      toast.notify(result.error ?? t("alert.operationFailed"), {
+        tone: "danger",
+        durationMs: 6000,
+      });
       await refreshState();
       return false;
     }
@@ -702,7 +794,10 @@ function App() {
     if (taskIds.length === 0) return true;
     const result = await deleteTasks(taskIds);
     if (!result.ok) {
-      toast.notify(result.error ?? t("alert.deleteFailed"), { tone: "danger", durationMs: 6000 });
+      toast.notify(result.error ?? t("alert.deleteFailed"), {
+        tone: "danger",
+        durationMs: 6000,
+      });
       await refreshState();
       return false;
     }
@@ -846,7 +941,10 @@ function App() {
     }
     const label = getCurrentWindow().label;
     if (label !== "main" && label !== "settings") {
-      return { status: "error", error: "updater must run in main/settings window" };
+      return {
+        status: "error",
+        error: "updater must run in main/settings window",
+      };
     }
     if (updateBusy) {
       return { status: "error", error: "updater is busy" };
@@ -864,7 +962,10 @@ function App() {
       setShowUpdatePrompt(true);
       return { status: "update", version: update.version };
     } catch (err) {
-      return { status: "error", error: err instanceof Error ? err.message : String(err) };
+      return {
+        status: "error",
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
   }
 
@@ -968,169 +1069,187 @@ function App() {
   return (
     <I18nProvider lang={appLang}>
       <div className="app-container">
-      {view === "quick" && (
-        <QuickView
-          tasks={tasks}
-          settings={settings}
-          normalTasks={normalTasks}
-          onUpdateSettings={handleUpdateSettings}
-          onUpdateTask={handleUpdateTask}
-          onCreateFromComposer={handleCreateFromComposer}
-          onToggleComplete={handleToggleComplete}
-          onToggleImportant={handleToggleImportant}
-          onRequestDelete={handleRequestDelete}
-          onEditTask={handleEditTask}
-          onNormalSnooze={handleNormalSnooze}
-          onNormalComplete={handleNormalComplete}
-        />
-      )}
+        {view === "quick" && (
+          <QuickView
+            tasks={tasks}
+            settings={settings}
+            normalTasks={normalTasks}
+            onUpdateSettings={handleUpdateSettings}
+            onUpdateTask={handleUpdateTask}
+            onCreateFromComposer={handleCreateFromComposer}
+            onToggleComplete={handleToggleComplete}
+            onToggleImportant={handleToggleImportant}
+            onRequestDelete={handleRequestDelete}
+            onEditTask={handleEditTask}
+            onNormalSnooze={handleNormalSnooze}
+            onNormalComplete={handleNormalComplete}
+          />
+        )}
 
-      {view === "settings" && (
-        <SettingsView
-          tasks={tasks}
-          settings={settings}
-          onUpdateSettings={handleUpdateSettings}
-          updateBusy={updateBusy}
-          onCheckUpdate={handleManualUpdateCheck}
-          onBack={() => {
-            void getCurrentWindow()
-              .hide()
-              .catch(() => {});
+        {view === "settings" && (
+          <SettingsView
+            tasks={tasks}
+            projects={projects}
+            settings={settings}
+            onUpdateSettings={handleUpdateSettings}
+            updateBusy={updateBusy}
+            onCheckUpdate={handleManualUpdateCheck}
+            onBack={() => {
+              void getCurrentWindow()
+                .hide()
+                .catch(() => {});
+            }}
+          />
+        )}
+
+        {view === "main" && mainPage === "today" && (
+          <TodayView
+            tasks={tasks}
+            settings={settings}
+            onUpdateSettings={handleUpdateSettings}
+            onBack={() => {
+              window.location.hash = "#/main";
+            }}
+          />
+        )}
+
+        {view === "main" && mainPage === "calendar" && (
+          <CalendarView
+            tasks={tasks}
+            settings={settings}
+            normalTasks={normalTasks}
+            onNormalSnooze={handleNormalSnooze}
+            onNormalComplete={handleNormalComplete}
+            onUpdateTask={handleUpdateTask}
+            onToggleComplete={handleToggleComplete}
+            onToggleImportant={handleToggleImportant}
+            onRequestDelete={handleRequestDelete}
+            onEditTask={handleEditTask}
+            onBack={() => {
+              window.location.hash = "#/main";
+            }}
+          />
+        )}
+
+        {view === "main" && mainPage === "home" && (
+          <MainView
+            tasks={tasks}
+            projects={projects}
+            settings={settings}
+            normalTasks={normalTasks}
+            onUpdateTask={handleUpdateTask}
+            onUpdateProject={handleUpdateProject}
+            onDeleteProject={handleDeleteProject}
+            onBulkUpdate={handleBulkUpdate}
+            onBulkComplete={handleBulkComplete}
+            onBulkDelete={handleBulkDelete}
+            onRefreshState={refreshState}
+            onCreateFromComposer={handleCreateFromComposer}
+            onCreateProject={handleCreateProject}
+            onToggleComplete={handleToggleComplete}
+            onToggleImportant={handleToggleImportant}
+            onRequestDelete={handleRequestDelete}
+            onEditTask={handleEditTask}
+            onOpenSettings={() => void handleOpenSettingsWindow()}
+            onOpenToday={handleOpenToday}
+            onOpenCalendar={handleOpenCalendar}
+            onNormalSnooze={handleNormalSnooze}
+            onNormalComplete={handleNormalComplete}
+          />
+        )}
+
+        {view === "reminder" && settings && (
+          <ForcedReminderOverlay
+            task={reminderTask}
+            color={settings.forced_reminder_color}
+            queueIndex={reminderQueueIndex}
+            queueTotal={reminderQueueTotal}
+            onDismiss={handleReminderDismiss}
+            onSnooze5={handleReminderSnooze5}
+            onComplete={handleReminderComplete}
+          />
+        )}
+
+        {editingTask && view !== "reminder" && (
+          <TaskEditModal
+            task={editingTask}
+            showNotes={view === "main"}
+            onSave={handleUpdateTask}
+            onClose={() => setEditingTaskId(null)}
+          />
+        )}
+
+        <ConfirmDialog
+          open={
+            showTodayPrompt &&
+            Boolean(settings) &&
+            view === "main" &&
+            mainPage === "home"
+          }
+          title={t("today.prompt.title")}
+          description={t("today.prompt.description")}
+          confirmText={t("today.prompt.confirm")}
+          cancelText={t("today.prompt.skip")}
+          onConfirm={() => {
+            if (!settings) return;
+            const todayKey = formatLocalDateKey(new Date());
+            void handleUpdateSettings({
+              ...settings,
+              today_prompted_date: todayKey,
+            }).catch(() => {});
+            setShowTodayPrompt(false);
+            window.location.hash = "#/main/today";
+          }}
+          onCancel={() => {
+            if (!settings) return;
+            const todayKey = formatLocalDateKey(new Date());
+            void handleUpdateSettings({
+              ...settings,
+              today_prompted_date: todayKey,
+            }).catch(() => {});
+            setShowTodayPrompt(false);
           }}
         />
-      )}
 
-      {view === "main" && mainPage === "today" && (
-        <TodayView
-          tasks={tasks}
-          settings={settings}
-          onUpdateSettings={handleUpdateSettings}
-          onBack={() => {
-            window.location.hash = "#/main";
+        <ConfirmDialog
+          open={showUpdatePrompt && Boolean(pendingUpdate)}
+          title={updatePromptTitle}
+          description={updatePromptDescription}
+          confirmText={updateConfirmText}
+          cancelText={t("update.later")}
+          busy={updateBusy}
+          onConfirm={handleUpdateConfirm}
+          onCancel={dismissUpdatePrompt}
+        />
+
+        <ConfirmDialog
+          open={Boolean(updateError)}
+          title={t("update.failed")}
+          description={updateError ?? undefined}
+          confirmText={t("update.retry")}
+          cancelText={t("common.close")}
+          onConfirm={() => void handleUpdateErrorRetry()}
+          onCancel={() => setUpdateError(null)}
+        />
+
+        <ConfirmDialog
+          open={Boolean(deleteCandidate)}
+          title={t("confirmDelete.title")}
+          description={deleteCandidate ? deleteCandidate.title : undefined}
+          confirmText={
+            confirmDeleteBusy ? t("common.deleting") : t("common.delete")
+          }
+          cancelText={t("common.cancel")}
+          tone="danger"
+          busy={confirmDeleteBusy}
+          onConfirm={handleConfirmDelete}
+          onCancel={() => {
+            if (confirmDeleteBusy) return;
+            setConfirmDeleteTaskId(null);
           }}
         />
-      )}
 
-      {view === "main" && mainPage === "calendar" && (
-        <CalendarView
-          tasks={tasks}
-          settings={settings}
-          normalTasks={normalTasks}
-          onNormalSnooze={handleNormalSnooze}
-          onNormalComplete={handleNormalComplete}
-          onUpdateTask={handleUpdateTask}
-          onToggleComplete={handleToggleComplete}
-          onToggleImportant={handleToggleImportant}
-          onRequestDelete={handleRequestDelete}
-          onEditTask={handleEditTask}
-          onBack={() => {
-            window.location.hash = "#/main";
-          }}
-        />
-      )}
-
-	      {view === "main" && mainPage === "home" && (
-	        <MainView
-	          tasks={tasks}
-	          settings={settings}
-	          normalTasks={normalTasks}
-	          onUpdateTask={handleUpdateTask}
-	          onBulkUpdate={handleBulkUpdate}
-	          onBulkComplete={handleBulkComplete}
-	          onBulkDelete={handleBulkDelete}
-	          onRefreshState={refreshState}
-	          onCreateFromComposer={handleCreateFromComposer}
-	          onToggleComplete={handleToggleComplete}
-	          onToggleImportant={handleToggleImportant}
-	          onRequestDelete={handleRequestDelete}
-          onEditTask={handleEditTask}
-          onOpenSettings={() => void handleOpenSettingsWindow()}
-          onOpenToday={handleOpenToday}
-          onOpenCalendar={handleOpenCalendar}
-          onNormalSnooze={handleNormalSnooze}
-          onNormalComplete={handleNormalComplete}
-        />
-      )}
-
-      {view === "reminder" && settings && (
-        <ForcedReminderOverlay
-          task={reminderTask}
-          color={settings.forced_reminder_color}
-          queueIndex={reminderQueueIndex}
-          queueTotal={reminderQueueTotal}
-          onDismiss={handleReminderDismiss}
-          onSnooze5={handleReminderSnooze5}
-          onComplete={handleReminderComplete}
-        />
-      )}
-
-      {editingTask && view !== "reminder" && (
-        <TaskEditModal
-          task={editingTask}
-          showNotes={view === "main"}
-          onSave={handleUpdateTask}
-          onClose={() => setEditingTaskId(null)}
-        />
-      )}
-
-      <ConfirmDialog
-        open={showTodayPrompt && Boolean(settings) && view === "main" && mainPage === "home"}
-        title={t("today.prompt.title")}
-        description={t("today.prompt.description")}
-        confirmText={t("today.prompt.confirm")}
-        cancelText={t("today.prompt.skip")}
-        onConfirm={() => {
-          if (!settings) return;
-          const todayKey = formatLocalDateKey(new Date());
-          void handleUpdateSettings({ ...settings, today_prompted_date: todayKey }).catch(() => {});
-          setShowTodayPrompt(false);
-          window.location.hash = "#/main/today";
-        }}
-        onCancel={() => {
-          if (!settings) return;
-          const todayKey = formatLocalDateKey(new Date());
-          void handleUpdateSettings({ ...settings, today_prompted_date: todayKey }).catch(() => {});
-          setShowTodayPrompt(false);
-        }}
-      />
-
-      <ConfirmDialog
-        open={showUpdatePrompt && Boolean(pendingUpdate)}
-        title={updatePromptTitle}
-        description={updatePromptDescription}
-        confirmText={updateConfirmText}
-        cancelText={t("update.later")}
-        busy={updateBusy}
-        onConfirm={handleUpdateConfirm}
-        onCancel={dismissUpdatePrompt}
-      />
-
-      <ConfirmDialog
-        open={Boolean(updateError)}
-        title={t("update.failed")}
-        description={updateError ?? undefined}
-        confirmText={t("update.retry")}
-        cancelText={t("common.close")}
-        onConfirm={() => void handleUpdateErrorRetry()}
-        onCancel={() => setUpdateError(null)}
-      />
-
-      <ConfirmDialog
-        open={Boolean(deleteCandidate)}
-        title={t("confirmDelete.title")}
-        description={deleteCandidate ? deleteCandidate.title : undefined}
-        confirmText={confirmDeleteBusy ? t("common.deleting") : t("common.delete")}
-        cancelText={t("common.cancel")}
-        tone="danger"
-        busy={confirmDeleteBusy}
-        onConfirm={handleConfirmDelete}
-        onCancel={() => {
-          if (confirmDeleteBusy) return;
-          setConfirmDeleteTaskId(null);
-        }}
-      />
-
-      {confirmDialog}
+        {confirmDialog}
       </div>
     </I18nProvider>
   );

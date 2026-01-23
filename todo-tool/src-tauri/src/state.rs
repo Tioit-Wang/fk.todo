@@ -3,9 +3,51 @@ use std::sync::{Arc, Mutex};
 
 use chrono::Utc;
 
-use crate::models::{Settings, SettingsFile, Task, TasksFile};
+use crate::models::{Project, Settings, SettingsFile, Task, TasksFile};
 
 const SCHEMA_VERSION: u32 = 1;
+const INBOX_PROJECT_ID: &str = "inbox";
+const INBOX_PROJECT_DEFAULT_NAME: &str = "Inbox";
+
+fn ensure_inbox_project(projects: &mut Vec<Project>, now: &chrono::DateTime<Utc>) {
+    if projects
+        .iter()
+        .any(|project| project.id == INBOX_PROJECT_ID)
+    {
+        return;
+    }
+    projects.push(Project {
+        id: INBOX_PROJECT_ID.to_string(),
+        name: INBOX_PROJECT_DEFAULT_NAME.to_string(),
+        pinned: true,
+        sort_order: 0,
+        created_at: now.timestamp(),
+        updated_at: now.timestamp(),
+        sample_tag: None,
+    });
+}
+
+fn normalize_projects(projects: &mut Vec<Project>) {
+    for project in projects {
+        if project.sort_order == 0 {
+            project.sort_order = project.created_at * 1000;
+        }
+    }
+}
+
+fn normalize_tasks(tasks: &mut Vec<Task>, projects: &[Project]) {
+    let allowed: std::collections::HashSet<&str> =
+        projects.iter().map(|project| project.id.as_str()).collect();
+
+    for task in tasks {
+        if task.sort_order == 0 {
+            task.sort_order = task.created_at * 1000;
+        }
+        if task.project_id.trim().is_empty() || !allowed.contains(task.project_id.as_str()) {
+            task.project_id = INBOX_PROJECT_ID.to_string();
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct AppState {
@@ -16,15 +58,20 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(tasks: Vec<Task>, settings: Settings) -> Self {
+    pub fn new(tasks: Vec<Task>, projects: Vec<Project>, settings: Settings) -> Self {
+        let now = Utc::now();
         let mut tasks = tasks;
-        for task in &mut tasks {
-            if task.sort_order == 0 {
-                task.sort_order = task.created_at * 1000;
-            }
-        }
+        let mut projects = projects;
+
+        ensure_inbox_project(&mut projects, &now);
+        normalize_projects(&mut projects);
+        normalize_tasks(&mut tasks, &projects);
         Self {
-            inner: Arc::new(Mutex::new(AppData { tasks, settings })),
+            inner: Arc::new(Mutex::new(AppData {
+                tasks,
+                projects,
+                settings,
+            })),
             shortcut_capture_active: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -34,7 +81,8 @@ impl AppState {
     }
 
     pub fn set_shortcut_capture_active(&self, active: bool) {
-        self.shortcut_capture_active.store(active, Ordering::Relaxed);
+        self.shortcut_capture_active
+            .store(active, Ordering::Relaxed);
     }
 
     pub fn tasks_file(&self) -> TasksFile {
@@ -42,6 +90,7 @@ impl AppState {
         TasksFile {
             schema_version: SCHEMA_VERSION,
             tasks: guard.tasks.clone(),
+            projects: guard.projects.clone(),
         }
     }
 
@@ -58,22 +107,39 @@ impl AppState {
         guard.tasks.clone()
     }
 
+    pub fn projects(&self) -> Vec<Project> {
+        let guard = self.inner.lock().expect("state poisoned");
+        guard.projects.clone()
+    }
+
     pub fn add_task(&self, task: Task) {
         let mut guard = self.inner.lock().expect("state poisoned");
         guard.tasks.push(task);
     }
 
+    pub fn add_project(&self, project: Project) {
+        let mut guard = self.inner.lock().expect("state poisoned");
+        guard.projects.push(project);
+    }
+
     pub fn replace_tasks(&self, tasks: Vec<Task>) {
         let mut guard = self.inner.lock().expect("state poisoned");
-        guard.tasks = tasks
-            .into_iter()
-            .map(|mut task| {
-                if task.sort_order == 0 {
-                    task.sort_order = task.created_at * 1000;
-                }
-                task
-            })
-            .collect();
+        let mut next = tasks;
+        normalize_tasks(&mut next, &guard.projects);
+        guard.tasks = next;
+    }
+
+    pub fn replace_projects(&self, projects: Vec<Project>) {
+        let mut guard = self.inner.lock().expect("state poisoned");
+        let now = Utc::now();
+        let mut next = projects;
+        ensure_inbox_project(&mut next, &now);
+        normalize_projects(&mut next);
+        guard.projects = next;
+
+        // Any task referencing a now-missing project is moved to inbox.
+        let projects_snapshot = guard.projects.clone();
+        normalize_tasks(&mut guard.tasks, &projects_snapshot);
     }
 
     pub fn update_task(&self, task: Task) {
@@ -85,6 +151,23 @@ impl AppState {
             }
             *existing = next;
         }
+    }
+
+    pub fn update_project(&self, project: Project) {
+        let mut guard = self.inner.lock().expect("state poisoned");
+        if let Some(existing) = guard.projects.iter_mut().find(|p| p.id == project.id) {
+            *existing = project;
+        }
+    }
+
+    pub fn remove_project(&self, project_id: &str) {
+        let mut guard = self.inner.lock().expect("state poisoned");
+        if project_id == INBOX_PROJECT_ID {
+            return;
+        }
+        guard.projects.retain(|project| project.id != project_id);
+        let projects_snapshot = guard.projects.clone();
+        normalize_tasks(&mut guard.tasks, &projects_snapshot);
     }
 
     pub fn swap_sort_order(&self, first_id: &str, second_id: &str, updated_at: i64) -> bool {
@@ -110,6 +193,37 @@ impl AppState {
         guard.tasks[second_index].sort_order = first_order;
         guard.tasks[first_index].updated_at = updated_at;
         guard.tasks[second_index].updated_at = updated_at;
+        true
+    }
+
+    pub fn swap_project_sort_order(
+        &self,
+        first_id: &str,
+        second_id: &str,
+        updated_at: i64,
+    ) -> bool {
+        let mut guard = self.inner.lock().expect("state poisoned");
+        let mut first_index = None;
+        let mut second_index = None;
+        for (index, project) in guard.projects.iter().enumerate() {
+            if project.id == first_id {
+                first_index = Some(index);
+            } else if project.id == second_id {
+                second_index = Some(index);
+            }
+            if first_index.is_some() && second_index.is_some() {
+                break;
+            }
+        }
+        let (first_index, second_index) = match (first_index, second_index) {
+            (Some(first), Some(second)) => (first, second),
+            _ => return false,
+        };
+        let first_order = guard.projects[first_index].sort_order;
+        guard.projects[first_index].sort_order = guard.projects[second_index].sort_order;
+        guard.projects[second_index].sort_order = first_order;
+        guard.projects[first_index].updated_at = updated_at;
+        guard.projects[second_index].updated_at = updated_at;
         true
     }
 
@@ -159,6 +273,7 @@ impl AppState {
 #[derive(Debug)]
 struct AppData {
     tasks: Vec<Task>,
+    projects: Vec<Project>,
     settings: Settings,
 }
 
@@ -170,6 +285,7 @@ mod tests {
     fn make_task(id: &str, created_at: i64, sort_order: i64, due_at: i64) -> Task {
         Task {
             id: id.to_string(),
+            project_id: "inbox".to_string(),
             title: format!("task-{id}"),
             due_at,
             important: false,
@@ -194,7 +310,7 @@ mod tests {
     #[test]
     fn new_fills_sort_order_when_zero() {
         let tasks = vec![make_task("a", 10, 0, 100), make_task("b", 20, 777, 200)];
-        let state = AppState::new(tasks, Settings::default());
+        let state = AppState::new(tasks, Vec::new(), Settings::default());
         let out = state.tasks();
         let a = out.iter().find(|t| t.id == "a").unwrap();
         let b = out.iter().find(|t| t.id == "b").unwrap();
@@ -204,7 +320,7 @@ mod tests {
 
     #[test]
     fn shortcut_capture_flag_defaults_to_false_and_can_toggle() {
-        let state = AppState::new(Vec::new(), Settings::default());
+        let state = AppState::new(Vec::new(), Vec::new(), Settings::default());
         assert!(!state.is_shortcut_capture_active());
         state.set_shortcut_capture_active(true);
         assert!(state.is_shortcut_capture_active());
@@ -214,10 +330,11 @@ mod tests {
 
     #[test]
     fn tasks_file_and_settings_file_include_schema_version() {
-        let state = AppState::new(Vec::new(), Settings::default());
+        let state = AppState::new(Vec::new(), Vec::new(), Settings::default());
         let tasks_file = state.tasks_file();
         assert_eq!(tasks_file.schema_version, SCHEMA_VERSION);
         assert_eq!(tasks_file.tasks.len(), 0);
+        assert!(tasks_file.projects.iter().any(|p| p.id == "inbox"));
 
         let settings_file = state.settings_file();
         assert_eq!(settings_file.schema_version, SCHEMA_VERSION);
@@ -229,7 +346,7 @@ mod tests {
 
     #[test]
     fn add_update_and_replace_tasks() {
-        let state = AppState::new(Vec::new(), Settings::default());
+        let state = AppState::new(Vec::new(), Vec::new(), Settings::default());
         state.add_task(make_task("a", 10, 0, 100));
         assert_eq!(state.tasks().len(), 1);
 
@@ -255,7 +372,7 @@ mod tests {
     fn swap_sort_order_success_and_failure() {
         let t1 = make_task("a", 1, 100, 10);
         let t2 = make_task("b", 2, 200, 20);
-        let state = AppState::new(vec![t1, t2], Settings::default());
+        let state = AppState::new(vec![t1, t2], Vec::new(), Settings::default());
 
         assert!(state.swap_sort_order("a", "b", 999));
         let out = state.tasks();
@@ -274,7 +391,7 @@ mod tests {
     fn complete_remove_and_mark_reminder() {
         let mut task = make_task("a", 1, 1, 10);
         task.reminder.snoozed_until = Some(123);
-        let state = AppState::new(vec![task], Settings::default());
+        let state = AppState::new(vec![task], Vec::new(), Settings::default());
 
         let completed = state.complete_task("a").expect("task exists");
         assert!(completed.completed);
@@ -305,7 +422,7 @@ mod tests {
 
     #[test]
     fn update_settings_replaces_previous_value() {
-        let state = AppState::new(Vec::new(), Settings::default());
+        let state = AppState::new(Vec::new(), Vec::new(), Settings::default());
         let mut next = Settings::default();
         next.theme = "dark".to_string();
         state.update_settings(next.clone());
@@ -316,7 +433,7 @@ mod tests {
     fn update_task_preserves_sample_tag_when_missing_in_update() {
         let mut task = make_task("sample", 1, 1, 10);
         task.sample_tag = Some("ai-novel-assistant-v1".to_string());
-        let state = AppState::new(vec![task.clone()], Settings::default());
+        let state = AppState::new(vec![task.clone()], Vec::new(), Settings::default());
 
         let mut edited = task.clone();
         edited.title = "edited".to_string();
@@ -331,7 +448,7 @@ mod tests {
     fn update_task_overwrites_sample_tag_when_present() {
         let mut task = make_task("sample2", 1, 1, 10);
         task.sample_tag = Some("old-tag".to_string());
-        let state = AppState::new(vec![task.clone()], Settings::default());
+        let state = AppState::new(vec![task.clone()], Vec::new(), Settings::default());
 
         let mut edited = task.clone();
         edited.sample_tag = Some("new-tag".to_string());
@@ -339,5 +456,35 @@ mod tests {
 
         let updated = state.tasks().into_iter().find(|t| t.id == task.id).unwrap();
         assert_eq!(updated.sample_tag.as_deref(), Some("new-tag"));
+    }
+
+    #[test]
+    fn normalize_tasks_moves_invalid_or_blank_project_ids_into_inbox() {
+        let mut task_missing = make_task("missing-project", 1, 0, 10);
+        task_missing.project_id = "does-not-exist".to_string();
+        let mut task_blank = make_task("blank-project", 1, 0, 10);
+        task_blank.project_id = "   ".to_string();
+
+        let state = AppState::new(
+            vec![task_missing, task_blank],
+            Vec::new(),
+            Settings::default(),
+        );
+        let out = state.tasks();
+        assert!(out.iter().all(|t| t.project_id == "inbox"));
+    }
+
+    #[test]
+    fn remove_project_is_noop_for_inbox() {
+        let state = AppState::new(Vec::new(), Vec::new(), Settings::default());
+        state.remove_project("inbox");
+        assert!(state.projects().iter().any(|p| p.id == "inbox"));
+    }
+
+    #[test]
+    fn swap_project_sort_order_returns_false_when_ids_missing() {
+        let state = AppState::new(Vec::new(), Vec::new(), Settings::default());
+        assert!(!state.swap_project_sort_order("inbox", "missing", 123));
+        assert!(!state.swap_project_sort_order("missing", "inbox", 123));
     }
 }

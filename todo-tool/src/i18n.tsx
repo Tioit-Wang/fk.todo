@@ -22,6 +22,7 @@ const STRINGS: Record<AppLanguage, Record<string, string>> = {
     "common.edit": "编辑",
     "common.refresh": "刷新",
     "common.restore": "恢复",
+    "common.add": "添加",
     "common.save": "保存",
     "common.saving": "保存中...",
     "common.reset": "重置",
@@ -47,7 +48,8 @@ const STRINGS: Record<AppLanguage, Record<string, string>> = {
     "batch.moveQuadrant": "移动象限：",
     "batch.confirmComplete.title": "完成 {count} 项任务？",
     "batch.confirmComplete.description": "完成后将进入已完成列表。",
-    "batch.confirmComplete.descriptionWithRepeat": "其中 {repeat} 项为循环任务，将自动生成下一期。",
+    "batch.confirmComplete.descriptionWithRepeat":
+      "其中 {repeat} 项为循环任务，将自动生成下一期。",
     "batch.confirmDelete.title": "删除 {count} 项任务？",
     "batch.confirmDelete.description": "该操作不可撤销。",
 
@@ -57,11 +59,30 @@ const STRINGS: Record<AppLanguage, Record<string, string>> = {
     "main.settings": "设置",
     "main.listTabs": "列表分组",
     "main.tab.all": "全部",
+    "main.tab.open": "未完成",
     "main.tab.overdue": "逾期",
     "main.tab.today": "今天",
     "main.tab.tomorrow": "明天",
     "main.tab.future": "未来",
     "main.tab.completed": "已完成",
+
+    "nav.sidebar": "侧边栏",
+    "nav.today": "今日",
+    "nav.important": "重要",
+    "nav.projects": "项目",
+    "nav.projects.add": "新建项目",
+    "nav.projects.placeholder": "项目名称",
+    "nav.inbox": "默认项目",
+
+    "project.menu.pin": "置顶",
+    "project.menu.unpin": "取消置顶",
+    "project.menu.rename": "改名",
+    "project.confirmDelete.title": "删除项目「{name}」？",
+    "project.confirmDelete.description":
+      "该项目下的任务将移动到默认项目，且此操作不可撤销。",
+
+    "task.overdueFlag.days": "已过期{days}天",
+    "task.overdueFlag.hours": "已过期{hours}小时",
 
     "today.title": "今日计划",
     "today.section.focus": "今日焦点",
@@ -83,6 +104,7 @@ const STRINGS: Record<AppLanguage, Record<string, string>> = {
     "sort.due": "到期时间",
     "sort.created": "添加时间",
     "sort.manual": "手动排序",
+    "sort.cycle": "切换排序",
 
     "filter.all": "全部",
     "filter.overdue": "逾期",
@@ -332,7 +354,8 @@ const STRINGS: Record<AppLanguage, Record<string, string>> = {
     "settings.backup.delete": "删除",
     "settings.backup.deleteConfirm": "确认删除备份：{name}？",
     "settings.backup.refresh": "刷新",
-    "settings.backup.restoreConfirm": "恢复将覆盖当前任务数据（不影响设置），确认继续？",
+    "settings.backup.restoreConfirm":
+      "恢复将覆盖当前任务数据（不影响设置），确认继续？",
     "settings.backup.import": "导入备份",
     "settings.backup.importPlaceholder": "输入备份文件路径",
     "settings.backup.importAction": "导入恢复",
@@ -350,7 +373,8 @@ const STRINGS: Record<AppLanguage, Record<string, string>> = {
     "settings.samples": "示例数据",
     "settings.samples.add": "添加 AI 小说助手示例任务",
     "settings.samples.adding": "添加中...",
-    "settings.samples.tooltip": "向当前记录追加一批 AI 小说助手开发计划相关的示例任务",
+    "settings.samples.tooltip":
+      "向当前记录追加一批 AI 小说助手开发计划相关的示例任务",
     "settings.samples.delete": "删除示例数据",
     "settings.samples.deleting": "删除中...",
     "settings.samples.deleteConfirm": "将删除 {count} 条示例任务，确认继续？",
@@ -381,6 +405,7 @@ const STRINGS: Record<AppLanguage, Record<string, string>> = {
     "common.edit": "Edit",
     "common.refresh": "Refresh",
     "common.restore": "Restore",
+    "common.add": "Add",
     "common.save": "Save",
     "common.saving": "Saving...",
     "common.reset": "Reset",
@@ -417,11 +442,30 @@ const STRINGS: Record<AppLanguage, Record<string, string>> = {
     "main.settings": "Settings",
     "main.listTabs": "List tabs",
     "main.tab.all": "All",
+    "main.tab.open": "Open",
     "main.tab.overdue": "Overdue",
     "main.tab.today": "Today",
     "main.tab.tomorrow": "Tomorrow",
     "main.tab.future": "Future",
     "main.tab.completed": "Done",
+
+    "nav.sidebar": "Sidebar",
+    "nav.today": "Today",
+    "nav.important": "Important",
+    "nav.projects": "Projects",
+    "nav.projects.add": "Add project",
+    "nav.projects.placeholder": "Project name",
+    "nav.inbox": "Default",
+
+    "project.menu.pin": "Pin",
+    "project.menu.unpin": "Unpin",
+    "project.menu.rename": "Rename",
+    "project.confirmDelete.title": "Delete project \"{name}\"?",
+    "project.confirmDelete.description":
+      "Tasks in this project will be moved to Default. This action cannot be undone.",
+
+    "task.overdueFlag.days": "Overdue {days}d",
+    "task.overdueFlag.hours": "Overdue {hours}h",
 
     "today.title": "Today",
     "today.section.focus": "Today focus",
@@ -443,6 +487,7 @@ const STRINGS: Record<AppLanguage, Record<string, string>> = {
     "sort.due": "Due",
     "sort.created": "Created",
     "sort.manual": "Manual",
+    "sort.cycle": "Cycle sort",
 
     "filter.all": "All",
     "filter.overdue": "Overdue",
@@ -692,7 +737,8 @@ const STRINGS: Record<AppLanguage, Record<string, string>> = {
     "settings.backup.delete": "Delete",
     "settings.backup.deleteConfirm": "Delete backup {name}?",
     "settings.backup.refresh": "Refresh",
-    "settings.backup.restoreConfirm": "Restoring will overwrite task data (settings stay). Continue?",
+    "settings.backup.restoreConfirm":
+      "Restoring will overwrite task data (settings stay). Continue?",
     "settings.backup.import": "Import backup",
     "settings.backup.importPlaceholder": "Backup file path",
     "settings.backup.importAction": "Import & restore",
@@ -710,10 +756,12 @@ const STRINGS: Record<AppLanguage, Record<string, string>> = {
     "settings.samples": "Sample data",
     "settings.samples.add": "Add AI Novel sample tasks",
     "settings.samples.adding": "Adding...",
-    "settings.samples.tooltip": "Append a set of AI novel assistant sample tasks",
+    "settings.samples.tooltip":
+      "Append a set of AI novel assistant sample tasks",
     "settings.samples.delete": "Delete sample data",
     "settings.samples.deleting": "Deleting...",
-    "settings.samples.deleteConfirm": "Delete {count} sample tasks? This cannot be undone.",
+    "settings.samples.deleteConfirm":
+      "Delete {count} sample tasks? This cannot be undone.",
     "settings.samples.deleteTooltip": "Remove previously added sample tasks",
     "settings.samples.confirm.duplicate":
       "AI Novel sample tasks already exist.\nAdding again will create duplicates ({count}).\nContinue?",
@@ -725,9 +773,14 @@ const STRINGS: Record<AppLanguage, Record<string, string>> = {
   },
 };
 
-function formatTemplate(template: string, params?: Record<string, string | number>): string {
+function formatTemplate(
+  template: string,
+  params?: Record<string, string | number>,
+): string {
   if (!params) return template;
-  return template.replace(/\{(\w+)\}/g, (_match, key: string) => String(params[key] ?? ""));
+  return template.replace(/\{(\w+)\}/g, (_match, key: string) =>
+    String(params[key] ?? ""),
+  );
 }
 
 export function detectSystemLanguage(): AppLanguage {
@@ -742,7 +795,9 @@ export function detectSystemLanguage(): AppLanguage {
   return lowered.some((value) => value.startsWith("zh")) ? "zh" : "en";
 }
 
-export function normalizeLanguagePreference(value: unknown): LanguagePreference {
+export function normalizeLanguagePreference(
+  value: unknown,
+): LanguagePreference {
   if (typeof value !== "string") return "auto";
   const v = value.trim().toLowerCase();
   if (v === "zh" || v === "en" || v === "auto") return v;
@@ -755,7 +810,10 @@ export function resolveAppLanguage(preference: unknown): AppLanguage {
   return detectSystemLanguage();
 }
 
-export type Translator = (key: string, params?: Record<string, string | number>) => string;
+export type Translator = (
+  key: string,
+  params?: Record<string, string | number>,
+) => string;
 
 export function makeTranslator(lang: AppLanguage): Translator {
   return (key: string, params?: Record<string, string | number>) => {
@@ -775,8 +833,17 @@ const I18nContext = createContext<I18nContextValue>({
   t: (key) => STRINGS.en[key] ?? key,
 });
 
-export function I18nProvider({ lang, children }: { lang: AppLanguage; children: ReactNode }) {
-  const value = useMemo<I18nContextValue>(() => ({ lang, t: makeTranslator(lang) }), [lang]);
+export function I18nProvider({
+  lang,
+  children,
+}: {
+  lang: AppLanguage;
+  children: ReactNode;
+}) {
+  const value = useMemo<I18nContextValue>(
+    () => ({ lang, t: makeTranslator(lang) }),
+    [lang],
+  );
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }
 

@@ -60,8 +60,27 @@ pub struct Step {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub struct Project {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub pinned: bool,
+    #[serde(default)]
+    pub sort_order: Timestamp,
+    #[serde(default)]
+    pub created_at: Timestamp,
+    #[serde(default)]
+    pub updated_at: Timestamp,
+    #[serde(default)]
+    pub sample_tag: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct Task {
     pub id: String,
+    #[serde(default = "default_project_id")]
+    pub project_id: String,
     pub title: String,
     pub due_at: Timestamp,
     #[serde(default)]
@@ -237,11 +256,17 @@ fn default_quadrant() -> u8 {
     1
 }
 
+fn default_project_id() -> String {
+    "inbox".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct TasksFile {
     pub schema_version: u32,
     pub tasks: Vec<Task>,
+    #[serde(default)]
+    pub projects: Vec<Project>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -397,6 +422,7 @@ mod tests {
         "#;
 
         let task: Task = serde_json::from_str(json).expect("task should deserialize");
+        assert_eq!(task.project_id, "inbox");
         assert!(!task.important);
         assert!(!task.completed);
         assert_eq!(task.completed_at, None);
@@ -415,6 +441,7 @@ mod tests {
     fn task_non_default_reminder_and_repeat_are_not_none() {
         let task = Task {
             id: "t3".to_string(),
+            project_id: "inbox".to_string(),
             title: "non-default".to_string(),
             due_at: 123,
             important: false,
@@ -435,7 +462,9 @@ mod tests {
                 forced_dismissed: false,
                 last_fired_at: None,
             },
-            repeat: RepeatRule::Daily { workday_only: false },
+            repeat: RepeatRule::Daily {
+                workday_only: false,
+            },
         };
 
         assert_ne!(task.reminder.kind, ReminderKind::None);
