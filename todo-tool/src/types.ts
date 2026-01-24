@@ -19,6 +19,7 @@ export interface ReminderConfig {
 export type CloseBehavior = "hide_to_tray" | "exit";
 export type MinimizeBehavior = "hide_to_tray" | "minimize";
 export type BackupSchedule = "none" | "daily" | "weekly" | "monthly";
+export type UpdateBehavior = "auto" | "next_restart" | "disabled";
 
 export interface WindowBounds {
   x: number;
@@ -69,6 +70,7 @@ export interface Settings {
   shortcut: string;
   theme: string;
   language: "auto" | "zh" | "en";
+  update_behavior: UpdateBehavior;
   sound_enabled: boolean;
   close_behavior: CloseBehavior;
   minimize_behavior: MinimizeBehavior;

@@ -92,6 +92,12 @@ function normalizeSettings(settings: Settings): Settings {
   const today_focus_ids = Array.isArray(settings.today_focus_ids)
     ? settings.today_focus_ids.filter((id) => typeof id === "string")
     : [];
+  const update_behavior =
+    settings.update_behavior === "auto" ||
+    settings.update_behavior === "next_restart" ||
+    settings.update_behavior === "disabled"
+      ? settings.update_behavior
+      : "next_restart";
   const today_focus_date =
     typeof settings.today_focus_date === "string"
       ? settings.today_focus_date
@@ -113,6 +119,7 @@ function normalizeSettings(settings: Settings): Settings {
   return {
     ...settings,
     today_focus_ids,
+    update_behavior,
     today_focus_date,
     today_prompted_date,
     reminder_repeat_interval_sec,
@@ -250,6 +257,8 @@ function App() {
 
   // Keep a mutable pointer for async callbacks so we can read latest settings without stale closures.
   const settingsRef = useRef<Settings | null>(null);
+  const startupUpdateCheckStartedRef = useRef(false);
+  const updateBusyRef = useRef(false);
 
   useEffect(() => {
     const onHash = () => {
@@ -289,15 +298,63 @@ function App() {
     };
   }, []);
 
-  // Check for app updates once per launch. Keep it scoped to the main window to avoid multi-window prompts.
+  // Check for app updates once per launch. Keep it scoped to the main window to avoid multi-window work.
+  //
+  // NOTE: We delay the actual check until after settings are loaded (so we can honor update_behavior),
+  // and schedule it during idle time to avoid janking the initial render.
   useEffect(() => {
     if (import.meta.env.DEV) return;
     if (getCurrentWindow().label !== "main") return;
+    if (!settings) return;
+
+    // Only run once per app launch (per window instance).
+    if (startupUpdateCheckStartedRef.current) return;
+    startupUpdateCheckStartedRef.current = true;
+
+    const behavior = settings.update_behavior ?? "next_restart";
+    if (behavior === "disabled") return;
 
     let disposed = false;
     let updateHandle: Update | null = null;
+    let cancelSchedule: (() => void) | null = null;
 
-    void (async () => {
+    const installForNextRestart = async (update: Update) => {
+      if (updateBusyRef.current) return;
+      setUpdateBusy(true);
+      setUpdateError(null);
+      setUpdateProgress(null);
+
+      const onEvent = (event: DownloadEvent) => {
+        if (event.event === "Started") {
+          setUpdateProgress({ downloaded: 0, total: event.data.contentLength });
+          return;
+        }
+        if (event.event === "Progress") {
+          setUpdateProgress((prev) => ({
+            downloaded: (prev?.downloaded ?? 0) + event.data.chunkLength,
+            total: prev?.total,
+          }));
+          return;
+        }
+        if (event.event === "Finished") {
+          setUpdateProgress((prev) => prev ?? { downloaded: 0 });
+        }
+      };
+
+      try {
+        await update.downloadAndInstall(onEvent);
+        toast.notify(t("update.readyNextRestart"), { tone: "success" });
+      } catch (err) {
+        console.error("update failed", err);
+        setUpdateError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setUpdateBusy(false);
+        setUpdateProgress(null);
+        void update.close().catch(() => {});
+      }
+    };
+
+    const runCheck = async () => {
       const update = await check();
       if (disposed || !update) {
         if (update) void update.close().catch(() => {});
@@ -305,17 +362,59 @@ function App() {
       }
 
       updateHandle = update;
+
+      if (updateBusyRef.current) {
+        void update.close().catch(() => {});
+        updateHandle = null;
+        return;
+      }
+
+      if (behavior === "next_restart") {
+        // Apply automatically in the background; the new version takes effect on the next relaunch.
+        await installForNextRestart(update);
+        updateHandle = null;
+        return;
+      }
+
+      // Default behavior: prompt the user to update now.
       setPendingUpdate(update);
       setShowUpdatePrompt(true);
-    })().catch((err) => {
-      console.warn("updater check failed", err);
-    });
+    };
+
+    const schedule = () => {
+      const win = window as unknown as {
+        requestIdleCallback?: (
+          cb: () => void,
+          opts?: { timeout?: number },
+        ) => number;
+        cancelIdleCallback?: (id: number) => void;
+      };
+
+      if (typeof win.requestIdleCallback === "function") {
+        const id = win.requestIdleCallback(() => {
+          void runCheck().catch((err) => {
+            console.warn("updater check failed", err);
+          });
+        }, { timeout: 2000 });
+        return () => win.cancelIdleCallback?.(id);
+      }
+
+      const id = window.setTimeout(() => {
+        void runCheck().catch((err) => {
+          console.warn("updater check failed", err);
+        });
+      }, 800);
+      return () => window.clearTimeout(id);
+    };
+
+    cancelSchedule = schedule();
 
     return () => {
       disposed = true;
+      if (cancelSchedule) cancelSchedule();
       if (updateHandle) void updateHandle.close().catch(() => {});
     };
-  }, []);
+  }, [settings, toast, t]);
 
   // Notification actions (OS-level buttons) should only be handled by the quick window.
   useEffect(() => {
@@ -601,6 +700,10 @@ function App() {
     if (!settings) return;
     document.documentElement.dataset.theme = normalizeTheme(settings.theme);
   }, [settings]);
+
+  useEffect(() => {
+    updateBusyRef.current = updateBusy;
+  }, [updateBusy]);
 
   useEffect(() => {
     document.documentElement.lang = appLang;

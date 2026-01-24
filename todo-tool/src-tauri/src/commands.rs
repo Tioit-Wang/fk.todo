@@ -72,13 +72,14 @@ fn persist(ctx: &impl CommandCtx, state: &AppState) -> Result<(), StorageError> 
     }
     storage.save_tasks(&state.tasks_file(), should_backup)?;
     storage.save_settings(&state.settings_file())?;
-    ctx.update_tray_count(&state.tasks(), &settings);
-    let payload = StatePayload {
-        tasks: state.tasks(),
-        projects: state.projects(),
-        settings: state.settings(),
-    };
-    ctx.emit_state_updated(payload);
+    // Snapshot once so tray updates + events always reflect a consistent view.
+    let snapshot = state.snapshot();
+    ctx.update_tray_count(&snapshot.tasks, &snapshot.settings);
+    ctx.emit_state_updated(StatePayload {
+        tasks: snapshot.tasks,
+        projects: snapshot.projects,
+        settings: snapshot.settings,
+    });
     Ok(())
 }
 
@@ -937,6 +938,7 @@ fn export_default_path(root: &Path, ext: &str) -> PathBuf {
     exports_dir.join(format!("mustdo-{stamp}.{ext}"))
 }
 
+#[cfg_attr(coverage, inline(never))]
 fn write_atomic_bytes(path: &Path, bytes: &[u8]) -> Result<(), StorageError> {
     let tmp = path.with_extension("tmp");
     fs::create_dir_all(
@@ -948,7 +950,7 @@ fn write_atomic_bytes(path: &Path, bytes: &[u8]) -> Result<(), StorageError> {
     Ok(())
 }
 
-fn export_tasks_json_impl(ctx: &impl CommandCtx, state: &AppState) -> CommandResult<String> {
+fn export_tasks_json_impl(ctx: &dyn CommandCtx, state: &AppState) -> CommandResult<String> {
     let root = match ctx.app_data_dir() {
         Ok(path) => path,
         Err(e) => return err(&format!("app_data_dir error: {e}")),
@@ -1225,6 +1227,10 @@ mod tests {
     use crate::models::{ReminderConfig, ReminderKind, RepeatRule, Task};
     use std::fs;
     use std::sync::Mutex;
+
+    fn is_io(err: &StorageError) -> bool {
+        matches!(err, StorageError::Io(_))
+    }
 
     struct TestCtx {
         root: tempfile::TempDir,
@@ -1986,12 +1992,43 @@ mod tests {
     }
 
     #[test]
+    fn write_atomic_bytes_covers_invalid_path_and_io_error_branches() {
+        // Invalid export path: no parent => ok_or_else branch.
+        let err = write_atomic_bytes(std::path::Path::new(""), b"x")
+            .expect_err("empty path should be rejected");
+        assert!(format!("{err}").contains("invalid export path"));
+        assert!(is_io(&err));
+
+        // Ensure both branches of `is_io` are exercised for coverage.
+        let json_err: StorageError = serde_json::from_str::<serde_json::Value>("oops")
+            .unwrap_err()
+            .into();
+        assert!(!is_io(&json_err));
+
+        // Force fs::write to fail by making the temp path a directory.
+        let root = tempfile::tempdir().unwrap();
+        let dest = root.path().join("out.json");
+        let tmp = dest.with_extension("tmp");
+        std::fs::create_dir_all(&tmp).unwrap();
+        let err = write_atomic_bytes(&dest, b"x").expect_err("writing to a directory should fail");
+        assert!(is_io(&err));
+
+        // Force fs::rename to fail by making the destination a directory.
+        let dest_dir = root.path().join("dest");
+        std::fs::create_dir_all(&dest_dir).unwrap();
+        let err =
+            write_atomic_bytes(&dest_dir, b"x").expect_err("renaming onto a directory should fail");
+        assert!(is_io(&err));
+    }
+
+    #[test]
     fn bulk_update_tasks_updates_multiple_tasks_and_persists_once() {
         let ctx = TestCtx::new();
         let state = make_state(vec![make_task("a", 100), make_task("b", 200)]);
 
         let mut a = make_task("a", 555);
         a.quadrant = 3;
+        a.sort_order = 999;
         let mut b = make_task("b", 666);
         b.quadrant = 2;
 
@@ -2061,6 +2098,23 @@ mod tests {
         assert!(res.ok);
         assert!(state.projects().iter().any(|p| p.id == "p1"));
 
+        // Also cover the branches where created_at/sort_order are already set.
+        let preset = Project {
+            id: "p2".to_string(),
+            name: "Project 2".to_string(),
+            pinned: false,
+            sort_order: 42,
+            created_at: 123,
+            updated_at: 0,
+            sample_tag: None,
+        };
+        let res = create_project_impl(&ctx, &state, preset.clone());
+        assert!(res.ok);
+        let created = res.data.unwrap();
+        assert_eq!(created.id, "p2");
+        assert_eq!(created.created_at, 123);
+        assert_eq!(created.sort_order, 42);
+
         let mut updated = project.clone();
         updated.name = "Updated".to_string();
         let res = update_project_impl(&ctx, &state, updated);
@@ -2128,6 +2182,20 @@ mod tests {
             "p1"
         );
 
+        // Include a task that does not belong to the deleted project so both branches of the
+        // project_id check are exercised.
+        let res = create_task_impl(&ctx, &state, make_task("y", 456));
+        assert!(res.ok);
+        assert_eq!(
+            state
+                .tasks()
+                .iter()
+                .find(|t| t.id == "y")
+                .unwrap()
+                .project_id,
+            "inbox"
+        );
+
         let res = delete_project_impl(&ctx, &state, "p1".to_string());
         assert!(res.ok);
         assert!(!state.projects().iter().any(|p| p.id == "p1"));
@@ -2136,6 +2204,15 @@ mod tests {
                 .tasks()
                 .iter()
                 .find(|t| t.id == "x")
+                .unwrap()
+                .project_id,
+            "inbox"
+        );
+        assert_eq!(
+            state
+                .tasks()
+                .iter()
+                .find(|t| t.id == "y")
                 .unwrap()
                 .project_id,
             "inbox"
@@ -2390,12 +2467,15 @@ mod tests {
         let mut future = make_task("future", end_of_tomorrow_ts);
         future.important = true;
 
+        let mut blank_notes = make_task("blank-notes", end_of_tomorrow_ts);
+        blank_notes.notes = Some(" \r\n ".to_string());
+
         let invalid = make_task("invalid-ts", i64::MAX);
 
         let mut done = make_task("done", now_ts - 10);
         done.completed = true;
 
-        let state = make_state(vec![overdue, due_today, future, invalid, done]);
+        let state = make_state(vec![overdue, due_today, future, blank_notes, invalid, done]);
 
         // app_data_dir error paths.
         let bad = TestCtx::with_app_data_dir_error("nope");

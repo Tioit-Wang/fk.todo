@@ -33,11 +33,17 @@ Vite 端口固定：1420（见 `todo-tool/vite.config.ts`），被占用会直�
 
 ## 3) 窗口与视图模型（非常重要）
 
-应用有 3 个窗口/视图：
+应用有 4 个窗口/视图：
 
-- main：主界面（Rust setup 时创建，URL `/#/main`）
-- quick：快捷窗口（Rust setup 时创建，URL `/#/quick`，默认隐藏）
-- reminder：强制提醒窗口（Rust setup 时创建，URL `/#/reminder`，默认隐藏）
+- main：主界面（启动时创建，URL `/#/main`）
+- quick：快捷窗口（启动时创建，URL `/#/quick`，默认隐藏）
+- reminder：强制提醒窗口（按需创建，URL `/#/reminder`，默认隐藏）
+- settings：设置窗口（按需创建，URL `/#/settings`，默认隐藏）
+
+注意（为什么要按需创建部分窗口）：
+
+- WebView2 在 Windows 下偶发 `PostMessage failed ... 0x80070718`（配额不足）时，通常与启动阶段并发创建过多 Webview/窗口导致的消息队列压力有关。
+- 当前策略：优先保证 `main/quick` 常驻，`reminder/settings` 由后端在需要时创建（见 `todo-tool/src-tauri/src/windows.rs`）。
 
 `todo-tool/src/App.tsx` 用两件事推断当前视图：
 

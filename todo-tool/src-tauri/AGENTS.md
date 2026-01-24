@@ -6,7 +6,7 @@
 ## 0) 技术栈与约束
 
 - Rust edition 2021（crate：`todo-tool`，lib 名：`todo_tool_lib`）
-- Tauri v2（多窗口：main/quick/reminder；托盘；全局快捷键；通知插件）
+- Tauri v2（多窗口：main/quick/reminder/settings；托盘；全局快捷键；通知插件）
 - 持久化：本地 JSON 文件（原子写入 + 自动备份轮转）
 - 调度：`tokio::time::interval`（1s 轮询扫描提醒）
 
@@ -34,7 +34,7 @@
 - `src/scheduler.rs`：1s 轮询筛选 due reminders，emit 事件，forced 时显示 reminder window
 - `src/repeat.rs`：循环任务下一期 due_at 计算（含 DST/边界处理 + 单测）
 - `src/tray.rs`：托盘菜单 + tooltip（待办数量）计算
-- `src/windows.rs`：show/hide 辅助（避免散落在各处的 window API 调用）
+- `src/windows.rs`：window 辅助（show/hide + 按需创建窗口，避免散落在各处的 window API 调用）
 
 ## 3) 前后端契约（Rust 侧要守的规则）
 
@@ -136,6 +136,11 @@
 - main 窗口 close => 根据 settings.close_behavior：
   - Exit：直接退出
   - HideToTray：hide（prevent_close）
+
+窗口创建策略：
+
+- `main/quick` 在启动时创建（quick 默认隐藏）
+- `reminder/settings` 为按需创建（由 `src/windows.rs` 在 show 时兜底创建）
 
 托盘：
 

@@ -350,6 +350,66 @@ mod tests {
     }
 
     #[test]
+    fn collect_due_tasks_repeat_mode_uses_last_fired_when_snooze_is_not_later() {
+        let now = 1000;
+
+        let repeating = task_with_reminder(
+            "repeat-snooze-too-early",
+            2000,
+            false,
+            false,
+            ReminderConfig {
+                kind: ReminderKind::Normal,
+                last_fired_at: Some(700),
+                // snoozed_until is not later than last_fired_at, so we should fall back to
+                // last_fired_at + interval.
+                snoozed_until: Some(600),
+                repeat_fired_count: 1,
+                ..ReminderConfig::default()
+            },
+        );
+
+        let mut settings = crate::models::Settings::default();
+        settings.reminder_repeat_interval_sec = 300;
+        settings.reminder_repeat_max_times = 0;
+
+        let state = AppState::new(vec![repeating], Vec::new(), settings);
+        let out = collect_due_tasks(&state, now);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].id, "repeat-snooze-too-early");
+    }
+
+    #[test]
+    fn collect_due_tasks_repeat_mode_falls_back_to_target_time_when_never_fired() {
+        let now = 0;
+
+        // NOTE: This uses an extreme timestamp to exercise the `snoozed_until <= last_fired_at`
+        // branch when `last_fired_at` is missing (treated as i64::MIN).
+        let repeating = task_with_reminder(
+            "repeat-snooze-min",
+            2000,
+            false,
+            false,
+            ReminderConfig {
+                kind: ReminderKind::Normal,
+                last_fired_at: None,
+                snoozed_until: Some(i64::MIN),
+                repeat_fired_count: 0,
+                ..ReminderConfig::default()
+            },
+        );
+
+        let mut settings = crate::models::Settings::default();
+        settings.reminder_repeat_interval_sec = 300;
+        settings.reminder_repeat_max_times = 0;
+
+        let state = AppState::new(vec![repeating], Vec::new(), settings);
+        let out = collect_due_tasks(&state, now);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].id, "repeat-snooze-min");
+    }
+
+    #[test]
     fn collect_due_tasks_does_not_repeat_forced_reminders() {
         let now = 2000;
 

@@ -1,6 +1,6 @@
 [package]
 name = "todo-tool"
-version = "20260124.3.0"
+version = "20260125.4.0"
 description = "MustDo - pinned todo list with forced reminders"
 authors = ["you"]
 edition = "2021"
@@ -60,3 +60,6 @@ app = [
   "tauri/tray-icon",
   "tauri/x11",
 ]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage)'] }

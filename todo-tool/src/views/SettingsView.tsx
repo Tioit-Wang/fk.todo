@@ -611,6 +611,31 @@ export function SettingsView({
                       </span>
                     )}
                   </div>
+                  <div className="settings-row">
+                    <label>{t("settings.update.behavior")}</label>
+                    <select
+                      value={settings?.update_behavior ?? "next_restart"}
+                      onChange={(event) => {
+                        if (!settings) return;
+                        void onUpdateSettings({
+                          ...settings,
+                          update_behavior: event.currentTarget
+                            .value as Settings["update_behavior"],
+                        });
+                      }}
+                      disabled={updateBusy || updateCheckBusy}
+                    >
+                      <option value="auto">
+                        {t("settings.update.behavior.auto")}
+                      </option>
+                      <option value="next_restart">
+                        {t("settings.update.behavior.next_restart")}
+                      </option>
+                      <option value="disabled">
+                        {t("settings.update.behavior.disabled")}
+                      </option>
+                    </select>
+                  </div>
                 </div>
               </section>
 

@@ -9,6 +9,8 @@ use crate::models::Task;
 #[cfg(all(feature = "app", not(test)))]
 use crate::events::{NavigatePayload, EVENT_NAVIGATE};
 #[cfg(all(feature = "app", not(test)))]
+use crate::windows::show_settings_window;
+#[cfg(all(feature = "app", not(test)))]
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -134,11 +136,7 @@ pub fn init_tray(app: &mut App, settings: &Settings) -> Result<(), Box<dyn std::
                 }
             }
             "show_settings" => {
-                if let Some(window) = app.get_webview_window("settings") {
-                    let _ = window.unminimize();
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
+                show_settings_window(app);
             }
             _ => {}
         })

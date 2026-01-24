@@ -1,4 +1,4 @@
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
@@ -10,7 +10,8 @@ use crate::models::{SettingsFile, TasksFile};
 const DATA_FILE: &str = "data.json";
 const SETTINGS_FILE: &str = "settings.json";
 const BACKUP_DIR: &str = "backups";
-const BACKUP_LIMIT: usize = 50;
+// Keep this aligned with `todo-tool/UNFINISHED.md` (and AGENTS docs).
+const BACKUP_LIMIT: usize = 5;
 
 #[derive(Debug)]
 pub enum StorageError {
@@ -59,7 +60,11 @@ impl WriteAndSync for File {
 type WriterFactory = fn(&Path) -> Result<Box<dyn WriteAndSync>, StorageError>;
 
 fn create_file_writer(path: &Path) -> Result<Box<dyn WriteAndSync>, StorageError> {
-    Ok(Box::new(File::create(path)?))
+    // Use `create_new` to avoid concurrent writers clobbering the same temp file.
+    // If the temp name is already taken, the caller can retry with a different suffix.
+    Ok(Box::new(
+        OpenOptions::new().write(true).create_new(true).open(path)?,
+    ))
 }
 
 fn write_all_and_sync<W: WriteAndSync + ?Sized>(
@@ -69,6 +74,57 @@ fn write_all_and_sync<W: WriteAndSync + ?Sized>(
     writer.write_all_bytes(bytes)?;
     writer.sync_all()?;
     Ok(())
+}
+
+fn invalid_backup_filename_error() -> StorageError {
+    StorageError::Io(std::io::Error::other("invalid backup filename"))
+}
+
+fn sanitize_backup_filename(filename: &str) -> Result<&str, StorageError> {
+    let name = std::path::Path::new(filename)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(invalid_backup_filename_error)?;
+    if name != filename || name.is_empty() || name == "." || name == ".." {
+        return Err(invalid_backup_filename_error());
+    }
+    Ok(name)
+}
+
+struct TempPathGuard {
+    path: PathBuf,
+    keep: bool,
+}
+
+impl TempPathGuard {
+    fn new(path: PathBuf) -> Self {
+        Self { path, keep: false }
+    }
+
+    fn disarm(&mut self) {
+        self.keep = true;
+    }
+}
+
+impl Drop for TempPathGuard {
+    fn drop(&mut self) {
+        if self.keep {
+            return;
+        }
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
+fn is_retryable_tempfile_create_error(err: &StorageError) -> bool {
+    match err {
+        StorageError::Io(err) => matches!(
+            err.kind(),
+            std::io::ErrorKind::AlreadyExists
+                | std::io::ErrorKind::IsADirectory
+                | std::io::ErrorKind::PermissionDenied
+        ),
+        StorageError::Json(_) => false,
+    }
 }
 
 pub struct Storage {
@@ -128,17 +184,53 @@ impl Storage {
         self.write_atomic_bytes(path, &json, create_file_writer)
     }
 
+    #[cfg_attr(coverage, inline(never))]
     fn write_atomic_bytes(
         &self,
         path: PathBuf,
         bytes: &[u8],
         create_writer: WriterFactory,
     ) -> Result<(), StorageError> {
-        let temp_path = path.with_extension("tmp");
-        let mut writer = create_writer(&temp_path)?;
-        write_all_and_sync(writer.as_mut(), bytes)?;
-        fs::rename(temp_path, path)?;
-        Ok(())
+        // Prefer the deterministic `*.tmp` name first (readable + stable), but fall back to a
+        // suffixed temp name to avoid collisions across concurrent writes.
+        const TEMPFILE_ATTEMPTS: usize = 10;
+
+        let mut last_err: Option<StorageError> = None;
+        for attempt in 0..=TEMPFILE_ATTEMPTS {
+            let temp_path = if attempt == 0 {
+                path.with_extension("tmp")
+            } else {
+                path.with_extension(format!("tmp.{}.{}", std::process::id(), attempt))
+            };
+
+            let mut cleanup = TempPathGuard::new(temp_path.clone());
+            let mut writer = match create_writer(&temp_path) {
+                Ok(writer) => writer,
+                Err(err) if is_retryable_tempfile_create_error(&err) => {
+                    last_err = Some(err);
+                    continue;
+                }
+                Err(err) => return Err(err),
+            };
+
+            write_all_and_sync(writer.as_mut(), bytes)?;
+            // On Windows, the rename can fail if the file is still open; explicitly drop first.
+            drop(writer);
+
+            fs::rename(&temp_path, &path)?;
+            cleanup.disarm();
+            return Ok(());
+        }
+
+        #[cfg(coverage)]
+        let err = last_err.unwrap_or(StorageError::Io(std::io::Error::other(
+            "failed to create temporary file",
+        )));
+        #[cfg(not(coverage))]
+        let err = last_err.unwrap_or_else(|| {
+            StorageError::Io(std::io::Error::other("failed to create temporary file"))
+        });
+        Err(err)
     }
 
     pub fn create_backup(&self, path: &Path) -> Result<(), StorageError> {
@@ -152,15 +244,7 @@ impl Storage {
     }
 
     pub fn delete_backup(&self, filename: &str) -> Result<(), StorageError> {
-        let name = std::path::Path::new(filename)
-            .file_name()
-            .and_then(|name| name.to_str())
-            .ok_or_else(|| StorageError::Io(std::io::Error::other("invalid backup filename")))?;
-        if name != filename {
-            return Err(StorageError::Io(std::io::Error::other(
-                "invalid backup filename",
-            )));
-        }
+        let name = sanitize_backup_filename(filename)?;
         let path = self.root.join(BACKUP_DIR).join(name);
         fs::remove_file(path)?;
         Ok(())
@@ -188,6 +272,7 @@ impl Storage {
     }
 
     pub fn restore_backup(&self, filename: &str) -> Result<TasksFile, StorageError> {
+        let filename = sanitize_backup_filename(filename)?;
         let path = self.root.join(BACKUP_DIR).join(filename);
         let data: TasksFile = self.load_json(path)?;
         self.write_atomic(self.root.join(DATA_FILE), &data)?;
@@ -264,6 +349,14 @@ mod tests {
     }
 
     #[test]
+    fn is_retryable_tempfile_create_error_returns_false_for_json_errors() {
+        let json_err: StorageError = serde_json::from_str::<serde_json::Value>("oops")
+            .unwrap_err()
+            .into();
+        assert!(!is_retryable_tempfile_create_error(&json_err));
+    }
+
+    #[test]
     fn ensure_dirs_creates_backup_dir_and_fails_on_invalid_path() {
         let root = tempfile::tempdir().unwrap();
         let storage = Storage::new(root.path().to_path_buf());
@@ -313,7 +406,7 @@ mod tests {
     }
 
     #[test]
-    fn write_atomic_covers_serialize_and_tempfile_failures() {
+    fn write_atomic_covers_serialize_and_tempfile_collisions() {
         let root = tempfile::tempdir().unwrap();
         let storage = Storage::new(root.path().to_path_buf());
         storage.ensure_dirs().unwrap();
@@ -335,14 +428,35 @@ mod tests {
         assert!(is_json(&err));
         assert!(!is_io(&err));
 
-        // If the temp path is a directory, we should see an IO error from `File::create`.
+        // If the preferred temp path is blocked, we should fall back to a suffixed tempfile name
+        // so the write remains robust.
         let path = root.path().join("foo.json");
         fs::create_dir_all(path.with_extension("tmp")).unwrap();
+        storage
+            .write_atomic(path.clone(), &sample_tasks_file())
+            .expect("should fall back to a different temp name");
+        assert!(path.is_file());
+    }
+
+    #[test]
+    fn write_atomic_errors_when_all_tempfile_names_are_blocked() {
+        let root = tempfile::tempdir().unwrap();
+        let storage = Storage::new(root.path().to_path_buf());
+        storage.ensure_dirs().unwrap();
+
+        let path = root.path().join("exhaust.json");
+
+        // Block the deterministic temp name and every suffixed retry name.
+        fs::create_dir_all(path.with_extension("tmp")).unwrap();
+        let pid = std::process::id();
+        for attempt in 1..=10 {
+            fs::create_dir_all(path.with_extension(format!("tmp.{pid}.{attempt}"))).unwrap();
+        }
+
         let err = storage
             .write_atomic(path, &sample_tasks_file())
-            .expect_err("temp path is a directory");
+            .expect_err("should fail after exhausting all tempfile names");
         assert!(is_io(&err));
-        assert!(!is_json(&err));
     }
 
     #[test]
@@ -483,6 +597,25 @@ mod tests {
         let err = storage
             .write_atomic_bytes(root.path().join("any3.json"), b"hello", create_ok_writer)
             .expect_err("rename should fail");
+        assert!(is_io(&err));
+    }
+
+    #[test]
+    fn write_atomic_bytes_returns_non_retryable_create_error_immediately() {
+        let root = tempfile::tempdir().unwrap();
+        let storage = Storage::new(root.path().to_path_buf());
+        storage.ensure_dirs().unwrap();
+
+        fn create_non_retryable(_path: &Path) -> Result<Box<dyn WriteAndSync>, StorageError> {
+            Err(StorageError::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "non-retryable",
+            )))
+        }
+
+        let err = storage
+            .write_atomic_bytes(root.path().join("any.json"), b"hello", create_non_retryable)
+            .expect_err("create_writer should fail");
         assert!(is_io(&err));
     }
 
@@ -633,6 +766,23 @@ mod tests {
     }
 
     #[test]
+    fn restore_backup_rejects_invalid_filenames() {
+        let root = tempfile::tempdir().unwrap();
+        let storage = Storage::new(root.path().to_path_buf());
+        storage.ensure_dirs().unwrap();
+
+        let err = storage
+            .restore_backup("../data-test.json")
+            .expect_err("should reject path traversal");
+        assert!(is_io(&err));
+
+        let err = storage
+            .restore_backup("")
+            .expect_err("should reject empty name");
+        assert!(is_io(&err));
+    }
+
+    #[test]
     fn create_backup_reports_error_when_names_exhausted() {
         let root = tempfile::tempdir().unwrap();
         let storage = Storage::new(root.path().to_path_buf());
@@ -704,8 +854,8 @@ mod tests {
         )
         .unwrap();
 
-        // Make the temp file path a directory so write_atomic fails.
-        fs::create_dir_all(root.path().join("data.tmp")).unwrap();
+        // Make the destination a directory so the atomic rename fails.
+        fs::create_dir_all(root.path().join(DATA_FILE)).unwrap();
 
         let err = storage
             .restore_backup(backup_name)
@@ -726,7 +876,7 @@ mod tests {
         )
         .unwrap();
 
-        fs::create_dir_all(root.path().join("data.tmp")).unwrap();
+        fs::create_dir_all(root.path().join(DATA_FILE)).unwrap();
 
         let err = storage
             .restore_from_path(&external)

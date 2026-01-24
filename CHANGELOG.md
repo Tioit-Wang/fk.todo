@@ -1,5 +1,11 @@
 # 更新日志
 
+## 20260125.4.0 (2026-01-25)
+
+- 后端：补齐 Rust 单元测试，`cargo llvm-cov --lib` 达到 100%（lines/regions/functions）。
+- 设置：新增“更新策略（UpdateBehavior）”选项，支持自动/下次重启/禁用。
+- 窗口：提醒/设置窗口改为按需创建，减少启动时 wiring 复杂度。
+
 ## 20260122.2.0-bate.2 (2026-01-22)
 
 - CI：修复 Release workflow，在构建前安装 pnpm（避免 tauri-action 调用 pnpm 失败，导致 tags 有但 Releases 没有）。

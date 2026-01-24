@@ -128,6 +128,15 @@ pub enum MinimizeBehavior {
     Minimize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum UpdateBehavior {
+    Auto,
+    #[default]
+    NextRestart,
+    Disabled,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct Settings {
@@ -135,6 +144,8 @@ pub struct Settings {
     pub theme: String,
     #[serde(default = "default_language")]
     pub language: String,
+    #[serde(default)]
+    pub update_behavior: UpdateBehavior,
     pub sound_enabled: bool,
     pub close_behavior: CloseBehavior,
     #[serde(default)]
@@ -171,6 +182,7 @@ impl Default for Settings {
             shortcut: "CommandOrControl+Shift+T".to_string(),
             theme: "retro".to_string(),
             language: default_language(),
+            update_behavior: UpdateBehavior::NextRestart,
             sound_enabled: true,
             close_behavior: CloseBehavior::HideToTray,
             minimize_behavior: MinimizeBehavior::HideToTray,
@@ -314,6 +326,10 @@ mod tests {
         assert_eq!(settings.shortcut, "CommandOrControl+Shift+T");
         assert_eq!(settings.theme, "retro");
         assert_eq!(settings.language, "auto");
+        assert_eq!(
+            serde_json::to_value(&settings.update_behavior).expect("serialize update_behavior"),
+            serde_json::json!("next_restart")
+        );
         assert!(settings.sound_enabled);
         assert_eq!(
             serde_json::to_value(&settings.close_behavior).expect("serialize close_behavior"),
@@ -367,6 +383,10 @@ mod tests {
             serde_json::json!("hide_to_tray")
         );
         assert_eq!(settings.language, "auto");
+        assert_eq!(
+            serde_json::to_value(&settings.update_behavior).expect("serialize update_behavior"),
+            serde_json::json!("next_restart")
+        );
         assert!(!settings.quick_always_on_top);
         assert!(settings.quick_blur_enabled);
         assert!(settings.quick_bounds.is_none());

@@ -1,5 +1,6 @@
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use chrono::Utc;
 
@@ -36,8 +37,7 @@ fn normalize_projects(projects: &mut Vec<Project>) {
 }
 
 fn normalize_tasks(tasks: &mut Vec<Task>, projects: &[Project]) {
-    let allowed: std::collections::HashSet<&str> =
-        projects.iter().map(|project| project.id.as_str()).collect();
+    let allowed: HashSet<&str> = projects.iter().map(|project| project.id.as_str()).collect();
 
     for task in tasks {
         if task.sort_order == 0 {
@@ -57,7 +57,25 @@ pub struct AppState {
     shortcut_capture_active: Arc<AtomicBool>,
 }
 
+#[derive(Debug, Clone)]
+pub struct AppStateSnapshot {
+    pub tasks: Vec<Task>,
+    pub projects: Vec<Project>,
+    pub settings: Settings,
+}
+
 impl AppState {
+    fn lock_inner(&self) -> MutexGuard<'_, AppData> {
+        match self.inner.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                // Prefer to keep the app bootable if a background task panicked.
+                eprintln!("warning: state mutex poisoned; continuing with recovered guard");
+                poisoned.into_inner()
+            }
+        }
+    }
+
     pub fn new(tasks: Vec<Task>, projects: Vec<Project>, settings: Settings) -> Self {
         let now = Utc::now();
         let mut tasks = tasks;
@@ -85,8 +103,17 @@ impl AppState {
             .store(active, Ordering::Relaxed);
     }
 
+    pub fn snapshot(&self) -> AppStateSnapshot {
+        let guard = self.lock_inner();
+        AppStateSnapshot {
+            tasks: guard.tasks.clone(),
+            projects: guard.projects.clone(),
+            settings: guard.settings.clone(),
+        }
+    }
+
     pub fn tasks_file(&self) -> TasksFile {
-        let guard = self.inner.lock().expect("state poisoned");
+        let guard = self.lock_inner();
         TasksFile {
             schema_version: SCHEMA_VERSION,
             tasks: guard.tasks.clone(),
@@ -95,7 +122,7 @@ impl AppState {
     }
 
     pub fn settings_file(&self) -> SettingsFile {
-        let guard = self.inner.lock().expect("state poisoned");
+        let guard = self.lock_inner();
         SettingsFile {
             schema_version: SCHEMA_VERSION,
             settings: guard.settings.clone(),
@@ -103,34 +130,34 @@ impl AppState {
     }
 
     pub fn tasks(&self) -> Vec<Task> {
-        let guard = self.inner.lock().expect("state poisoned");
+        let guard = self.lock_inner();
         guard.tasks.clone()
     }
 
     pub fn projects(&self) -> Vec<Project> {
-        let guard = self.inner.lock().expect("state poisoned");
+        let guard = self.lock_inner();
         guard.projects.clone()
     }
 
     pub fn add_task(&self, task: Task) {
-        let mut guard = self.inner.lock().expect("state poisoned");
+        let mut guard = self.lock_inner();
         guard.tasks.push(task);
     }
 
     pub fn add_project(&self, project: Project) {
-        let mut guard = self.inner.lock().expect("state poisoned");
+        let mut guard = self.lock_inner();
         guard.projects.push(project);
     }
 
     pub fn replace_tasks(&self, tasks: Vec<Task>) {
-        let mut guard = self.inner.lock().expect("state poisoned");
+        let mut guard = self.lock_inner();
         let mut next = tasks;
         normalize_tasks(&mut next, &guard.projects);
         guard.tasks = next;
     }
 
     pub fn replace_projects(&self, projects: Vec<Project>) {
-        let mut guard = self.inner.lock().expect("state poisoned");
+        let mut guard = self.lock_inner();
         let now = Utc::now();
         let mut next = projects;
         ensure_inbox_project(&mut next, &now);
@@ -143,7 +170,7 @@ impl AppState {
     }
 
     pub fn update_task(&self, task: Task) {
-        let mut guard = self.inner.lock().expect("state poisoned");
+        let mut guard = self.lock_inner();
         if let Some(existing) = guard.tasks.iter_mut().find(|t| t.id == task.id) {
             let mut next = task;
             if next.sample_tag.is_none() {
@@ -154,14 +181,14 @@ impl AppState {
     }
 
     pub fn update_project(&self, project: Project) {
-        let mut guard = self.inner.lock().expect("state poisoned");
+        let mut guard = self.lock_inner();
         if let Some(existing) = guard.projects.iter_mut().find(|p| p.id == project.id) {
             *existing = project;
         }
     }
 
     pub fn remove_project(&self, project_id: &str) {
-        let mut guard = self.inner.lock().expect("state poisoned");
+        let mut guard = self.lock_inner();
         if project_id == INBOX_PROJECT_ID {
             return;
         }
@@ -171,7 +198,7 @@ impl AppState {
     }
 
     pub fn swap_sort_order(&self, first_id: &str, second_id: &str, updated_at: i64) -> bool {
-        let mut guard = self.inner.lock().expect("state poisoned");
+        let mut guard = self.lock_inner();
         let mut first_index = None;
         let mut second_index = None;
         for (index, task) in guard.tasks.iter().enumerate() {
@@ -202,7 +229,7 @@ impl AppState {
         second_id: &str,
         updated_at: i64,
     ) -> bool {
-        let mut guard = self.inner.lock().expect("state poisoned");
+        let mut guard = self.lock_inner();
         let mut first_index = None;
         let mut second_index = None;
         for (index, project) in guard.projects.iter().enumerate() {
@@ -228,7 +255,7 @@ impl AppState {
     }
 
     pub fn complete_task(&self, task_id: &str) -> Option<Task> {
-        let mut guard = self.inner.lock().expect("state poisoned");
+        let mut guard = self.lock_inner();
         let now = Utc::now().timestamp();
         let mut completed_task: Option<Task> = None;
         if let Some(task) = guard.tasks.iter_mut().find(|t| t.id == task_id) {
@@ -243,17 +270,18 @@ impl AppState {
     }
 
     pub fn remove_task(&self, task_id: &str) {
-        let mut guard = self.inner.lock().expect("state poisoned");
+        let mut guard = self.lock_inner();
         guard.tasks.retain(|task| task.id != task_id);
     }
 
     pub fn remove_tasks(&self, task_ids: &[String]) {
-        let mut guard = self.inner.lock().expect("state poisoned");
-        guard.tasks.retain(|task| !task_ids.contains(&task.id));
+        let mut guard = self.lock_inner();
+        let ids: HashSet<&str> = task_ids.iter().map(|id| id.as_str()).collect();
+        guard.tasks.retain(|task| !ids.contains(task.id.as_str()));
     }
 
     pub fn mark_reminder_fired(&self, task: &Task, at: i64) {
-        let mut guard = self.inner.lock().expect("state poisoned");
+        let mut guard = self.lock_inner();
         if let Some(existing) = guard.tasks.iter_mut().find(|t| t.id == task.id) {
             existing.reminder.last_fired_at = Some(at);
             existing.reminder.repeat_fired_count = existing
@@ -270,12 +298,12 @@ impl AppState {
     }
 
     pub fn settings(&self) -> Settings {
-        let guard = self.inner.lock().expect("state poisoned");
+        let guard = self.lock_inner();
         guard.settings.clone()
     }
 
     pub fn update_settings(&self, settings: Settings) {
-        let mut guard = self.inner.lock().expect("state poisoned");
+        let mut guard = self.lock_inner();
         guard.settings = settings;
     }
 }
@@ -496,5 +524,63 @@ mod tests {
         let state = AppState::new(Vec::new(), Vec::new(), Settings::default());
         assert!(!state.swap_project_sort_order("inbox", "missing", 123));
         assert!(!state.swap_project_sort_order("missing", "inbox", 123));
+    }
+
+    #[test]
+    fn lock_inner_recovers_from_poisoned_mutex() {
+        let state = AppState::new(Vec::new(), Vec::new(), Settings::default());
+
+        let inner = state.inner.clone();
+        let handle = std::thread::spawn(move || {
+            let _guard = inner.lock().unwrap();
+            panic!("poison the mutex while holding the lock");
+        });
+        let _ = handle.join();
+
+        // The mutex is now poisoned. Calls that lock it should keep working.
+        assert!(state.tasks().is_empty());
+        assert!(state.projects().iter().any(|p| p.id == "inbox"));
+    }
+
+    #[test]
+    fn mark_reminder_fired_clears_snoozed_until_when_due_or_past() {
+        let mut task = make_task("a", 1, 1, 10);
+        task.reminder.snoozed_until = Some(100);
+        let state = AppState::new(vec![task.clone()], Vec::new(), Settings::default());
+
+        state.mark_reminder_fired(&task, 100);
+        let refreshed = state.tasks().into_iter().find(|t| t.id == "a").unwrap();
+        assert_eq!(refreshed.reminder.snoozed_until, None);
+    }
+
+    #[test]
+    fn mark_reminder_fired_keeps_snoozed_until_when_in_future() {
+        let mut task = make_task("a", 1, 1, 10);
+        task.reminder.snoozed_until = Some(200);
+        let state = AppState::new(vec![task.clone()], Vec::new(), Settings::default());
+
+        state.mark_reminder_fired(&task, 100);
+        let refreshed = state.tasks().into_iter().find(|t| t.id == "a").unwrap();
+        assert_eq!(refreshed.reminder.snoozed_until, Some(200));
+    }
+
+    #[test]
+    fn update_project_is_noop_when_id_is_missing() {
+        let state = AppState::new(Vec::new(), Vec::new(), Settings::default());
+        let before = state.projects();
+
+        state.update_project(Project {
+            id: "missing".to_string(),
+            name: "Missing".to_string(),
+            pinned: false,
+            sort_order: 1,
+            created_at: 1,
+            updated_at: 1,
+            sample_tag: None,
+        });
+
+        let after = state.projects();
+        assert_eq!(after.len(), before.len());
+        assert!(after.iter().any(|p| p.id == "inbox"));
     }
 }

@@ -154,57 +154,11 @@ pub fn run() {
 
             quick_builder.visible(false).build()?;
 
-            let reminder_builder = WebviewWindowBuilder::new(
-                app,
-                "reminder",
-                tauri::WebviewUrl::App("/#/reminder".into()),
-            )
-            .title("MustDo")
-            .decorations(false)
-            .resizable(false)
-            // The reminder overlay looks best with a transparent window background, but on macOS
-            // this is gated behind `macos-private-api`, so we only enable it on non-macOS by default.
-            // The actual banner UI is rendered by the frontend.
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .visible(false);
-
-            // macOS builds skip `transparent` because Tauri gates it behind `macos-private-api`.
-            #[cfg(not(target_os = "macos"))]
-            let reminder_builder = reminder_builder.transparent(true);
-
-            reminder_builder.build()?;
-
-            let settings_builder = WebviewWindowBuilder::new(
-                app,
-                "settings",
-                tauri::WebviewUrl::App("/#/settings".into()),
-            )
-            .title("MustDo")
-            .inner_size(820.0, 900.0)
-            .min_inner_size(820.0, 900.0)
-            .max_inner_size(820.0, 900.0)
-            .resizable(false)
-            .decorations(false)
-            .visible(false);
-
-            // macOS builds skip `transparent` because Tauri gates it behind `macos-private-api`.
-            #[cfg(not(target_os = "macos"))]
-            let settings_builder = settings_builder.transparent(true);
-
-            settings_builder.build()?;
-
             // The app uses custom titlebars; remove maximization to keep the layout predictable.
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_maximizable(false);
             }
             if let Some(window) = app.get_webview_window("quick") {
-                let _ = window.set_maximizable(false);
-            }
-            if let Some(window) = app.get_webview_window("reminder") {
-                let _ = window.set_maximizable(false);
-            }
-            if let Some(window) = app.get_webview_window("settings") {
                 let _ = window.set_maximizable(false);
             }
 
