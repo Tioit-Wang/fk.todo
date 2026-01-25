@@ -2,7 +2,8 @@ use crate::models::{Project, Settings, Task};
 
 pub const EVENT_REMINDER: &str = "reminder_fired";
 pub const EVENT_STATE_UPDATED: &str = "state_updated";
-pub const EVENT_NAVIGATE: &str = "fk.todo:navigate";
+// Tauri v2 event names must be [A-Za-z0-9-/:_]. Avoid dots.
+pub const EVENT_NAVIGATE: &str = "mustdo:navigate";
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct StatePayload {
@@ -47,7 +48,7 @@ mod tests {
     fn event_constants_and_payload_are_usable_and_serializable() {
         assert_eq!(EVENT_REMINDER, "reminder_fired");
         assert_eq!(EVENT_STATE_UPDATED, "state_updated");
-        assert_eq!(EVENT_NAVIGATE, "fk.todo:navigate");
+        assert_eq!(EVENT_NAVIGATE, "mustdo:navigate");
 
         let payload = StatePayload {
             tasks: vec![make_task("a")],

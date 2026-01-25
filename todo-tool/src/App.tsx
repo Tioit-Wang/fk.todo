@@ -441,29 +441,36 @@ function App() {
     if (getViewFromHash() !== "quick") return;
     let disposed = false;
     let actionListener: PluginListener | null = null;
-
-    registerActionTypes([
-      {
-        id: NOTIFICATION_ACTION_TYPE,
-        actions: [
-          { id: NOTIFICATION_ACTION_SNOOZE_5, title: t("banner.snooze5") },
-          { id: NOTIFICATION_ACTION_SNOOZE_15, title: t("banner.snooze15") },
-          { id: NOTIFICATION_ACTION_SNOOZE_1H, title: t("banner.snooze1h") },
-          {
-            id: NOTIFICATION_ACTION_SNOOZE_TOMORROW,
-            title: t("banner.snoozeTomorrowMorning"),
-          },
-          { id: NOTIFICATION_ACTION_COMPLETE, title: t("banner.complete") },
-        ],
-      },
-    ]).catch((err) => {
-      void frontendLog("warn", "notification registerActionTypes failed", {
-        window: getCurrentWindow().label,
-        err: describeError(err),
-      });
-    });
+    const windowLabel = getCurrentWindow().label;
 
     void (async () => {
+      // NOTE: On desktop, the current notification stack only supports basic notifications
+      // (notify/request_permission/is_permission_granted). Action types / action listeners are not
+      // guaranteed to be implemented, so treat this as best-effort and avoid polluting logs.
+      try {
+        await registerActionTypes([
+          {
+            id: NOTIFICATION_ACTION_TYPE,
+            actions: [
+              { id: NOTIFICATION_ACTION_SNOOZE_5, title: t("banner.snooze5") },
+              { id: NOTIFICATION_ACTION_SNOOZE_15, title: t("banner.snooze15") },
+              { id: NOTIFICATION_ACTION_SNOOZE_1H, title: t("banner.snooze1h") },
+              {
+                id: NOTIFICATION_ACTION_SNOOZE_TOMORROW,
+                title: t("banner.snoozeTomorrowMorning"),
+              },
+              { id: NOTIFICATION_ACTION_COMPLETE, title: t("banner.complete") },
+            ],
+          },
+        ]);
+      } catch (err) {
+        void frontendLog("info", "notification actions unsupported; skipping", {
+          window: windowLabel,
+          err: describeError(err),
+        });
+        return;
+      }
+
       const listener = await onAction(async (notification) => {
         const payload = notification as {
           actionId?: string;
@@ -502,13 +509,13 @@ function App() {
         const window = getCurrentWindow();
         void window.show().catch((err) => {
           void frontendLog("warn", "window.show failed (notification action)", {
-            window: getCurrentWindow().label,
+            window: windowLabel,
             err: describeError(err),
           });
         });
         void window.setFocus().catch((err) => {
           void frontendLog("warn", "window.setFocus failed (notification action)", {
-            window: getCurrentWindow().label,
+            window: windowLabel,
             err: describeError(err),
           });
         });
@@ -520,8 +527,8 @@ function App() {
       }
       actionListener = listener;
     })().catch((err) => {
-      void frontendLog("error", "notification onAction listener setup failed", {
-        window: getCurrentWindow().label,
+      void frontendLog("info", "notification onAction unsupported; skipping", {
+        window: windowLabel,
         err: describeError(err),
       });
     });
