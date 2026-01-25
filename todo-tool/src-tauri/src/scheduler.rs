@@ -17,6 +17,13 @@ use tauri::{AppHandle, Emitter, Manager};
 #[cfg(all(feature = "app", not(test)))]
 pub fn start_scheduler(app: AppHandle, state: AppState) {
     tauri::async_runtime::spawn(async move {
+        let settings = state.settings();
+        log::info!(
+            "scheduler: started interval_sec=1 missed_tick=skip repeat_interval_sec={} repeat_max_times={}",
+            settings.reminder_repeat_interval_sec,
+            settings.reminder_repeat_max_times
+        );
+
         let mut interval = tokio::time::interval(Duration::from_secs(1));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {

@@ -240,14 +240,31 @@ fn load_state_impl(ctx: &impl CommandCtx, state: &AppState) -> CommandResult<Sta
         Ok(path) => path,
         Err(e) => return err(&format!("app_data_dir error: {e}")),
     };
+    let data_path = root.join("data.json");
+    let settings_path = root.join("settings.json");
     let storage = Storage::new(root);
     if let Err(error) = storage.ensure_dirs() {
-        return err(&format!("storage error: {error:?}"));
+        log::error!("cmd=load_state ensure_dirs failed: {error}");
+        return err(&format!("storage error: {error}"));
     }
     let tasks_file = match storage.load_tasks() {
         Ok(file) => file,
         Err(err) => {
-            log::warn!("cmd=load_state failed to load data.json; using defaults: {err}");
+            match &err {
+                StorageError::Io(io_err) if io_err.kind() == std::io::ErrorKind::NotFound => {
+                    log::info!(
+                        "cmd=load_state data.json missing path={} -> defaults",
+                        data_path.display()
+                    );
+                }
+                _ => {
+                    log::warn!(
+                        "cmd=load_state failed to load data.json path={} -> defaults err={}",
+                        data_path.display(),
+                        err
+                    );
+                }
+            }
             crate::models::TasksFile {
                 schema_version: 1,
                 tasks: Vec::new(),
@@ -258,7 +275,21 @@ fn load_state_impl(ctx: &impl CommandCtx, state: &AppState) -> CommandResult<Sta
     let settings = match storage.load_settings() {
         Ok(file) => file.settings,
         Err(err) => {
-            log::warn!("cmd=load_state failed to load settings.json; using defaults: {err}");
+            match &err {
+                StorageError::Io(io_err) if io_err.kind() == std::io::ErrorKind::NotFound => {
+                    log::info!(
+                        "cmd=load_state settings.json missing path={} -> defaults",
+                        settings_path.display()
+                    );
+                }
+                _ => {
+                    log::warn!(
+                        "cmd=load_state failed to load settings.json path={} -> defaults err={}",
+                        settings_path.display(),
+                        err
+                    );
+                }
+            }
             Settings::default()
         }
     };

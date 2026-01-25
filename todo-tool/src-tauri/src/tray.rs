@@ -106,7 +106,17 @@ pub fn init_tray(app: &mut App, settings: &Settings) -> Result<(), Box<dyn std::
     })?;
 
     let lang = resolve_tray_language(&settings.language);
+    log::info!(
+        "tray: init start id={} language_setting={} resolved_lang={}",
+        TRAY_ID,
+        settings.language,
+        match lang {
+            TrayLanguage::Zh => "zh",
+            TrayLanguage::En => "en",
+        }
+    );
     let menu = build_tray_menu(app, lang)?;
+    log::info!("tray: menu built");
 
     let _tray = TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon)
@@ -191,6 +201,7 @@ pub fn init_tray(app: &mut App, settings: &Settings) -> Result<(), Box<dyn std::
         })
         .build(app)?;
 
+    log::info!("tray: initialized id={}", TRAY_ID);
     Ok(())
 }
 

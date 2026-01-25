@@ -2,9 +2,11 @@ use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindo
 
 fn ensure_reminder_window<R: Runtime>(app: &AppHandle<R>) -> Option<WebviewWindow<R>> {
     if let Some(window) = app.get_webview_window("reminder") {
+        log::debug!("ensure_reminder_window: reminder window already exists");
         return Some(window);
     }
 
+    log::info!("ensure_reminder_window: building reminder window");
     let reminder_builder =
         WebviewWindowBuilder::new(app, "reminder", WebviewUrl::App("/#/reminder".into()))
             .title("MustDo")
@@ -26,6 +28,7 @@ fn ensure_reminder_window<R: Runtime>(app: &AppHandle<R>) -> Option<WebviewWindo
         Ok(window) => {
             // The app uses custom titlebars; remove maximization to keep the layout predictable.
             let _ = window.set_maximizable(false);
+            log::info!("ensure_reminder_window: reminder window built");
             Some(window)
         }
         Err(err) => {
@@ -37,9 +40,11 @@ fn ensure_reminder_window<R: Runtime>(app: &AppHandle<R>) -> Option<WebviewWindo
 
 fn ensure_settings_window<R: Runtime>(app: &AppHandle<R>) -> Option<WebviewWindow<R>> {
     if let Some(window) = app.get_webview_window("settings") {
+        log::debug!("ensure_settings_window: settings window already exists");
         return Some(window);
     }
 
+    log::info!("ensure_settings_window: building settings window");
     let settings_builder =
         WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("/#/settings".into()))
             .title("MustDo")
@@ -59,6 +64,7 @@ fn ensure_settings_window<R: Runtime>(app: &AppHandle<R>) -> Option<WebviewWindo
         Ok(window) => {
             // The app uses custom titlebars; remove maximization to keep the layout predictable.
             let _ = window.set_maximizable(false);
+            log::info!("ensure_settings_window: settings window built");
             Some(window)
         }
         Err(err) => {
@@ -69,6 +75,7 @@ fn ensure_settings_window<R: Runtime>(app: &AppHandle<R>) -> Option<WebviewWindo
 }
 
 pub fn show_reminder_window<R: Runtime>(app: &AppHandle<R>) {
+    log::debug!("show_reminder_window: request");
     if let Some(window) = ensure_reminder_window(app) {
         if let Err(err) = window.show() {
             log::warn!("show_reminder_window: failed to show reminder window: {err}");
@@ -82,6 +89,7 @@ pub fn show_reminder_window<R: Runtime>(app: &AppHandle<R>) {
 }
 
 pub fn show_settings_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+    log::debug!("show_settings_window: request");
     let window =
         ensure_settings_window(app).ok_or_else(|| "settings window is unavailable".to_string())?;
 

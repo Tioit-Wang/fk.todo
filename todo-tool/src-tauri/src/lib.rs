@@ -69,12 +69,30 @@ pub fn run() {
         )
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            let boot = std::time::Instant::now();
+
             let app_data_dir = app.path().app_data_dir()?;
 
             if let Err(err) = crate::logging::init_logging(&app_data_dir) {
                 // Logger init should never brick the app; keep it best-effort.
                 eprintln!("failed to initialize logger: {err}");
             }
+
+            log::info!(
+                "boot: setup begin tauri_is_dev={} debug_assertions={} elapsed_ms={}",
+                tauri::is_dev(),
+                cfg!(debug_assertions),
+                boot.elapsed().as_millis()
+            );
+            log::info!(
+                "boot: config dev_url={}",
+                app.config()
+                    .build
+                    .dev_url
+                    .as_ref()
+                    .map(|url| url.as_str())
+                    .unwrap_or("<none>")
+            );
 
             log::info!(
                 "app starting name={} version={} os={} arch={} app_data_dir={}",
@@ -85,13 +103,54 @@ pub fn run() {
                 app_data_dir.display()
             );
 
-            let storage = Storage::new(app_data_dir);
-            storage.ensure_dirs()?;
+            let storage = Storage::new(app_data_dir.clone());
+            storage.ensure_dirs().map_err(|err| {
+                log::error!(
+                    "boot: ensure_dirs failed root={} err={} elapsed_ms={}",
+                    app_data_dir.display(),
+                    err,
+                    boot.elapsed().as_millis()
+                );
+                err
+            })?;
+            log::info!(
+                "boot: ensure_dirs ok root={} elapsed_ms={}",
+                app_data_dir.display(),
+                boot.elapsed().as_millis()
+            );
 
+            let data_path = app_data_dir.join("data.json");
             let tasks_file = match storage.load_tasks() {
-                Ok(file) => file,
+                Ok(file) => {
+                    log::info!(
+                        "boot: loaded data.json schema_version={} tasks={} projects={} elapsed_ms={}",
+                        file.schema_version,
+                        file.tasks.len(),
+                        file.projects.len(),
+                        boot.elapsed().as_millis()
+                    );
+                    file
+                }
                 Err(err) => {
-                    log::warn!("failed to load tasks file; using defaults: {err}");
+                    match &err {
+                        crate::storage::StorageError::Io(io_err)
+                            if io_err.kind() == std::io::ErrorKind::NotFound =>
+                        {
+                            log::info!(
+                                "boot: data.json missing path={} -> defaults elapsed_ms={}",
+                                data_path.display(),
+                                boot.elapsed().as_millis()
+                            );
+                        }
+                        _ => {
+                            log::warn!(
+                                "boot: failed to load data.json path={} -> defaults err={} elapsed_ms={}",
+                                data_path.display(),
+                                err,
+                                boot.elapsed().as_millis()
+                            );
+                        }
+                    }
                     crate::models::TasksFile {
                         schema_version: 1,
                         tasks: Vec::new(),
@@ -101,17 +160,60 @@ pub fn run() {
             };
             let tasks = tasks_file.tasks;
             let projects = tasks_file.projects;
-            let mut settings = match storage.load_settings() {
-                Ok(file) => file.settings,
+
+            let settings_path = app_data_dir.join("settings.json");
+            let settings_file = match storage.load_settings() {
+                Ok(file) => {
+                    let settings = &file.settings;
+                    log::info!(
+                        "boot: loaded settings.json schema_version={} theme={} language={} close_behavior={:?} minimize_behavior={:?} backup_schedule={:?} update_behavior={:?} shortcut={} ai_enabled={} deepseek_key_present={} elapsed_ms={}",
+                        file.schema_version,
+                        settings.theme,
+                        settings.language,
+                        settings.close_behavior,
+                        settings.minimize_behavior,
+                        settings.backup_schedule,
+                        settings.update_behavior,
+                        settings.shortcut,
+                        settings.ai_enabled,
+                        !settings.deepseek_api_key.trim().is_empty(),
+                        boot.elapsed().as_millis()
+                    );
+                    file
+                }
                 Err(err) => {
-                    log::warn!("failed to load settings file; using defaults: {err}");
-                    crate::models::Settings::default()
+                    match &err {
+                        crate::storage::StorageError::Io(io_err)
+                            if io_err.kind() == std::io::ErrorKind::NotFound =>
+                        {
+                            log::info!(
+                                "boot: settings.json missing path={} -> defaults elapsed_ms={}",
+                                settings_path.display(),
+                                boot.elapsed().as_millis()
+                            );
+                        }
+                        _ => {
+                            log::warn!(
+                                "boot: failed to load settings.json path={} -> defaults err={} elapsed_ms={}",
+                                settings_path.display(),
+                                err,
+                                boot.elapsed().as_millis()
+                            );
+                        }
+                    }
+                    crate::models::SettingsFile {
+                        schema_version: 1,
+                        settings: crate::models::Settings::default(),
+                    }
                 }
             };
+            let mut settings = settings_file.settings;
 
             // Normalize potentially user-edited settings files. We keep the app bootable even if
             // the shortcut is invalid/unregisterable, otherwise users can brick the app.
             let mut settings_dirty = false;
+            let original_shortcut = settings.shortcut.clone();
+            let original_language = settings.language.clone();
             let trimmed_shortcut = settings.shortcut.trim().to_string();
             if trimmed_shortcut != settings.shortcut {
                 settings.shortcut = trimmed_shortcut;
@@ -132,6 +234,23 @@ pub fn run() {
             if normalized_language != settings.language {
                 settings.language = normalized_language;
                 settings_dirty = true;
+            }
+
+            if settings.shortcut != original_shortcut {
+                log::info!(
+                    "boot: normalized shortcut from=\"{}\" to=\"{}\" elapsed_ms={}",
+                    original_shortcut,
+                    settings.shortcut,
+                    boot.elapsed().as_millis()
+                );
+            }
+            if settings.language != original_language {
+                log::info!(
+                    "boot: normalized language from=\"{}\" to=\"{}\" elapsed_ms={}",
+                    original_language,
+                    settings.language,
+                    boot.elapsed().as_millis()
+                );
             }
 
             let shortcut = match settings.shortcut.parse::<Shortcut>() {
@@ -168,6 +287,7 @@ pub fn run() {
 
             // Create the main window programmatically so we can enable transparency on non-macOS
             // without requiring macOS private APIs.
+            log::info!("boot: building main window elapsed_ms={}", boot.elapsed().as_millis());
             let main_builder =
                 WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("/#/main".into()))
                     .title("MustDo")
@@ -181,8 +301,13 @@ pub fn run() {
             #[cfg(not(target_os = "macos"))]
             let main_builder = main_builder.transparent(true);
 
-            main_builder.visible(true).build()?;
+            main_builder.visible(true).build().map_err(|err| {
+                log::error!("boot: failed to build main window: {err}");
+                err
+            })?;
+            log::info!("boot: main window built elapsed_ms={}", boot.elapsed().as_millis());
 
+            log::info!("boot: building quick window elapsed_ms={}", boot.elapsed().as_millis());
             let quick_builder =
                 WebviewWindowBuilder::new(app, "quick", tauri::WebviewUrl::App("/#/quick".into()))
                     .title("MustDo")
@@ -198,22 +323,48 @@ pub fn run() {
             #[cfg(not(target_os = "macos"))]
             let quick_builder = quick_builder.transparent(true);
 
-            quick_builder.visible(false).build()?;
+            quick_builder.visible(false).build().map_err(|err| {
+                log::error!("boot: failed to build quick window: {err}");
+                err
+            })?;
+            log::info!("boot: quick window built elapsed_ms={}", boot.elapsed().as_millis());
 
             // The app uses custom titlebars; remove maximization to keep the layout predictable.
             if let Some(window) = app.get_webview_window("main") {
-                let _ = window.set_maximizable(false);
+                if let Err(err) = window.set_maximizable(false) {
+                    log::warn!("boot: failed to disable maximize for main window: {err}");
+                }
+            } else {
+                log::warn!("boot: main window missing after build");
             }
             if let Some(window) = app.get_webview_window("quick") {
-                let _ = window.set_maximizable(false);
+                if let Err(err) = window.set_maximizable(false) {
+                    log::warn!("boot: failed to disable maximize for quick window: {err}");
+                }
+            } else {
+                log::warn!("boot: quick window missing after build");
             }
 
-            init_tray(app, &state.settings())?;
+            log::info!("boot: init tray elapsed_ms={}", boot.elapsed().as_millis());
+            init_tray(app, &state.settings()).map_err(|err| {
+                log::error!("boot: init tray failed: {err}");
+                err
+            })?;
+            log::info!("boot: tray ready elapsed_ms={}", boot.elapsed().as_millis());
             update_tray_count(app.handle(), &state.tasks(), &state.settings());
 
             if let Some(shortcut) = shortcut {
-                if let Err(err) = app.handle().global_shortcut().register(shortcut) {
-                    log::warn!("failed to register global shortcut: {err}");
+                match app.handle().global_shortcut().register(shortcut) {
+                    Ok(()) => {
+                        log::info!(
+                            "boot: global shortcut registered shortcut={} elapsed_ms={}",
+                            state.settings().shortcut,
+                            boot.elapsed().as_millis()
+                        );
+                    }
+                    Err(err) => {
+                        log::warn!("failed to register global shortcut: {err}");
+                    }
                 }
             }
 
@@ -225,6 +376,10 @@ pub fn run() {
                 }
             }
             start_scheduler(app.handle().clone(), state.clone());
+            log::info!(
+                "boot: setup completed elapsed_ms={}",
+                boot.elapsed().as_millis()
+            );
             log::info!("app setup completed");
 
             Ok(())

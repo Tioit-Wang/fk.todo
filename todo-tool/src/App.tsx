@@ -285,6 +285,9 @@ function App() {
     let unlisten: (() => void) | null = null;
 
     void (async () => {
+      void frontendLog("info", "frontend: register navigate listener", {
+        window: getCurrentWindow().label,
+      });
       const listener = await listen<{ hash: string }>(
         TAURI_NAVIGATE,
         ({ payload }) => {
@@ -299,7 +302,12 @@ function App() {
         return;
       }
       unlisten = listener;
-    })().catch(() => {});
+    })().catch((err) => {
+      void frontendLog("error", "frontend: failed to register navigate listener", {
+        window: getCurrentWindow().label,
+        err: describeError(err),
+      });
+    });
 
     return () => {
       disposed = true;
@@ -448,7 +456,12 @@ function App() {
           { id: NOTIFICATION_ACTION_COMPLETE, title: t("banner.complete") },
         ],
       },
-    ]).catch(() => {});
+    ]).catch((err) => {
+      void frontendLog("warn", "notification registerActionTypes failed", {
+        window: getCurrentWindow().label,
+        err: describeError(err),
+      });
+    });
 
     void (async () => {
       const listener = await onAction(async (notification) => {
@@ -487,8 +500,18 @@ function App() {
 
         // Bring the quick window forward so the user sees the updated list immediately.
         const window = getCurrentWindow();
-        void window.show().catch(() => {});
-        void window.setFocus().catch(() => {});
+        void window.show().catch((err) => {
+          void frontendLog("warn", "window.show failed (notification action)", {
+            window: getCurrentWindow().label,
+            err: describeError(err),
+          });
+        });
+        void window.setFocus().catch((err) => {
+          void frontendLog("warn", "window.setFocus failed (notification action)", {
+            window: getCurrentWindow().label,
+            err: describeError(err),
+          });
+        });
       });
 
       if (disposed) {
@@ -496,7 +519,12 @@ function App() {
         return;
       }
       actionListener = listener;
-    })().catch(() => {});
+    })().catch((err) => {
+      void frontendLog("error", "notification onAction listener setup failed", {
+        window: getCurrentWindow().label,
+        err: describeError(err),
+      });
+    });
 
     return () => {
       disposed = true;
@@ -513,8 +541,19 @@ function App() {
     let unlistenReminder: (() => void) | null = null;
 
     void (async () => {
+      const windowLabel = getCurrentWindow().label;
+      void frontendLog("info", "frontend: load_state begin", {
+        window: windowLabel,
+        hash: window.location.hash,
+      });
+
       const res = await loadState();
       if (res.ok && res.data) {
+        void frontendLog("info", "frontend: load_state ok", {
+          window: windowLabel,
+          tasks: res.data.tasks?.length ?? 0,
+          projects: res.data.projects?.length ?? 0,
+        });
         setTasks((prev) => {
           const raw = res.data?.tasks ?? [];
           if (prev.length === raw.length) {
@@ -562,6 +601,11 @@ function App() {
           );
         });
         setSettings(normalizeSettings(res.data.settings));
+      } else {
+        void frontendLog("warn", "frontend: load_state failed", {
+          window: windowLabel,
+          error: res.error ?? "",
+        });
       }
 
       const stateListener = await listen("state_updated", (event) => {
@@ -629,6 +673,9 @@ function App() {
         return;
       }
       unlistenState = stateListener;
+      void frontendLog("info", "frontend: state_updated listener ready", {
+        window: windowLabel,
+      });
 
       const reminderListener = await listen("reminder_fired", async (event) => {
         const payload = event.payload as Task[];
@@ -702,7 +749,15 @@ function App() {
         return;
       }
       unlistenReminder = reminderListener;
-    })().catch(() => {});
+      void frontendLog("info", "frontend: reminder_fired listener ready", {
+        window: windowLabel,
+      });
+    })().catch((err) => {
+      void frontendLog("error", "frontend: initial state subscription failed", {
+        window: getCurrentWindow().label,
+        err: describeError(err),
+      });
+    });
 
     return () => {
       disposed = true;
@@ -742,7 +797,12 @@ function App() {
     if (platform === "windows") {
       void getCurrentWindow()
         .setShadow(false)
-        .catch(() => {});
+        .catch((err) => {
+          void frontendLog("warn", "window.setShadow(false) failed", {
+            window: getCurrentWindow().label,
+            err: describeError(err),
+          });
+        });
     }
   }, []);
 
