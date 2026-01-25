@@ -83,6 +83,12 @@ pub fn show_settings_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), String
     let window =
         ensure_settings_window(app).ok_or_else(|| "settings window is unavailable".to_string())?;
 
+    // Best-effort: if the user changed monitor setup (or the OS restored an off-screen position),
+    // centering avoids the "window opened but I can't see it" class of bugs.
+    if let Err(err) = window.center() {
+        log::warn!("show_settings_window: failed to center settings window: {err}");
+    }
+
     window
         .unminimize()
         .map_err(|err| format!("failed to unminimize settings window: {err}"))?;
@@ -93,7 +99,17 @@ pub fn show_settings_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), String
         .set_focus()
         .map_err(|err| format!("failed to focus settings window: {err}"))?;
 
-    Ok(())
+    // Extra guard: on some platforms/driver combos, `show()` can succeed while the window
+    // remains effectively invisible. If that happens, return an error so the frontend can
+    // fall back to the in-window settings route.
+    match window.is_visible() {
+        Ok(true) => Ok(()),
+        Ok(false) => Err("settings window is not visible after show()".to_string()),
+        Err(err) => {
+            log::warn!("show_settings_window: failed to query visibility: {err}");
+            Ok(())
+        }
+    }
 }
 
 pub fn hide_quick_window<R: Runtime>(app: &AppHandle<R>) -> bool {
