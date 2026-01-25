@@ -8,6 +8,7 @@ import {
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 import { getAppVersion } from "../version";
+import { describeError, frontendLog } from "../frontendLog";
 import {
   createBackup,
   createProject,
@@ -474,8 +475,13 @@ export function SettingsView({
         return;
       }
       await appWindow.hide();
-    } catch {
-      // Best-effort: if the platform disallows the requested action, keep the window usable.
+    } catch (err) {
+      // Best-effort: logging must never break settings, but we want evidence when native
+      // window controls stop responding (common dev-capability issue).
+      void frontendLog("warn", "settings window minimize/hide failed", {
+        behavior,
+        err: describeError(err),
+      });
     }
   }
 

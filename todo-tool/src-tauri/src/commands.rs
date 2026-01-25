@@ -1074,6 +1074,34 @@ pub fn show_settings_window(app: AppHandle) -> CommandResult<bool> {
 
 #[cfg(all(feature = "app", not(test)))]
 #[tauri::command]
+pub fn frontend_log(level: String, message: String, context: Option<serde_json::Value>) -> bool {
+    const MAX_CHARS: usize = 4000;
+
+    let lvl = level.trim().to_lowercase();
+    let trimmed = message.trim();
+
+    let mut msg: String = trimmed.chars().take(MAX_CHARS).collect();
+    if trimmed.chars().count() > MAX_CHARS {
+        msg.push_str("...");
+    }
+
+    let ctx = context
+        .and_then(|v| serde_json::to_string(&v).ok())
+        .unwrap_or_default();
+
+    match lvl.as_str() {
+        "error" => log::error!("frontend_log: {msg} ctx={ctx}"),
+        "warn" | "warning" => log::warn!("frontend_log: {msg} ctx={ctx}"),
+        "debug" => log::debug!("frontend_log: {msg} ctx={ctx}"),
+        "trace" => log::trace!("frontend_log: {msg} ctx={ctx}"),
+        _ => log::info!("frontend_log: {msg} ctx={ctx}"),
+    }
+
+    true
+}
+
+#[cfg(all(feature = "app", not(test)))]
+#[tauri::command]
 pub fn set_shortcut_capture_active(state: State<AppState>, active: bool) -> CommandResult<bool> {
     log::info!("cmd=set_shortcut_capture_active active={}", active);
     state.set_shortcut_capture_active(active);

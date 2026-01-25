@@ -5,6 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { formatDue, formatLocalDateKey } from "../date";
 import { WindowTitlebar } from "../components/WindowTitlebar";
 import { Icons } from "../components/icons";
+import { describeError, frontendLog } from "../frontendLog";
 import { useI18n } from "../i18n";
 import { taskMatchesQuery } from "../search";
 import type { Settings, Task } from "../types";
@@ -102,8 +103,11 @@ export function TodayView({
         return;
       }
       await appWindow.hide();
-    } catch {
-      // Best-effort: if the platform disallows the requested action, keep the window usable.
+    } catch (err) {
+      void frontendLog("warn", "today view minimize/hide failed", {
+        behavior,
+        err: describeError(err),
+      });
     }
   }
 
@@ -203,4 +207,3 @@ export function TodayView({
     </div>
   );
 }
-

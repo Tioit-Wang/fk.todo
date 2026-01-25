@@ -17,6 +17,7 @@ import { IconButton } from "../components/IconButton";
 import { TaskCard } from "../components/TaskCard";
 import { WindowTitlebar } from "../components/WindowTitlebar";
 import { Icons } from "../components/icons";
+import { describeError, frontendLog } from "../frontendLog";
 import { useI18n } from "../i18n";
 import { visibleQuickTasks, type QuickSortMode, type QuickTab } from "../logic";
 import {
@@ -291,24 +292,36 @@ export function QuickView({
     let unlistenFocus: (() => void) | null = null;
 
     (async () => {
-      const moved = await appWindow.onMoved(scheduleSave);
-      if (disposed) {
-        moved();
-        return;
+      try {
+        const moved = await appWindow.onMoved(scheduleSave);
+        if (disposed) {
+          moved();
+          return;
+        }
+        unlistenMoved = moved;
+      } catch (err) {
+        void frontendLog("warn", "quick window onMoved subscription failed", {
+          err: describeError(err),
+        });
       }
-      unlistenMoved = moved;
 
-      const focused = await appWindow.onFocusChanged(({ payload }) => {
-        if (!payload) return;
-        void appWindow
-          .setAlwaysOnTop(settingsRef.current?.quick_always_on_top ?? false)
-          .catch(() => {});
-      });
-      if (disposed) {
-        focused();
-        return;
+      try {
+        const focused = await appWindow.onFocusChanged(({ payload }) => {
+          if (!payload) return;
+          void appWindow
+            .setAlwaysOnTop(settingsRef.current?.quick_always_on_top ?? false)
+            .catch(() => {});
+        });
+        if (disposed) {
+          focused();
+          return;
+        }
+        unlistenFocus = focused;
+      } catch (err) {
+        void frontendLog("warn", "quick window onFocusChanged subscription failed", {
+          err: describeError(err),
+        });
       }
-      unlistenFocus = focused;
     })();
 
     return () => {

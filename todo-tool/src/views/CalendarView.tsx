@@ -8,6 +8,7 @@ import { WindowTitlebar } from "../components/WindowTitlebar";
 import { Icons } from "../components/icons";
 import { NotificationBanner } from "../components/NotificationBanner";
 import { TaskCard } from "../components/TaskCard";
+import { describeError, frontendLog } from "../frontendLog";
 import { useI18n } from "../i18n";
 import type { SnoozePresetId } from "../snooze";
 import type { Settings, Task } from "../types";
@@ -94,8 +95,11 @@ export function CalendarView({
         return;
       }
       await appWindow.hide();
-    } catch {
-      // Best-effort.
+    } catch (err) {
+      void frontendLog("warn", "calendar view minimize/hide failed", {
+        behavior,
+        err: describeError(err),
+      });
     }
   }
 

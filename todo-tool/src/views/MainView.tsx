@@ -13,6 +13,7 @@ import {
 } from "../components/TaskComposer";
 import { WindowTitlebar } from "../components/WindowTitlebar";
 import { Icons } from "../components/icons";
+import { describeError, frontendLog } from "../frontendLog";
 import { useI18n } from "../i18n";
 import {
   computeRescheduleDueAt,
@@ -491,6 +492,10 @@ export function MainView({
       // Best-effort fallback: if hide/minimize fails (platform quirks), try minimize so the
       // user still gets a visible response to clicking the control.
       console.warn("main window minimize/hide failed", err);
+      void frontendLog("warn", "main window minimize/hide failed", {
+        behavior,
+        err: describeError(err),
+      });
       void appWindow.minimize().catch(() => {});
     }
   }

@@ -10,6 +10,7 @@ fn ensure_reminder_window<R: Runtime>(app: &AppHandle<R>) -> Option<WebviewWindo
             .title("MustDo")
             .decorations(false)
             .resizable(false)
+            .minimizable(true)
             // The reminder overlay looks best with a transparent window background, but on macOS
             // this is gated behind `macos-private-api`, so we only enable it on non-macOS by default.
             // The actual banner UI is rendered by the frontend.
@@ -46,6 +47,7 @@ fn ensure_settings_window<R: Runtime>(app: &AppHandle<R>) -> Option<WebviewWindo
             .min_inner_size(820.0, 900.0)
             .max_inner_size(820.0, 900.0)
             .resizable(false)
+            .minimizable(true)
             .decorations(false)
             .visible(false);
 

@@ -112,35 +112,58 @@ pub fn init_tray(app: &mut App, settings: &Settings) -> Result<(), Box<dyn std::
         .icon(icon)
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| match event.id.as_ref() {
-            "quit" => app.exit(0),
-            "show_quick" => {
-                if let Some(window) = app.get_webview_window("quick") {
-                    let _ = window.unminimize();
-                    let _ = window.show();
-                    let _ = window.set_focus();
+        .on_menu_event(|app, event| {
+            let id = event.id.as_ref();
+            log::info!("tray: menu_event id={id}");
+
+            match id {
+                "quit" => app.exit(0),
+                "show_quick" => {
+                    if let Some(window) = app.get_webview_window("quick") {
+                        if let Err(err) = window.unminimize() {
+                            log::warn!("tray: failed to unminimize quick window: {err}");
+                        }
+                        if let Err(err) = window.show() {
+                            log::warn!("tray: failed to show quick window: {err}");
+                        }
+                        if let Err(err) = window.set_focus() {
+                            log::warn!("tray: failed to focus quick window: {err}");
+                        }
+                    } else {
+                        log::warn!("tray: quick window missing");
+                    }
                 }
-            }
-            "show_main" => {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.unminimize();
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                    // Ask the frontend to navigate; avoids injecting JS via eval.
-                    let _ = window.emit(
-                        EVENT_NAVIGATE,
-                        NavigatePayload {
-                            hash: "#/main".to_string(),
-                        },
-                    );
+                "show_main" => {
+                    if let Some(window) = app.get_webview_window("main") {
+                        if let Err(err) = window.unminimize() {
+                            log::warn!("tray: failed to unminimize main window: {err}");
+                        }
+                        if let Err(err) = window.show() {
+                            log::warn!("tray: failed to show main window: {err}");
+                        }
+                        if let Err(err) = window.set_focus() {
+                            log::warn!("tray: failed to focus main window: {err}");
+                        }
+                        // Ask the frontend to navigate; avoids injecting JS via eval.
+                        if let Err(err) = window.emit(
+                            EVENT_NAVIGATE,
+                            NavigatePayload {
+                                hash: "#/main".to_string(),
+                            },
+                        ) {
+                            log::warn!("tray: failed to emit navigate event: {err}");
+                        }
+                    } else {
+                        log::warn!("tray: main window missing");
+                    }
                 }
-            }
-            "show_settings" => {
-                if let Err(err) = show_settings_window(app) {
-                    log::warn!("tray: failed to show settings window: {err}");
+                "show_settings" => {
+                    if let Err(err) = show_settings_window(app) {
+                        log::warn!("tray: failed to show settings window: {err}");
+                    }
                 }
+                _ => {}
             }
-            _ => {}
         })
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click {
@@ -150,10 +173,19 @@ pub fn init_tray(app: &mut App, settings: &Settings) -> Result<(), Box<dyn std::
             } = event
             {
                 let app = tray.app_handle();
+                log::info!("tray: left_click");
                 if let Some(window) = app.get_webview_window("quick") {
-                    let _ = window.unminimize();
-                    let _ = window.show();
-                    let _ = window.set_focus();
+                    if let Err(err) = window.unminimize() {
+                        log::warn!("tray: failed to unminimize quick window (left click): {err}");
+                    }
+                    if let Err(err) = window.show() {
+                        log::warn!("tray: failed to show quick window (left click): {err}");
+                    }
+                    if let Err(err) = window.set_focus() {
+                        log::warn!("tray: failed to focus quick window (left click): {err}");
+                    }
+                } else {
+                    log::warn!("tray: quick window missing (left click)");
                 }
             }
         })
@@ -171,9 +203,18 @@ pub fn update_tray_count<R: Runtime>(app: &AppHandle<R>, tasks: &[Task], setting
     // (and keep coverage focused on the tooltip computation logic).
     {
         if let Some(tray) = app.tray_by_id(TRAY_ID) {
-            let _ = tray.set_tooltip(Some(tooltip));
-            if let Ok(menu) = build_tray_menu(app, lang) {
-                let _ = tray.set_menu(Some(menu));
+            if let Err(err) = tray.set_tooltip(Some(tooltip)) {
+                log::warn!("tray: failed to update tooltip: {err}");
+            }
+            match build_tray_menu(app, lang) {
+                Ok(menu) => {
+                    if let Err(err) = tray.set_menu(Some(menu)) {
+                        log::warn!("tray: failed to update menu: {err}");
+                    }
+                }
+                Err(err) => {
+                    log::warn!("tray: failed to rebuild menu: {err}");
+                }
             }
         }
     }

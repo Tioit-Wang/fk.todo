@@ -29,6 +29,7 @@ import { ForcedReminderOverlay } from "./components/ForcedReminderOverlay";
 import { TaskEditModal } from "./components/TaskEditModal";
 import { useToast } from "./components/ToastProvider";
 import { useConfirmDialog } from "./components/useConfirmDialog";
+import { describeError, frontendLog } from "./frontendLog";
 import { MainView } from "./views/MainView";
 import { QuickView } from "./views/QuickView";
 import { SettingsView } from "./views/SettingsView";
@@ -910,12 +911,18 @@ function App() {
       const res = await showSettingsWindow();
       opened = res.ok;
       if (res.ok) return;
+      void frontendLog("warn", "show_settings_window returned error", {
+        error: res.error ?? "",
+      });
       toast.notify(res.error ?? t("settings.openFailed"), {
         tone: "danger",
         durationMs: 6000,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      void frontendLog("error", "show_settings_window threw", {
+        err: describeError(error),
+      });
       toast.notify(message || t("settings.openFailed"), {
         tone: "danger",
         durationMs: 6000,
@@ -925,6 +932,9 @@ function App() {
     // Fallback: if opening the dedicated settings window fails (or is blocked by platform quirks),
     // route the current window to the in-window settings view so the user isn't stuck.
     if (!opened && getCurrentWindow().label === "main") {
+      void frontendLog("warn", "show_settings_window failed; falling back to route", {
+        hash: "#/main/settings",
+      });
       window.location.hash = "#/main/settings";
     }
   }

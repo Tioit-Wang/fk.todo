@@ -51,9 +51,17 @@ pub fn run() {
                             return;
                         }
                         if let Some(window) = app.get_webview_window("quick") {
-                            let _ = window.unminimize();
-                            let _ = window.show();
-                            let _ = window.set_focus();
+                            if let Err(err) = window.unminimize() {
+                                log::warn!("shortcut: failed to unminimize quick window: {err}");
+                            }
+                            if let Err(err) = window.show() {
+                                log::warn!("shortcut: failed to show quick window: {err}");
+                            }
+                            if let Err(err) = window.set_focus() {
+                                log::warn!("shortcut: failed to focus quick window: {err}");
+                            }
+                        } else {
+                            log::warn!("shortcut: quick window missing");
                         }
                     }
                 })
@@ -166,6 +174,7 @@ pub fn run() {
                     .inner_size(1200.0, 980.0)
                     .min_inner_size(960.0, 980.0)
                     .resizable(false)
+                    .minimizable(true)
                     .decorations(false);
 
             // macOS builds skip `transparent` because Tauri gates it behind `macos-private-api`.
@@ -181,6 +190,7 @@ pub fn run() {
                     .min_inner_size(500.0, 650.0)
                     .max_inner_size(500.0, 650.0)
                     .resizable(false)
+                    .minimizable(true)
                     .decorations(false)
                     .skip_taskbar(true);
 
@@ -274,6 +284,7 @@ pub fn run() {
             bulk_complete_tasks,
             update_settings,
             show_settings_window,
+            frontend_log,
             snooze_task,
             dismiss_forced,
             delete_task,
