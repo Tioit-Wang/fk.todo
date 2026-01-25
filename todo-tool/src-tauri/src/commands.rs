@@ -768,11 +768,8 @@ fn update_settings_impl(
         }
     };
 
-    // AI settings: keep API key stable and prevent enabling without a key.
+    // AI settings: keep API key stable.
     settings.deepseek_api_key = settings.deepseek_api_key.trim().to_string();
-    if settings.ai_enabled && settings.deepseek_api_key.is_empty() {
-        return err("deepseek api key required (settings.deepseek_api_key)");
-    }
 
     log::info!(
         "cmd=update_settings start theme={} language={} close_behavior={:?} minimize_behavior={:?} backup_schedule={:?} update_behavior={:?} repeat_interval_sec={} repeat_max_times={} shortcut_change={}",
@@ -1092,12 +1089,21 @@ pub fn update_settings(
 
 #[cfg(all(feature = "app", not(test)))]
 #[tauri::command]
-pub fn show_settings_window(app: AppHandle) -> CommandResult<bool> {
+pub async fn show_settings_window(app: AppHandle) -> CommandResult<bool> {
     log::info!("cmd=show_settings_window");
-    match show_settings_window_impl(&app) {
-        Ok(()) => ok(true),
-        Err(message) => {
+    // Creating a new window via Wry must happen off the main event-loop thread, otherwise
+    // tauri-runtime-wry's channel-based dispatcher can deadlock. Async commands run on the
+    // async runtime, so we can safely spawn a blocking task here.
+    let join = tauri::async_runtime::spawn_blocking(move || show_settings_window_impl(&app));
+    match join.await {
+        Ok(Ok(())) => ok(true),
+        Ok(Err(message)) => {
             log::error!("cmd=show_settings_window failed: {message}");
+            err(&message)
+        }
+        Err(join_err) => {
+            let message = format!("cmd=show_settings_window join failed: {join_err}");
+            log::error!("{message}");
             err(&message)
         }
     }

@@ -1,6 +1,6 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-mod commands;
 mod ai;
+mod commands;
 mod events;
 #[cfg(all(feature = "app", not(test)))]
 mod logging;
@@ -233,6 +233,11 @@ pub fn run() {
             };
             if normalized_language != settings.language {
                 settings.language = normalized_language;
+                settings_dirty = true;
+            }
+
+            if settings.migrate_ai_prompt_if_legacy_default() {
+                log::info!("boot: migrated ai_prompt (legacy default -> latest default)");
                 settings_dirty = true;
             }
 

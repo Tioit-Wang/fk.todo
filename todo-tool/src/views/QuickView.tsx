@@ -443,10 +443,14 @@ export function QuickView({
       </div>
 
       <div className="quick-input-bar">
-        <TaskComposer
-          placeholder={settings?.ai_enabled ? t("composer.placeholderAi") : undefined}
-          onSubmit={onCreateFromComposer}
-        />
+          <TaskComposer
+          placeholder={
+            settings?.ai_enabled && (settings?.deepseek_api_key ?? "").trim()
+              ? t("composer.placeholderAi")
+              : undefined
+          }
+            onSubmit={onCreateFromComposer}
+          />
       </div>
     </div>
   );

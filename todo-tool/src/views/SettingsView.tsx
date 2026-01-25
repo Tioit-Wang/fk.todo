@@ -734,13 +734,6 @@ export function SettingsView({
                       onClick={async () => {
                         const nextEnabled = !settings.ai_enabled;
                         const nextKey = deepseekKeyDraft.trim();
-                        if (nextEnabled && !nextKey) {
-                          toast.notify(t("settings.ai.keyRequired"), {
-                            tone: "danger",
-                            durationMs: 6000,
-                          });
-                          return;
-                        }
                         const ok = await onUpdateSettings({
                           ...settings,
                           ai_enabled: nextEnabled,
@@ -759,53 +752,60 @@ export function SettingsView({
                     </span>
                   </div>
 
-                  <div className="settings-row">
-                    <label>{t("settings.ai.apiKey")}</label>
-                    <input
-                      type="password"
-                      value={deepseekKeyDraft}
-                      placeholder={t("settings.ai.apiKeyPlaceholder")}
-                      onChange={(event) => setDeepseekKeyDraft(event.target.value)}
-                      onBlur={() => {
-                        const nextKey = deepseekKeyDraft.trim();
-                        if (nextKey === settings.deepseek_api_key) return;
-                        void onUpdateSettings({
-                          ...settings,
-                          deepseek_api_key: nextKey,
-                        }).then((ok) => {
-                          if (ok) {
-                            setDeepseekKeyDraft(nextKey);
-                            return;
-                          }
-                          setDeepseekKeyDraft(settings.deepseek_api_key);
-                        });
-                      }}
-                      autoComplete="off"
-                      spellCheck={false}
-                    />
-                  </div>
-
                   {settings.ai_enabled && (
-                    <div className="settings-row settings-row-multiline">
-                      <label>{t("settings.ai.prompt")}</label>
-                      <textarea
-                        className="settings-textarea"
-                        value={aiPromptDraft}
-                        placeholder={t("settings.ai.promptPlaceholder")}
-                        onChange={(event) => setAiPromptDraft(event.target.value)}
-                        onBlur={() => {
-                          if (aiPromptDraft === settings.ai_prompt) return;
-                          void onUpdateSettings({
-                            ...settings,
-                            ai_prompt: aiPromptDraft,
-                          }).then((ok) => {
-                            if (ok) return;
-                            setAiPromptDraft(settings.ai_prompt);
-                          });
-                        }}
-                        rows={8}
-                      />
-                    </div>
+                    <>
+                      <div className="settings-row">
+                        <label>{t("settings.ai.apiKey")}</label>
+                        <input
+                          type="password"
+                          value={deepseekKeyDraft}
+                          placeholder={t("settings.ai.apiKeyPlaceholder")}
+                          onChange={(event) => setDeepseekKeyDraft(event.target.value)}
+                          onBlur={() => {
+                            const nextKey = deepseekKeyDraft.trim();
+                            if (nextKey === settings.deepseek_api_key) return;
+                            void onUpdateSettings({
+                              ...settings,
+                              deepseek_api_key: nextKey,
+                            }).then((ok) => {
+                              if (ok) {
+                                setDeepseekKeyDraft(nextKey);
+                                return;
+                              }
+                              setDeepseekKeyDraft(settings.deepseek_api_key);
+                            });
+                          }}
+                          autoComplete="off"
+                          spellCheck={false}
+                        />
+                      </div>
+
+                      <div className="settings-row settings-row-multiline">
+                        <label>{t("settings.ai.prompt")}</label>
+                        <div>
+                          <textarea
+                            className="settings-textarea"
+                            value={aiPromptDraft}
+                            placeholder={t("settings.ai.promptPlaceholder")}
+                            onChange={(event) => setAiPromptDraft(event.target.value)}
+                            onBlur={() => {
+                              if (aiPromptDraft === settings.ai_prompt) return;
+                              void onUpdateSettings({
+                                ...settings,
+                                ai_prompt: aiPromptDraft,
+                              }).then((ok) => {
+                                if (ok) return;
+                                setAiPromptDraft(settings.ai_prompt);
+                              });
+                            }}
+                            rows={8}
+                          />
+                          <div className="settings-status">
+                            {t("settings.ai.promptHelp")}
+                          </div>
+                        </div>
+                      </div>
+                    </>
                   )}
 
                   <div className="settings-row">

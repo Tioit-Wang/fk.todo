@@ -168,9 +168,15 @@ pub fn init_tray(app: &mut App, settings: &Settings) -> Result<(), Box<dyn std::
                     }
                 }
                 "show_settings" => {
-                    if let Err(err) = show_settings_window(app) {
-                        log::warn!("tray: failed to show settings window: {err}");
-                    }
+                    // Window creation must not run on the main event-loop thread, otherwise it can
+                    // deadlock on some platforms (tauri-runtime-wry uses a sync channel here).
+                    // Spawn a blocking task so the UI thread stays responsive.
+                    let app = app.to_owned();
+                    tauri::async_runtime::spawn_blocking(move || {
+                        if let Err(err) = show_settings_window(&app) {
+                            log::warn!("tray: failed to show settings window: {err}");
+                        }
+                    });
                 }
                 _ => {}
             }

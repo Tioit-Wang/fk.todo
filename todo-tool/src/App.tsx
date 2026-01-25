@@ -268,6 +268,8 @@ function App() {
   const settingsRef = useRef<Settings | null>(null);
   const startupUpdateCheckStartedRef = useRef(false);
   const updateBusyRef = useRef(false);
+  const aiKeyMissingWarnedRef = useRef(false);
+  const aiPromptPlaceholderWarnedRef = useRef(false);
 
   useEffect(() => {
     const onHash = () => {
@@ -1064,14 +1066,33 @@ function App() {
     task.updated_at = Math.floor(Date.now() / 1000);
 
     const aiSettings = settingsRef.current;
-    if (aiSettings?.ai_enabled) {
-      const apiKey = aiSettings.deepseek_api_key?.trim?.() ?? "";
-      if (!apiKey) {
-        toast.notify(t("settings.ai.keyRequired"), {
-          tone: "danger",
+    const aiEnabled = Boolean(aiSettings?.ai_enabled);
+    const apiKey = aiSettings?.deepseek_api_key?.trim?.() ?? "";
+    const aiReady = aiEnabled && Boolean(apiKey);
+    if (aiEnabled && !aiReady) {
+      // Don't block task creation if AI is enabled but not configured yet.
+      if (!aiKeyMissingWarnedRef.current) {
+        aiKeyMissingWarnedRef.current = true;
+        toast.notify(t("settings.ai.keyMissingFallback"), {
+          tone: "default",
           durationMs: 6000,
         });
-        return false;
+      }
+    }
+
+    if (aiReady) {
+      const prompt = aiSettings?.ai_prompt ?? "";
+      const hasPlaceholder =
+        prompt.includes("{{mustdo_now}}") ||
+        prompt.includes("{{mustdo_user_input}}") ||
+        prompt.includes("{{mustdo_selected_fields}}") ||
+        prompt.includes("{{mustdo_output_schema}}");
+      if (!hasPlaceholder && !aiPromptPlaceholderWarnedRef.current) {
+        aiPromptPlaceholderWarnedRef.current = true;
+        toast.notify(t("settings.ai.placeholderMissingWarn"), {
+          tone: "default",
+          durationMs: 6000,
+        });
       }
 
       const planRes = await aiPlanTask({

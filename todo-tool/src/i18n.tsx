@@ -342,9 +342,14 @@ const STRINGS: Record<AppLanguage, Record<string, string>> = {
     "settings.ai.apiKey": "DeepSeek API Key",
     "settings.ai.apiKeyPlaceholder": "粘贴你的 DeepSeek API Key",
     "settings.ai.keyRequired": "请先填写 DeepSeek API Key",
-    "settings.ai.prompt": "提示词",
-    "settings.ai.promptPlaceholder":
-      "可选：自定义提示词（每次创建任务都会注入用户输入与按钮选择的字段）",
+    "settings.ai.keyMissingFallback":
+      "AI 已开启但未填写 DeepSeek API Key，本次将按普通模式创建任务",
+    "settings.ai.prompt": "系统提示词",
+    "settings.ai.promptPlaceholder": "可选：自定义系统提示词（支持占位符）",
+    "settings.ai.promptHelp":
+      "占位符说明：{{mustdo_now}}=当前时间；{{mustdo_user_input}}=用户输入原文+标题；{{mustdo_selected_fields}}=已选字段；{{mustdo_output_schema}}=输出 JSON 示例。未包含时会在运行时自动补齐。",
+    "settings.ai.placeholderMissingWarn":
+      "系统提示词未检测到占位符：已在本次调用自动补齐（建议在设置中保留占位符）",
     "settings.quickBlur": "快捷界面毛玻璃",
     "settings.sound": "提示音",
     "settings.closeBehavior": "关闭行为",
@@ -755,9 +760,14 @@ const STRINGS: Record<AppLanguage, Record<string, string>> = {
     "settings.ai.apiKey": "DeepSeek API Key",
     "settings.ai.apiKeyPlaceholder": "Paste your DeepSeek API key",
     "settings.ai.keyRequired": "Please enter your DeepSeek API key first",
-    "settings.ai.prompt": "Prompt",
-    "settings.ai.promptPlaceholder":
-      "Optional: customize the prompt (user input + selected fields are always injected)",
+    "settings.ai.keyMissingFallback":
+      "AI is enabled but the DeepSeek API key is missing. Falling back to normal task creation.",
+    "settings.ai.prompt": "System prompt",
+    "settings.ai.promptPlaceholder": "Optional: customize the system prompt (supports placeholders)",
+    "settings.ai.promptHelp":
+      "Placeholders: {{mustdo_now}}=current time; {{mustdo_user_input}}=user input + title; {{mustdo_selected_fields}}=selected fields; {{mustdo_output_schema}}=output JSON example. Missing placeholders will be appended at runtime.",
+    "settings.ai.placeholderMissingWarn":
+      "No placeholders detected in the system prompt. They will be appended automatically for this run.",
     "settings.quickBlur": "Quick blur",
     "settings.sound": "Sound",
     "settings.closeBehavior": "Close behavior",
