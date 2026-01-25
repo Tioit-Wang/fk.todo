@@ -35,6 +35,7 @@ import { SettingsView } from "./views/SettingsView";
 import { CalendarView } from "./views/CalendarView";
 
 import {
+  aiPlanTask,
   bulkCompleteTasks,
   bulkUpdateTasks,
   completeTask,
@@ -92,6 +93,10 @@ function normalizeSettings(settings: Settings): Settings {
   const today_focus_ids = Array.isArray(settings.today_focus_ids)
     ? settings.today_focus_ids.filter((id) => typeof id === "string")
     : [];
+  const ai_enabled = Boolean(settings.ai_enabled);
+  const deepseek_api_key =
+    typeof settings.deepseek_api_key === "string" ? settings.deepseek_api_key : "";
+  const ai_prompt = typeof settings.ai_prompt === "string" ? settings.ai_prompt : "";
   const update_behavior =
     settings.update_behavior === "auto" ||
     settings.update_behavior === "next_restart" ||
@@ -119,6 +124,9 @@ function normalizeSettings(settings: Settings): Settings {
   return {
     ...settings,
     today_focus_ids,
+    ai_enabled,
+    deepseek_api_key,
+    ai_prompt,
     update_behavior,
     today_focus_date,
     today_prompted_date,
@@ -977,6 +985,57 @@ function App() {
       draft.reminder_offset_minutes,
     );
     task.updated_at = Math.floor(Date.now() / 1000);
+
+    const aiSettings = settingsRef.current;
+    if (aiSettings?.ai_enabled) {
+      const apiKey = aiSettings.deepseek_api_key?.trim?.() ?? "";
+      if (!apiKey) {
+        toast.notify(t("settings.ai.keyRequired"), {
+          tone: "danger",
+          durationMs: 6000,
+        });
+        return false;
+      }
+
+      const planRes = await aiPlanTask({
+        raw_input: draft.raw_input,
+        title: draft.title,
+        project_id: draft.project_id,
+        tags: draft.tags,
+        due_at: draft.due_at,
+        important: draft.important,
+        repeat: draft.repeat,
+        reminder_kind: draft.reminder_kind,
+        reminder_offset_minutes: draft.reminder_offset_minutes,
+      });
+
+      if (!planRes.ok || !planRes.data) {
+        toast.notify(planRes.error ?? t("alert.operationFailed"), {
+          tone: "danger",
+          durationMs: 6000,
+        });
+        return false;
+      }
+
+      const notes = typeof planRes.data.notes === "string" ? planRes.data.notes.trim() : "";
+      task.notes = notes ? notes : undefined;
+
+      const stepTitles = Array.isArray(planRes.data.steps) ? planRes.data.steps : [];
+      if (stepTitles.length > 0) {
+        const ts = Math.floor(Date.now() / 1000);
+        task.steps = stepTitles
+          .map((title) => (typeof title === "string" ? title.trim() : ""))
+          .filter(Boolean)
+          .slice(0, 12)
+          .map((title, index) => ({
+            id: crypto.randomUUID(),
+            title,
+            completed: false,
+            created_at: ts + index,
+          }));
+      }
+    }
+
     try {
       const res = await createTask(task);
       if (!res.ok) {

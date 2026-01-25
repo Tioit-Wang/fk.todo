@@ -70,6 +70,9 @@ export interface Settings {
   shortcut: string;
   theme: string;
   language: "auto" | "zh" | "en";
+  ai_enabled: boolean;
+  deepseek_api_key: string;
+  ai_prompt: string;
   update_behavior: UpdateBehavior;
   sound_enabled: boolean;
   close_behavior: CloseBehavior;

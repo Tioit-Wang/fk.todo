@@ -3,6 +3,8 @@ use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 
+#[cfg(all(feature = "app", not(test)))]
+use crate::ai::{AiPlan, AiPlanRequest};
 use crate::events::StatePayload;
 #[cfg(all(feature = "app", not(test)))]
 use crate::events::EVENT_STATE_UPDATED;
@@ -735,6 +737,12 @@ fn update_settings_impl(
         }
     };
 
+    // AI settings: keep API key stable and prevent enabling without a key.
+    settings.deepseek_api_key = settings.deepseek_api_key.trim().to_string();
+    if settings.ai_enabled && settings.deepseek_api_key.is_empty() {
+        return err("deepseek api key required (settings.deepseek_api_key)");
+    }
+
     log::info!(
         "cmd=update_settings start theme={} language={} close_behavior={:?} minimize_behavior={:?} backup_schedule={:?} update_behavior={:?} repeat_interval_sec={} repeat_max_times={} shortcut_change={}",
         settings.theme,
@@ -952,6 +960,40 @@ pub fn delete_project(
 pub fn create_task(app: AppHandle, state: State<AppState>, task: Task) -> CommandResult<Task> {
     let ctx = TauriCommandCtx { app: &app };
     create_task_impl(&ctx, state.inner(), task)
+}
+
+#[cfg(all(feature = "app", not(test)))]
+#[tauri::command]
+pub async fn ai_plan_task(
+    state: State<'_, AppState>,
+    request: AiPlanRequest,
+) -> Result<AiPlan, String> {
+    let settings = state.inner().settings();
+    if !settings.ai_enabled {
+        return Err("ai is disabled (settings.ai_enabled=false)".to_string());
+    }
+    if settings.deepseek_api_key.trim().is_empty() {
+        return Err("deepseek api key missing (settings.deepseek_api_key)".to_string());
+    }
+
+    log::info!(
+        "cmd=ai_plan_task start due_at={} important={} reminder_kind={:?} repeat={:?} raw_len={} title_len={} tags={}",
+        request.due_at,
+        request.important,
+        request.reminder_kind,
+        request.repeat,
+        request.raw_input.len(),
+        request.title.len(),
+        request.tags.len()
+    );
+
+    match crate::ai::plan_with_deepseek(&settings, &request).await {
+        Ok(plan) => Ok(plan),
+        Err(message) => {
+            log::warn!("cmd=ai_plan_task failed err={}", message);
+            Err(message)
+        }
+    }
 }
 
 #[cfg(all(feature = "app", not(test)))]

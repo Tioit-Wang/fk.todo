@@ -145,6 +145,12 @@ pub struct Settings {
     #[serde(default = "default_language")]
     pub language: String,
     #[serde(default)]
+    pub ai_enabled: bool,
+    #[serde(default)]
+    pub deepseek_api_key: String,
+    #[serde(default = "default_ai_prompt")]
+    pub ai_prompt: String,
+    #[serde(default)]
     pub update_behavior: UpdateBehavior,
     pub sound_enabled: bool,
     pub close_behavior: CloseBehavior,
@@ -182,6 +188,9 @@ impl Default for Settings {
             shortcut: "CommandOrControl+Shift+T".to_string(),
             theme: "retro".to_string(),
             language: default_language(),
+            ai_enabled: false,
+            deepseek_api_key: String::new(),
+            ai_prompt: default_ai_prompt(),
             update_behavior: UpdateBehavior::NextRestart,
             sound_enabled: true,
             close_behavior: CloseBehavior::HideToTray,
@@ -262,6 +271,31 @@ fn default_language() -> String {
     "auto".to_string()
 }
 
+fn default_ai_prompt() -> String {
+    // This default prompt is used when AI is enabled. Users can customize it in Settings.
+    // The runtime prompt will still inject user input + composer-selected fields every time.
+    [
+        "你是 MustDo（必做清单）里的任务拆解助手。",
+        "",
+        "目标：基于用户的自然语言输入，为【同一个】Todo 生成：",
+        "1) 可执行的补充说明（notes）",
+        "2) 严谨的步骤清单（steps）",
+        "",
+        "硬规则：",
+        "- 一次只处理一个 Todo，不要拆成多个 Todo。",
+        "- steps 宁缺毋滥：只写高置信度、可执行、可勾选的步骤；不确定就少写或不写。",
+        "- 不要输出空泛步骤（如：开始/继续/完成/跟进/处理一下）。",
+        "- 不要臆测用户未提供的信息；需要信息时，把“需要确认的问题”写进 notes。",
+        "",
+        "输出要求：",
+        "- 只输出 JSON（不要夹杂解释文字）。",
+        "- JSON 格式：{ \"notes\": string, \"steps\": string[] }。",
+        "- notes 建议用 Markdown，包含：执行建议/关键注意事项/需要确认的问题（如有）。",
+        "- steps 每条尽量短（<= 20 字），动词开头，可直接勾选完成。",
+    ]
+    .join("\n")
+}
+
 fn default_quick_blur_enabled() -> bool {
     true
 }
@@ -326,6 +360,9 @@ mod tests {
         assert_eq!(settings.shortcut, "CommandOrControl+Shift+T");
         assert_eq!(settings.theme, "retro");
         assert_eq!(settings.language, "auto");
+        assert!(!settings.ai_enabled);
+        assert!(settings.deepseek_api_key.is_empty());
+        assert_eq!(settings.ai_prompt, default_ai_prompt());
         assert_eq!(
             serde_json::to_value(&settings.update_behavior).expect("serialize update_behavior"),
             serde_json::json!("next_restart")
@@ -383,6 +420,9 @@ mod tests {
             serde_json::json!("hide_to_tray")
         );
         assert_eq!(settings.language, "auto");
+        assert!(!settings.ai_enabled);
+        assert!(settings.deepseek_api_key.is_empty());
+        assert_eq!(settings.ai_prompt, default_ai_prompt());
         assert_eq!(
             serde_json::to_value(&settings.update_behavior).expect("serialize update_behavior"),
             serde_json::json!("next_restart")

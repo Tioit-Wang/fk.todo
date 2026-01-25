@@ -19,6 +19,7 @@ import { extractTagsFromTitle } from "../tags";
 import type { ReminderKind, RepeatRule } from "../types";
 
 export type TaskComposerDraft = {
+  raw_input: string;
   title: string;
   project_id: string;
   tags: string[];
@@ -140,6 +141,7 @@ export function TaskComposer({
     if (!parsedTitle) return;
     try {
       const result = await onSubmit({
+        raw_input: sourceTitle,
         title: parsedTitle,
         project_id: projectId ?? "inbox",
         tags,

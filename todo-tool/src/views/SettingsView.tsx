@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
@@ -91,6 +91,9 @@ export function SettingsView({
   const [exportBusy, setExportBusy] = useState(false);
   const [exportPath, setExportPath] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [deepseekKeyDraft, setDeepseekKeyDraft] = useState("");
+  const [aiPromptDraft, setAiPromptDraft] = useState("");
+  const aiDraftSyncedRef = useRef(false);
 
   async function handleBack() {
     setShortcutCapturing(false);
@@ -359,6 +362,15 @@ export function SettingsView({
     if (!settings) return;
     setShortcutDraft(settings.shortcut);
   }, [settings?.shortcut]);
+
+  // AI inputs are free-form text; avoid overwriting local edits on unrelated settings updates.
+  useEffect(() => {
+    if (!settings) return;
+    if (aiDraftSyncedRef.current) return;
+    aiDraftSyncedRef.current = true;
+    setDeepseekKeyDraft(settings.deepseek_api_key ?? "");
+    setAiPromptDraft(settings.ai_prompt ?? "");
+  }, [settings]);
 
   useEffect(() => {
     if (!shortcutCapturing) return;
@@ -707,6 +719,89 @@ export function SettingsView({
                       <option value="en">{t("settings.language.en")}</option>
                     </select>
                   </div>
+
+                  <div className="settings-row">
+                    <label>{t("settings.ai")}</label>
+                    <button
+                      type="button"
+                      className={`pill ${settings.ai_enabled ? "active" : ""}`}
+                      onClick={async () => {
+                        const nextEnabled = !settings.ai_enabled;
+                        const nextKey = deepseekKeyDraft.trim();
+                        if (nextEnabled && !nextKey) {
+                          toast.notify(t("settings.ai.keyRequired"), {
+                            tone: "danger",
+                            durationMs: 6000,
+                          });
+                          return;
+                        }
+                        const ok = await onUpdateSettings({
+                          ...settings,
+                          ai_enabled: nextEnabled,
+                          deepseek_api_key: nextKey,
+                          ai_prompt: aiPromptDraft,
+                        });
+                        if (!ok) return;
+                        setDeepseekKeyDraft(nextKey);
+                      }}
+                      aria-pressed={settings.ai_enabled}
+                    >
+                      {settings.ai_enabled ? t("common.on") : t("common.off")}
+                    </button>
+                    <span className="settings-status">
+                      {t("settings.ai.vendor")}
+                    </span>
+                  </div>
+
+                  <div className="settings-row">
+                    <label>{t("settings.ai.apiKey")}</label>
+                    <input
+                      type="password"
+                      value={deepseekKeyDraft}
+                      placeholder={t("settings.ai.apiKeyPlaceholder")}
+                      onChange={(event) => setDeepseekKeyDraft(event.target.value)}
+                      onBlur={() => {
+                        const nextKey = deepseekKeyDraft.trim();
+                        if (nextKey === settings.deepseek_api_key) return;
+                        void onUpdateSettings({
+                          ...settings,
+                          deepseek_api_key: nextKey,
+                        }).then((ok) => {
+                          if (ok) {
+                            setDeepseekKeyDraft(nextKey);
+                            return;
+                          }
+                          setDeepseekKeyDraft(settings.deepseek_api_key);
+                        });
+                      }}
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                  </div>
+
+                  {settings.ai_enabled && (
+                    <div className="settings-row settings-row-multiline">
+                      <label>{t("settings.ai.prompt")}</label>
+                      <textarea
+                        className="settings-textarea"
+                        value={aiPromptDraft}
+                        placeholder={t("settings.ai.promptPlaceholder")}
+                        onChange={(event) => setAiPromptDraft(event.target.value)}
+                        onBlur={() => {
+                          if (aiPromptDraft === settings.ai_prompt) return;
+                          void onUpdateSettings({
+                            ...settings,
+                            ai_prompt: aiPromptDraft,
+                          }).then((ok) => {
+                            if (ok) return;
+                            setAiPromptDraft(settings.ai_prompt);
+                          });
+                        }}
+                        rows={8}
+                      />
+                    </div>
+                  )}
+
                   <div className="settings-row">
                     <label>{t("settings.quickBlur")}</label>
                     <button

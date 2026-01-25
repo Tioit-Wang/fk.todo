@@ -1123,6 +1123,7 @@ export function MainView({
 
       <div className="main-input-bar">
         <TaskComposer
+          placeholder={settings?.ai_enabled ? t("composer.placeholderAi") : undefined}
           projectId={
             sidebarSelection === "project" ? selectedProjectId : "inbox"
           }

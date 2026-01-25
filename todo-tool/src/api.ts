@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   CommandResult,
   Project,
+  ReminderKind,
+  RepeatRule,
   Settings,
   StatePayload,
   Task,
@@ -122,4 +124,31 @@ export async function exportTasksCsv() {
 
 export async function exportTasksMarkdown() {
   return invoke<CommandResult<string>>("export_tasks_markdown");
+}
+
+export interface AiPlanRequest {
+  raw_input: string;
+  title: string;
+  project_id: string;
+  tags: string[];
+  due_at: number;
+  important: boolean;
+  repeat: RepeatRule;
+  reminder_kind: ReminderKind;
+  reminder_offset_minutes: number;
+}
+
+export interface AiPlan {
+  notes: string;
+  steps: string[];
+}
+
+export async function aiPlanTask(request: AiPlanRequest) {
+  try {
+    const data = await invoke<AiPlan>("ai_plan_task", { request });
+    return { ok: true, data } satisfies CommandResult<AiPlan>;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { ok: false, error: message } satisfies CommandResult<AiPlan>;
+  }
 }

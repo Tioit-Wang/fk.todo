@@ -3132,6 +3132,21 @@ textarea:focus-visible {
     padding: 6px 8px;
 }
 
+.settings-row.settings-row-multiline {
+    align-items: flex-start;
+}
+
+.settings-textarea {
+    min-width: min(520px, 100%);
+    min-height: 160px;
+    resize: vertical;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text);
+    padding: 6px 8px;
+}
+
 .settings-row .shortcut-capture {
     min-width: 220px;
     text-align: left;

@@ -1,5 +1,6 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 mod commands;
+mod ai;
 mod events;
 #[cfg(all(feature = "app", not(test)))]
 mod logging;
@@ -265,6 +266,7 @@ pub fn run() {
             swap_project_sort_order,
             delete_project,
             create_task,
+            ai_plan_task,
             update_task,
             bulk_update_tasks,
             swap_sort_order,
