@@ -136,7 +136,9 @@ pub fn init_tray(app: &mut App, settings: &Settings) -> Result<(), Box<dyn std::
                 }
             }
             "show_settings" => {
-                show_settings_window(app);
+                if let Err(err) = show_settings_window(app) {
+                    log::warn!("tray: failed to show settings window: {err}");
+                }
             }
             _ => {}
         })

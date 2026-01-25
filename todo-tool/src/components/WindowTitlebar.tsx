@@ -17,7 +17,14 @@ type WindowTitlebarProps = {
   right?: ReactNode;
 };
 
-export function WindowTitlebar({ variant, title, pinned, onTogglePin, onMinimize, right }: WindowTitlebarProps) {
+export function WindowTitlebar({
+  variant,
+  title,
+  pinned,
+  onTogglePin,
+  onMinimize,
+  right,
+}: WindowTitlebarProps) {
   const { t } = useI18n();
   const showPin = variant === "quick";
   const appWindow = getCurrentWindow();
@@ -25,8 +32,8 @@ export function WindowTitlebar({ variant, title, pinned, onTogglePin, onMinimize
   function handlePointerDown(event: React.PointerEvent<HTMLDivElement>) {
     // Let buttons/inputs behave normally; dragging is only for empty titlebar space.
     if (event.button !== 0) return;
-    const target = event.target as HTMLElement | null;
-    if (!target) return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
     if (target.closest("button, input, select, textarea")) return;
 
     // The quick window auto-hides itself when it loses focus (launcher-like behavior).
@@ -37,7 +44,10 @@ export function WindowTitlebar({ variant, title, pinned, onTogglePin, onMinimize
   }
 
   return (
-    <div className={`window-titlebar ${variant}`} onPointerDown={handlePointerDown}>
+    <div
+      className={`window-titlebar ${variant}`}
+      onPointerDown={handlePointerDown}
+    >
       <div className="window-titlebar-left">
         <div className="traffic-lights" aria-label={t("window.controls")}>
           <button
@@ -47,7 +57,14 @@ export function WindowTitlebar({ variant, title, pinned, onTogglePin, onMinimize
             aria-label={t("window.close")}
             onClick={() => {
               // Use close() to respect backend close-behavior hooks.
-              void appWindow.close().catch(() => {});
+              void appWindow.close().catch(async (err) => {
+                console.warn("window close failed; falling back to hide()", err);
+                try {
+                  await appWindow.hide();
+                } catch (hideErr) {
+                  console.warn("window hide fallback failed", hideErr);
+                }
+              });
             }}
           />
           <button
@@ -59,7 +76,14 @@ export function WindowTitlebar({ variant, title, pinned, onTogglePin, onMinimize
               if (onMinimize) {
                 void Promise.resolve(onMinimize()).catch(() => {});
               } else {
-                void appWindow.minimize().catch(() => {});
+                void appWindow.minimize().catch(async (err) => {
+                  console.warn("window minimize failed; falling back to hide()", err);
+                  try {
+                    await appWindow.hide();
+                  } catch (hideErr) {
+                    console.warn("window hide fallback failed", hideErr);
+                  }
+                });
               }
             }}
           />
@@ -82,9 +106,7 @@ export function WindowTitlebar({ variant, title, pinned, onTogglePin, onMinimize
         {title && <div className="window-titlebar-title">{title}</div>}
       </div>
 
-      <div className="window-titlebar-right">
-        {right}
-      </div>
+      <div className="window-titlebar-right">{right}</div>
     </div>
   );
 }

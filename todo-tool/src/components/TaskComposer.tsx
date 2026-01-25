@@ -36,10 +36,14 @@ export function TaskComposer({
 }: {
   placeholder?: string;
   projectId?: string;
-  onSubmit: (draft: TaskComposerDraft) => Promise<void> | void;
+  onSubmit: (
+    draft: TaskComposerDraft,
+  ) => Promise<boolean | void> | boolean | void;
 }) {
   const { t } = useI18n();
   const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const pendingSubmitRef = useRef(false);
+  const composingRef = useRef(false);
   const [title, setTitle] = useState("");
   const [activePopup, setActivePopup] = useState<
     "due" | "reminder" | "repeat" | null
@@ -130,28 +134,34 @@ export function TaskComposer({
     };
   }, [activePopup]);
 
-  async function handleSubmit() {
-    const { title: parsedTitle, tags } = extractTagsFromTitle(title);
+  async function handleSubmit(rawTitle?: string) {
+    const sourceTitle = rawTitle ?? title;
+    const { title: parsedTitle, tags } = extractTagsFromTitle(sourceTitle);
     if (!parsedTitle) return;
-    await onSubmit({
-      title: parsedTitle,
-      project_id: projectId ?? "inbox",
-      tags,
-      due_at: dueAt,
-      important,
-      repeat,
-      reminder_kind: reminderKind,
-      reminder_offset_minutes: reminderOffset,
-    });
-    setTitle("");
-    setRepeat({ type: "none" });
-    setImportant(false);
-    setReminderKind("none");
-    setReminderOffset(10);
-    const nextDefault = defaultDueAt(new Date());
-    initialDueAtRef.current = nextDefault;
-    setDueAt(nextDefault);
-    setActivePopup(null);
+    try {
+      const result = await onSubmit({
+        title: parsedTitle,
+        project_id: projectId ?? "inbox",
+        tags,
+        due_at: dueAt,
+        important,
+        repeat,
+        reminder_kind: reminderKind,
+        reminder_offset_minutes: reminderOffset,
+      });
+      if (result === false) return;
+      setTitle("");
+      setRepeat({ type: "none" });
+      setImportant(false);
+      setReminderKind("none");
+      setReminderOffset(10);
+      const nextDefault = defaultDueAt(new Date());
+      initialDueAtRef.current = nextDefault;
+      setDueAt(nextDefault);
+      setActivePopup(null);
+    } catch {
+      // Keep the draft intact when the caller fails (e.g. invoke error).
+    }
   }
 
   function togglePopup(next: typeof activePopup) {
@@ -168,7 +178,28 @@ export function TaskComposer({
           value={title}
           onChange={(e) => setTitle(e.currentTarget.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") void handleSubmit();
+            if (e.key !== "Enter") return;
+            // IME: don't submit while the user is still composing text.
+            // We prefer tracking composition events ourselves because `isComposing` is not
+            // consistently reported across platforms/WebView runtimes.
+            if (composingRef.current || e.nativeEvent.keyCode === 229) {
+              pendingSubmitRef.current = true;
+              return;
+            }
+            e.preventDefault();
+            void handleSubmit(e.currentTarget.value);
+          }}
+          onCompositionStart={() => {
+            composingRef.current = true;
+          }}
+          onCompositionEnd={(event) => {
+            composingRef.current = false;
+            if (!pendingSubmitRef.current) return;
+            pendingSubmitRef.current = false;
+            const value = event.currentTarget.value;
+            window.requestAnimationFrame(() => {
+              void handleSubmit(value);
+            });
           }}
         />
 

@@ -27,7 +27,10 @@ fn ensure_reminder_window<R: Runtime>(app: &AppHandle<R>) -> Option<WebviewWindo
             let _ = window.set_maximizable(false);
             Some(window)
         }
-        Err(_) => None,
+        Err(err) => {
+            log::error!("failed to build reminder window: {err}");
+            None
+        }
     }
 }
 
@@ -56,35 +59,65 @@ fn ensure_settings_window<R: Runtime>(app: &AppHandle<R>) -> Option<WebviewWindo
             let _ = window.set_maximizable(false);
             Some(window)
         }
-        Err(_) => None,
+        Err(err) => {
+            log::error!("failed to build settings window: {err}");
+            None
+        }
     }
 }
 
 pub fn show_reminder_window<R: Runtime>(app: &AppHandle<R>) {
     if let Some(window) = ensure_reminder_window(app) {
-        let _ = window.show();
-        let _ = window.set_focus();
+        if let Err(err) = window.show() {
+            log::warn!("show_reminder_window: failed to show reminder window: {err}");
+        }
+        if let Err(err) = window.set_focus() {
+            log::warn!("show_reminder_window: failed to focus reminder window: {err}");
+        }
+    } else {
+        log::warn!("show_reminder_window: reminder window is unavailable");
     }
 }
 
-pub fn show_settings_window<R: Runtime>(app: &AppHandle<R>) {
-    if let Some(window) = ensure_settings_window(app) {
-        let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
-    }
+pub fn show_settings_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+    let window =
+        ensure_settings_window(app).ok_or_else(|| "settings window is unavailable".to_string())?;
+
+    window
+        .unminimize()
+        .map_err(|err| format!("failed to unminimize settings window: {err}"))?;
+    window
+        .show()
+        .map_err(|err| format!("failed to show settings window: {err}"))?;
+    window
+        .set_focus()
+        .map_err(|err| format!("failed to focus settings window: {err}"))?;
+
+    Ok(())
 }
 
-pub fn hide_quick_window<R: Runtime>(app: &AppHandle<R>) {
+pub fn hide_quick_window<R: Runtime>(app: &AppHandle<R>) -> bool {
     if let Some(window) = app.get_webview_window("quick") {
-        let _ = window.hide();
+        if let Err(err) = window.hide() {
+            log::warn!("hide_quick_window: failed to hide quick window: {err}");
+            return false;
+        }
+        return true;
     }
+    log::warn!("hide_quick_window: quick window missing");
+    false
 }
 
-pub fn hide_settings_window<R: Runtime>(app: &AppHandle<R>) {
+pub fn hide_settings_window<R: Runtime>(app: &AppHandle<R>) -> bool {
     if let Some(window) = app.get_webview_window("settings") {
-        let _ = window.hide();
+        if let Err(err) = window.hide() {
+            log::warn!("hide_settings_window: failed to hide settings window: {err}");
+            return false;
+        }
+        return true;
     }
+    log::warn!("hide_settings_window: settings window missing");
+    false
 }
 
 #[cfg(test)]

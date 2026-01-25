@@ -24,14 +24,23 @@ pub fn start_scheduler(app: AppHandle, state: AppState) {
             let now = Utc::now().timestamp();
             let due_tasks = collect_due_tasks(&state, now);
             if !due_tasks.is_empty() {
+                let has_forced = due_tasks
+                    .iter()
+                    .any(|task| task.reminder.kind == ReminderKind::Forced);
+                log::info!(
+                    "scheduler: reminder fired now={} count={} forced={} ids={}",
+                    now,
+                    due_tasks.len(),
+                    has_forced,
+                    format_task_ids(&due_tasks, 10)
+                );
                 for task in &due_tasks {
                     state.mark_reminder_fired(task, now);
                 }
                 persist_reminder_state(&app, &state);
-                let has_forced = due_tasks
-                    .iter()
-                    .any(|task| task.reminder.kind == ReminderKind::Forced);
-                let _ = app.emit(EVENT_REMINDER, due_tasks);
+                if let Err(err) = app.emit(EVENT_REMINDER, due_tasks) {
+                    log::warn!("scheduler: failed to emit reminder event: {err}");
+                }
                 if has_forced {
                     show_reminder_window(&app);
                 }
@@ -44,13 +53,18 @@ pub fn start_scheduler(app: AppHandle, state: AppState) {
 fn persist_reminder_state(app: &AppHandle, state: &AppState) {
     let root = match app.path().app_data_dir() {
         Ok(path) => path,
-        Err(_) => return,
+        Err(err) => {
+            log::error!("scheduler: app_data_dir failed: {err}");
+            return;
+        }
     };
     let storage = Storage::new(root);
-    if storage.ensure_dirs().is_err() {
+    if let Err(err) = storage.ensure_dirs() {
+        log::error!("scheduler: ensure_dirs failed: {err}");
         return;
     }
-    if storage.save_tasks(&state.tasks_file(), false).is_err() {
+    if let Err(err) = storage.save_tasks(&state.tasks_file(), false) {
+        log::error!("scheduler: save_tasks failed: {err}");
         return;
     }
     let payload = StatePayload {
@@ -58,7 +72,25 @@ fn persist_reminder_state(app: &AppHandle, state: &AppState) {
         projects: state.projects(),
         settings: state.settings(),
     };
-    let _ = app.emit(EVENT_STATE_UPDATED, payload);
+    if let Err(err) = app.emit(EVENT_STATE_UPDATED, payload) {
+        log::warn!("scheduler: failed to emit state_updated: {err}");
+    }
+    log::debug!("scheduler: persisted reminder state");
+}
+
+#[cfg(all(feature = "app", not(test)))]
+fn format_task_ids(tasks: &[Task], limit: usize) -> String {
+    let mut out = String::new();
+    for (idx, task) in tasks.iter().take(limit).enumerate() {
+        if idx > 0 {
+            out.push(',');
+        }
+        out.push_str(&task.id);
+    }
+    if tasks.len() > limit {
+        out.push_str(",...");
+    }
+    out
 }
 
 fn collect_due_tasks(state: &AppState, now: i64) -> Vec<Task> {

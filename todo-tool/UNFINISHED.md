@@ -46,6 +46,9 @@
   - 主要文件：`data.json` / `settings.json`
   - 备份目录：`backups/`（最多保留 5 份）
   - 原子写入：临时文件 + rename（见 `todo-tool/src-tauri/src/storage.rs`）
+- 日志（排障）：
+  - 目录：同 `app_data_dir()`（与 `settings.json` 同目录）
+  - 文件：`mustdo.log`（按 100MB 滚动，最多保留 30 份历史文件；见 `todo-tool/src-tauri/src/logging.rs`）
 - 导入/导出（以 commands 为准）：JSON/CSV/Markdown 等（见 `todo-tool/src-tauri/src/commands.rs` 与 `todo-tool/src/api.ts`）
 - 全局快捷键 + 托盘：
   - 插件：global shortcut / tray（见 `todo-tool/src-tauri/src/lib.rs`、`todo-tool/src-tauri/src/tray.rs`）

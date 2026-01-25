@@ -161,10 +161,12 @@ impl Storage {
     }
 
     fn load_json<T: DeserializeOwned>(&self, path: PathBuf) -> Result<T, StorageError> {
-        let mut file = File::open(path)?;
+        let mut file = File::open(&path)?;
         let mut buf = String::new();
         file.read_to_string(&mut buf)?;
-        Ok(serde_json::from_str(&buf)?)
+        let parsed = serde_json::from_str(&buf)?;
+        log::debug!("loaded json path={} bytes={}", path.display(), buf.len());
+        Ok(parsed)
     }
 
     fn write_with_backup<T: Serialize>(
@@ -219,6 +221,16 @@ impl Storage {
 
             fs::rename(&temp_path, &path)?;
             cleanup.disarm();
+            if attempt > 0 {
+                log::debug!(
+                    "atomic write used suffixed tempfile path={} attempt={} bytes={}",
+                    path.display(),
+                    attempt,
+                    bytes.len()
+                );
+            } else {
+                log::debug!("atomic write path={} bytes={}", path.display(), bytes.len());
+            }
             return Ok(());
         }
 
@@ -235,11 +247,19 @@ impl Storage {
 
     pub fn create_backup(&self, path: &Path) -> Result<(), StorageError> {
         let backup_name = self.next_backup_name()?;
-        let backup_path = self.root.join(BACKUP_DIR).join(backup_name);
-        fs::copy(path, backup_path)?;
+        let backup_path = self.root.join(BACKUP_DIR).join(&backup_name);
+        fs::copy(path, &backup_path)?;
+        log::info!(
+            "backup created name={} source={} dest={}",
+            backup_name,
+            path.display(),
+            backup_path.display()
+        );
         // Trimming is best-effort: a backup file was successfully created and should not be
         // discarded just because cleanup failed (e.g., transient FS errors).
-        let _ = self.trim_backups();
+        if let Err(err) = self.trim_backups() {
+            log::warn!("backup trim failed: {err}");
+        }
         Ok(())
     }
 
@@ -247,6 +267,7 @@ impl Storage {
         let name = sanitize_backup_filename(filename)?;
         let path = self.root.join(BACKUP_DIR).join(name);
         fs::remove_file(path)?;
+        log::info!("backup deleted name={filename}");
         Ok(())
     }
 
@@ -274,14 +295,28 @@ impl Storage {
     pub fn restore_backup(&self, filename: &str) -> Result<TasksFile, StorageError> {
         let filename = sanitize_backup_filename(filename)?;
         let path = self.root.join(BACKUP_DIR).join(filename);
+        log::info!(
+            "backup restore requested name={} path={}",
+            filename,
+            path.display()
+        );
         let data: TasksFile = self.load_json(path)?;
         self.write_atomic(self.root.join(DATA_FILE), &data)?;
+        log::info!("backup restore completed name={}", filename);
         Ok(data)
     }
 
     pub fn restore_from_path(&self, source: &Path) -> Result<TasksFile, StorageError> {
+        log::info!(
+            "restore from external path requested path={}",
+            source.display()
+        );
         let data: TasksFile = self.load_json(source.to_path_buf())?;
         self.write_atomic(self.root.join(DATA_FILE), &data)?;
+        log::info!(
+            "restore from external path completed path={}",
+            source.display()
+        );
         Ok(data)
     }
 
@@ -292,7 +327,16 @@ impl Storage {
         entries.sort_by_key(|entry| entry.metadata().and_then(|m| m.modified()).ok());
         let to_remove = entries.len().saturating_sub(BACKUP_LIMIT);
         for entry in entries.into_iter().take(to_remove) {
-            let _ = fs::remove_file(entry.path());
+            let path = entry.path();
+            if let Err(err) = fs::remove_file(&path) {
+                log::warn!(
+                    "failed to remove old backup path={} err={}",
+                    path.display(),
+                    err
+                );
+            } else {
+                log::debug!("removed old backup path={}", path.display());
+            }
         }
         Ok(())
     }

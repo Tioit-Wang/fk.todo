@@ -70,7 +70,7 @@ impl AppState {
             Ok(guard) => guard,
             Err(poisoned) => {
                 // Prefer to keep the app bootable if a background task panicked.
-                eprintln!("warning: state mutex poisoned; continuing with recovered guard");
+                log::warn!("state mutex poisoned; continuing with recovered guard");
                 poisoned.into_inner()
             }
         }

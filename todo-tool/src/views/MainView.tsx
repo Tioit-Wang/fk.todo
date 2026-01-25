@@ -68,7 +68,9 @@ export function MainView({
   onBulkComplete: (taskIds: string[]) => Promise<boolean>;
   onBulkDelete: (taskIds: string[]) => Promise<boolean>;
   onRefreshState: () => Promise<void>;
-  onCreateFromComposer: (draft: TaskComposerDraft) => Promise<void> | void;
+  onCreateFromComposer: (
+    draft: TaskComposerDraft,
+  ) => Promise<boolean | void> | boolean | void;
   onCreateProject: (name: string) => Promise<void> | void;
   onToggleComplete: (task: Task) => Promise<void> | void;
   onToggleImportant: (task: Task) => Promise<void> | void;
@@ -178,7 +180,11 @@ export function MainView({
     try {
       const now = Math.floor(Date.now() / 1000);
       await Promise.resolve(
-        onUpdateProject({ ...project, pinned: !project.pinned, updated_at: now }),
+        onUpdateProject({
+          ...project,
+          pinned: !project.pinned,
+          updated_at: now,
+        }),
       );
     } finally {
       setProjectBusy(false);
@@ -481,8 +487,11 @@ export function MainView({
         return;
       }
       await appWindow.hide();
-    } catch {
-      // Best-effort: if the platform disallows the requested action, keep the window usable.
+    } catch (err) {
+      // Best-effort fallback: if hide/minimize fails (platform quirks), try minimize so the
+      // user still gets a visible response to clicking the control.
+      console.warn("main window minimize/hide failed", err);
+      void appWindow.minimize().catch(() => {});
     }
   }
 
@@ -1197,8 +1206,8 @@ export function MainView({
           Boolean(confirmDeleteProjectId) &&
           Boolean(
             confirmDeleteProjectId &&
-              projectsById.get(confirmDeleteProjectId) &&
-              confirmDeleteProjectId !== "inbox",
+            projectsById.get(confirmDeleteProjectId) &&
+            confirmDeleteProjectId !== "inbox",
           )
         }
         title={t("project.confirmDelete.title", {

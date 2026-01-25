@@ -159,6 +159,26 @@
 - I/O 错误要返回给前端：command 返回 `CommandResult` 的 error 字符串；不要直接 panic。
 - 自动备份逻辑依赖 Local 时间（day/week/month）；涉及时间语义调整要补齐测试。
 
+## 8.1) 日志（排障必看）
+
+后端在应用启动时会初始化文件日志（见 `todo-tool/src-tauri/src/logging.rs`），日志与配置同目录：
+
+- 目录：`app_data_dir()`（同 `data.json` / `settings.json` / `backups/`）
+- 文件：`mustdo.log`（按大小滚动，数字后缀文件名由日志库生成）
+- 滚动策略：单文件 100MB；最多保留 30 份历史文件
+
+日志级别：
+
+- 默认（debug 构建）：`warn,todo_tool_lib=debug`
+- 默认（release 构建）：`warn,todo_tool_lib=info`
+- 覆盖：设置环境变量 `MUSTDO_LOG`（优先）或 `RUST_LOG`
+  - 例：`MUSTDO_LOG=debug` / `MUSTDO_LOG=info,todo_tool_lib=debug`
+
+补充：
+
+- debug 构建会额外把 `INFO+` 级别日志复制到 stdout，方便 `tauri dev` 期间直接在终端看。
+- panic 会通过 hook 写入日志（含 backtrace，尽力捕获）。
+
 ## 9) 推荐技能（Codex skills / 后端）
 
 如果你的 Codex 环境已安装 rust-skills 相关 skills，后端侧建议按场景优先使用：

@@ -1,6 +1,8 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 mod commands;
 mod events;
+#[cfg(all(feature = "app", not(test)))]
+mod logging;
 mod models;
 mod repeat;
 mod scheduler;
@@ -58,22 +60,45 @@ pub fn run() {
         )
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            let storage = Storage::new(app.path().app_data_dir()?);
+            let app_data_dir = app.path().app_data_dir()?;
+
+            if let Err(err) = crate::logging::init_logging(&app_data_dir) {
+                // Logger init should never brick the app; keep it best-effort.
+                eprintln!("failed to initialize logger: {err}");
+            }
+
+            log::info!(
+                "app starting name={} version={} os={} arch={} app_data_dir={}",
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                std::env::consts::OS,
+                std::env::consts::ARCH,
+                app_data_dir.display()
+            );
+
+            let storage = Storage::new(app_data_dir);
             storage.ensure_dirs()?;
 
-            let tasks_file = storage
-                .load_tasks()
-                .unwrap_or_else(|_| crate::models::TasksFile {
-                    schema_version: 1,
-                    tasks: Vec::new(),
-                    projects: Vec::new(),
-                });
+            let tasks_file = match storage.load_tasks() {
+                Ok(file) => file,
+                Err(err) => {
+                    log::warn!("failed to load tasks file; using defaults: {err}");
+                    crate::models::TasksFile {
+                        schema_version: 1,
+                        tasks: Vec::new(),
+                        projects: Vec::new(),
+                    }
+                }
+            };
             let tasks = tasks_file.tasks;
             let projects = tasks_file.projects;
-            let mut settings = storage
-                .load_settings()
-                .map(|data| data.settings)
-                .unwrap_or_default();
+            let mut settings = match storage.load_settings() {
+                Ok(file) => file.settings,
+                Err(err) => {
+                    log::warn!("failed to load settings file; using defaults: {err}");
+                    crate::models::Settings::default()
+                }
+            };
 
             // Normalize potentially user-edited settings files. We keep the app bootable even if
             // the shortcut is invalid/unregisterable, otherwise users can brick the app.
@@ -103,7 +128,7 @@ pub fn run() {
             let shortcut = match settings.shortcut.parse::<Shortcut>() {
                 Ok(shortcut) => Some(shortcut),
                 Err(parse_err) => {
-                    eprintln!("invalid shortcut in settings: {parse_err}");
+                    log::warn!("invalid shortcut in settings; falling back: {parse_err}");
                     let fallback = crate::models::Settings::default().shortcut;
                     if fallback != settings.shortcut {
                         settings.shortcut = fallback.clone();
@@ -112,12 +137,22 @@ pub fn run() {
                     match fallback.parse::<Shortcut>() {
                         Ok(shortcut) => Some(shortcut),
                         Err(parse_err) => {
-                            eprintln!("invalid default shortcut (unexpected): {parse_err}");
+                            log::error!("invalid default shortcut (unexpected): {parse_err}");
                             None
                         }
                     }
                 }
             };
+
+            log::info!(
+                "loaded state tasks={} projects={} theme={} language={} close_behavior={:?} backup_schedule={:?}",
+                tasks.len(),
+                projects.len(),
+                settings.theme,
+                settings.language,
+                settings.close_behavior,
+                settings.backup_schedule
+            );
 
             let state = AppState::new(tasks, projects, settings);
             app.manage(state.clone());
@@ -167,16 +202,19 @@ pub fn run() {
 
             if let Some(shortcut) = shortcut {
                 if let Err(err) = app.handle().global_shortcut().register(shortcut) {
-                    eprintln!("failed to register global shortcut: {err}");
+                    log::warn!("failed to register global shortcut: {err}");
                 }
             }
 
             if settings_dirty {
                 if let Err(err) = storage.save_settings(&state.settings_file()) {
-                    eprintln!("failed to persist normalized settings: {err}");
+                    log::warn!("failed to persist normalized settings: {err}");
+                } else {
+                    log::info!("persisted normalized settings");
                 }
             }
             start_scheduler(app.handle().clone(), state.clone());
+            log::info!("app setup completed");
 
             Ok(())
         })
@@ -184,13 +222,15 @@ pub fn run() {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let label = window.label().to_string();
                 if label == "quick" {
-                    hide_quick_window(window.app_handle());
-                    api.prevent_close();
+                    if hide_quick_window(window.app_handle()) {
+                        api.prevent_close();
+                    }
                     return;
                 }
                 if label == "settings" {
-                    hide_settings_window(window.app_handle());
-                    api.prevent_close();
+                    if hide_settings_window(window.app_handle()) {
+                        api.prevent_close();
+                    }
                     return;
                 }
                 if label == "main" {
@@ -201,8 +241,18 @@ pub fn run() {
                             window.app_handle().exit(0);
                         }
                         crate::models::CloseBehavior::HideToTray => {
-                            let _ = window.hide();
-                            api.prevent_close();
+                            match window.hide() {
+                                Ok(()) => {
+                                    api.prevent_close();
+                                }
+                                Err(err) => {
+                                    // If the hide request fails, allow the close to proceed so the
+                                    // user isn't stuck with a non-functional close button.
+                                    log::warn!(
+                                        "failed to hide main window on close request; falling back to native close: {err}"
+                                    );
+                                }
+                            }
                         }
                     }
                 }

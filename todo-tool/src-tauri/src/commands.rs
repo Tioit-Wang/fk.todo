@@ -60,18 +60,51 @@ fn err<T>(message: &str) -> CommandResult<T> {
 }
 
 fn persist(ctx: &impl CommandCtx, state: &AppState) -> Result<(), StorageError> {
-    let root = ctx.app_data_dir()?;
-    let storage = Storage::new(root);
-    storage.ensure_dirs()?;
+    let root = ctx.app_data_dir().map_err(|err| {
+        log::error!("persist: app_data_dir failed: {err}");
+        err
+    })?;
+    let storage = Storage::new(root.clone());
+    storage.ensure_dirs().map_err(|err| {
+        log::error!(
+            "persist: ensure_dirs failed root={} err={err}",
+            root.display()
+        );
+        err
+    })?;
     let now = Utc::now().timestamp();
     let mut settings = state.settings();
     let should_backup = should_auto_backup(&settings, now);
     if should_backup {
+        log::info!(
+            "persist: auto backup triggered schedule={:?} last_backup_at={:?} now={now}",
+            settings.backup_schedule,
+            settings.last_backup_at
+        );
         settings.last_backup_at = Some(now);
         state.update_settings(settings.clone());
     }
-    storage.save_tasks(&state.tasks_file(), should_backup)?;
-    storage.save_settings(&state.settings_file())?;
+
+    let tasks_file = state.tasks_file();
+    storage
+        .save_tasks(&tasks_file, should_backup)
+        .map_err(|err| {
+            log::error!(
+                "persist: save_tasks failed root={} with_backup={} err={err}",
+                root.display(),
+                should_backup
+            );
+            err
+        })?;
+
+    let settings_file = state.settings_file();
+    storage.save_settings(&settings_file).map_err(|err| {
+        log::error!(
+            "persist: save_settings failed root={} err={err}",
+            root.display()
+        );
+        err
+    })?;
     // Snapshot once so tray updates + events always reflect a consistent view.
     let snapshot = state.snapshot();
     ctx.update_tray_count(&snapshot.tasks, &snapshot.settings);
@@ -80,6 +113,13 @@ fn persist(ctx: &impl CommandCtx, state: &AppState) -> Result<(), StorageError> 
         projects: snapshot.projects,
         settings: snapshot.settings,
     });
+    log::debug!(
+        "persist: ok root={} tasks={} projects={} with_backup={}",
+        root.display(),
+        tasks_file.tasks.len(),
+        tasks_file.projects.len(),
+        should_backup
+    );
     Ok(())
 }
 
@@ -152,7 +192,9 @@ impl<R: Runtime> CommandCtx for TauriCommandCtx<'_, R> {
     }
 
     fn emit_state_updated(&self, payload: StatePayload) {
-        let _ = self.app.emit(EVENT_STATE_UPDATED, payload);
+        if let Err(err) = self.app.emit(EVENT_STATE_UPDATED, payload) {
+            log::warn!("emit state_updated failed: {err}");
+        }
     }
 
     fn update_tray_count(&self, tasks: &[Task], settings: &Settings) {
@@ -160,7 +202,9 @@ impl<R: Runtime> CommandCtx for TauriCommandCtx<'_, R> {
     }
 
     fn shortcut_unregister_all(&self) {
-        let _ = self.app.global_shortcut().unregister_all();
+        if let Err(err) = self.app.global_shortcut().unregister_all() {
+            log::warn!("shortcut unregister_all failed: {err}");
+        }
     }
 
     fn shortcut_validate(&self, shortcut: &str) -> Result<(), String> {
@@ -189,6 +233,7 @@ impl<R: Runtime> CommandCtx for TauriCommandCtx<'_, R> {
 }
 
 fn load_state_impl(ctx: &impl CommandCtx, state: &AppState) -> CommandResult<StatePayload> {
+    log::info!("cmd=load_state start");
     let root = match ctx.app_data_dir() {
         Ok(path) => path,
         Err(e) => return err(&format!("app_data_dir error: {e}")),
@@ -197,25 +242,42 @@ fn load_state_impl(ctx: &impl CommandCtx, state: &AppState) -> CommandResult<Sta
     if let Err(error) = storage.ensure_dirs() {
         return err(&format!("storage error: {error:?}"));
     }
-    let tasks_file = storage
-        .load_tasks()
-        .unwrap_or_else(|_| crate::models::TasksFile {
-            schema_version: 1,
-            tasks: Vec::new(),
-            projects: Vec::new(),
-        });
-    let settings = storage
-        .load_settings()
-        .map(|data| data.settings)
-        .unwrap_or_else(|_| Settings::default());
+    let tasks_file = match storage.load_tasks() {
+        Ok(file) => file,
+        Err(err) => {
+            log::warn!("cmd=load_state failed to load data.json; using defaults: {err}");
+            crate::models::TasksFile {
+                schema_version: 1,
+                tasks: Vec::new(),
+                projects: Vec::new(),
+            }
+        }
+    };
+    let settings = match storage.load_settings() {
+        Ok(file) => file.settings,
+        Err(err) => {
+            log::warn!("cmd=load_state failed to load settings.json; using defaults: {err}");
+            Settings::default()
+        }
+    };
 
     state.replace_projects(tasks_file.projects);
     state.replace_tasks(tasks_file.tasks);
-    state.update_settings(settings.clone());
+    state.update_settings(settings);
+    let snapshot = state.snapshot();
+    log::info!(
+        "cmd=load_state ok tasks={} projects={} theme={} language={} close_behavior={:?} backup_schedule={:?}",
+        snapshot.tasks.len(),
+        snapshot.projects.len(),
+        snapshot.settings.theme,
+        snapshot.settings.language,
+        snapshot.settings.close_behavior,
+        snapshot.settings.backup_schedule
+    );
     ok(StatePayload {
-        tasks: state.tasks(),
-        projects: state.projects(),
-        settings: state.settings(),
+        tasks: snapshot.tasks,
+        projects: snapshot.projects,
+        settings: snapshot.settings,
     })
 }
 
@@ -250,8 +312,20 @@ fn create_project_impl(
         project.sort_order = project.created_at * 1000;
     }
 
+    log::info!(
+        "cmd=create_project id={} name_len={} pinned={} sort_order={} created_at={}",
+        project.id,
+        project.name.len(),
+        project.pinned,
+        project.sort_order,
+        project.created_at
+    );
     state.add_project(project.clone());
     if let Err(error) = persist(ctx, state) {
+        log::error!(
+            "cmd=create_project persist failed id={} err={error}",
+            project.id
+        );
         return err(&format!("storage error: {error:?}"));
     }
     ok(project)
@@ -292,8 +366,21 @@ fn update_project_impl(
     }
     project.updated_at = now.timestamp();
 
+    log::info!(
+        "cmd=update_project id={} name_len={} pinned={} sort_order={} created_at={} updated_at={}",
+        project.id,
+        project.name.len(),
+        project.pinned,
+        project.sort_order,
+        project.created_at,
+        project.updated_at
+    );
     state.update_project(project.clone());
     if let Err(error) = persist(ctx, state) {
+        log::error!(
+            "cmd=update_project persist failed id={} err={error}",
+            project.id
+        );
         return err(&format!("storage error: {error:?}"));
     }
     ok(project)
@@ -309,7 +396,18 @@ fn swap_project_sort_order_impl(
     if !state.swap_project_sort_order(&first_id, &second_id, now) {
         return err("project not found");
     }
+    log::info!(
+        "cmd=swap_project_sort_order ok first_id={} second_id={} at={}",
+        first_id,
+        second_id,
+        now
+    );
     if let Err(error) = persist(ctx, state) {
+        log::error!(
+            "cmd=swap_project_sort_order persist failed first_id={} second_id={} err={error}",
+            first_id,
+            second_id
+        );
         return err(&format!("storage error: {error:?}"));
     }
     ok(true)
@@ -342,12 +440,23 @@ fn delete_project_impl(
             tasks_to_move.push(next);
         }
     }
+    let moved_count = tasks_to_move.len();
     for task in tasks_to_move {
         state.update_task(task);
     }
 
+    log::info!(
+        "cmd=delete_project id={} moved_tasks={} at={}",
+        project_id,
+        moved_count,
+        now
+    );
     state.remove_project(&project_id);
     if let Err(error) = persist(ctx, state) {
+        log::error!(
+            "cmd=delete_project persist failed id={} err={error}",
+            project_id
+        );
         return err(&format!("storage error: {error:?}"));
     }
     ok(true)
@@ -355,6 +464,7 @@ fn delete_project_impl(
 
 fn create_task_impl(ctx: &impl CommandCtx, state: &AppState, task: Task) -> CommandResult<Task> {
     let mut task = task;
+    let original_project_id = task.project_id.clone();
     if task.sort_order == 0 {
         task.sort_order = task.created_at * 1000;
     }
@@ -363,10 +473,26 @@ fn create_task_impl(ctx: &impl CommandCtx, state: &AppState, task: Task) -> Comm
         .iter()
         .any(|project| project.id == task.project_id)
     {
+        log::warn!(
+            "cmd=create_task unknown project_id; using inbox task_id={} original_project_id={}",
+            task.id,
+            original_project_id
+        );
         task.project_id = "inbox".to_string();
     }
+    log::info!(
+        "cmd=create_task id={} project_id={} due_at={} important={} quadrant={} reminder_kind={:?} repeat={:?}",
+        task.id,
+        task.project_id,
+        task.due_at,
+        task.important,
+        task.quadrant,
+        task.reminder.kind,
+        task.repeat
+    );
     state.add_task(task.clone());
     if let Err(error) = persist(ctx, state) {
+        log::error!("cmd=create_task persist failed id={} err={error}", task.id);
         return err(&format!("storage error: {error:?}"));
     }
     ok(task)
@@ -374,6 +500,7 @@ fn create_task_impl(ctx: &impl CommandCtx, state: &AppState, task: Task) -> Comm
 
 fn update_task_impl(ctx: &impl CommandCtx, state: &AppState, task: Task) -> CommandResult<Task> {
     let mut task = task;
+    let original_project_id = task.project_id.clone();
     if task.sort_order == 0 {
         task.sort_order = task.created_at * 1000;
     }
@@ -382,10 +509,26 @@ fn update_task_impl(ctx: &impl CommandCtx, state: &AppState, task: Task) -> Comm
         .iter()
         .any(|project| project.id == task.project_id)
     {
+        log::warn!(
+            "cmd=update_task unknown project_id; using inbox task_id={} original_project_id={}",
+            task.id,
+            original_project_id
+        );
         task.project_id = "inbox".to_string();
     }
+    log::info!(
+        "cmd=update_task id={} project_id={} due_at={} important={} quadrant={} reminder_kind={:?} repeat={:?}",
+        task.id,
+        task.project_id,
+        task.due_at,
+        task.important,
+        task.quadrant,
+        task.reminder.kind,
+        task.repeat
+    );
     state.update_task(task.clone());
     if let Err(error) = persist(ctx, state) {
+        log::error!("cmd=update_task persist failed id={} err={error}", task.id);
         return err(&format!("storage error: {error:?}"));
     }
     ok(task)
@@ -397,16 +540,25 @@ fn bulk_update_tasks_impl(
     tasks: Vec<Task>,
 ) -> CommandResult<bool> {
     let projects = state.projects();
+    let total = tasks.len();
+    let mut remapped_projects = 0usize;
     for mut task in tasks {
         if task.sort_order == 0 {
             task.sort_order = task.created_at * 1000;
         }
         if !projects.iter().any(|project| project.id == task.project_id) {
+            remapped_projects += 1;
             task.project_id = "inbox".to_string();
         }
         state.update_task(task);
     }
+    log::info!(
+        "cmd=bulk_update_tasks count={} remapped_projects={}",
+        total,
+        remapped_projects
+    );
     if let Err(error) = persist(ctx, state) {
+        log::error!("cmd=bulk_update_tasks persist failed err={error}");
         return err(&format!("storage error: {error:?}"));
     }
     ok(true)
@@ -422,7 +574,18 @@ fn swap_sort_order_impl(
     if !state.swap_sort_order(&first_id, &second_id, now) {
         return err("task not found");
     }
+    log::info!(
+        "cmd=swap_sort_order ok first_id={} second_id={} at={}",
+        first_id,
+        second_id,
+        now
+    );
     if let Err(error) = persist(ctx, state) {
+        log::error!(
+            "cmd=swap_sort_order persist failed first_id={} second_id={} err={error}",
+            first_id,
+            second_id
+        );
         return err(&format!("storage error: {error:?}"));
     }
     ok(true)
@@ -468,11 +631,19 @@ fn complete_task_impl(
 ) -> CommandResult<Task> {
     let completed = match state.complete_task(&task_id) {
         Some(task) => task,
-        None => return err("task not found"),
+        None => {
+            log::warn!("cmd=complete_task task not found id={}", task_id);
+            return err("task not found");
+        }
     };
 
     if let RepeatRule::None = completed.repeat {
+        log::info!("cmd=complete_task id={} repeat=none", completed.id);
         if let Err(error) = persist(ctx, state) {
+            log::error!(
+                "cmd=complete_task persist failed id={} err={error}",
+                completed.id
+            );
             return err(&format!("storage error: {error:?}"));
         }
         return ok(completed);
@@ -481,9 +652,20 @@ fn complete_task_impl(
     let next_due = next_due_timestamp(completed.due_at, &completed.repeat);
     let next = build_next_repeat_task(&completed, next_due);
 
+    log::info!(
+        "cmd=complete_task id={} repeat={:?} next_id={} next_due={}",
+        completed.id,
+        completed.repeat,
+        next.id,
+        next_due
+    );
     state.add_task(next.clone());
 
     if let Err(error) = persist(ctx, state) {
+        log::error!(
+            "cmd=complete_task persist failed id={} err={error}",
+            completed.id
+        );
         return err(&format!("storage error: {error:?}"));
     }
 
@@ -495,11 +677,15 @@ fn bulk_complete_tasks_impl(
     state: &AppState,
     task_ids: Vec<String>,
 ) -> CommandResult<bool> {
+    let total = task_ids.len();
+    let mut completed_count = 0usize;
+    let mut repeated_created = 0usize;
     for task_id in task_ids {
         let completed = match state.complete_task(&task_id) {
             Some(task) => task,
             None => continue,
         };
+        completed_count += 1;
 
         if let RepeatRule::None = completed.repeat {
             continue;
@@ -508,9 +694,17 @@ fn bulk_complete_tasks_impl(
         let next_due = next_due_timestamp(completed.due_at, &completed.repeat);
         let next = build_next_repeat_task(&completed, next_due);
         state.add_task(next);
+        repeated_created += 1;
     }
 
+    log::info!(
+        "cmd=bulk_complete_tasks requested={} completed={} repeated_created={}",
+        total,
+        completed_count,
+        repeated_created
+    );
     if let Err(error) = persist(ctx, state) {
+        log::error!("cmd=bulk_complete_tasks persist failed err={error}");
         return err(&format!("storage error: {error:?}"));
     }
     ok(true)
@@ -526,21 +720,46 @@ fn update_settings_impl(
     let next_shortcut = settings.shortcut.trim().to_string();
     let previous_language = previous.language.trim().to_lowercase();
     let next_language = settings.language.trim().to_lowercase();
+    let shortcut_requested_change = previous_shortcut != next_shortcut;
 
     // Normalize user input so tests/production behave the same and the persisted config is stable.
     settings.shortcut = next_shortcut.clone();
     settings.language = match next_language.as_str() {
         "auto" | "zh" | "en" => next_language.clone(),
-        _ => Settings::default().language,
+        _ => {
+            log::warn!(
+                "cmd=update_settings invalid language; using default requested={}",
+                next_language
+            );
+            Settings::default().language
+        }
     };
+
+    log::info!(
+        "cmd=update_settings start theme={} language={} close_behavior={:?} minimize_behavior={:?} backup_schedule={:?} update_behavior={:?} repeat_interval_sec={} repeat_max_times={} shortcut_change={}",
+        settings.theme,
+        settings.language,
+        settings.close_behavior,
+        settings.minimize_behavior,
+        settings.backup_schedule,
+        settings.update_behavior,
+        settings.reminder_repeat_interval_sec,
+        settings.reminder_repeat_max_times,
+        shortcut_requested_change
+    );
 
     // Shortcut validation/registration is the #1 place users can lock themselves out:
     // if we unregister the old one and fail to register the new one, the app becomes unreachable
     // from the keyboard. So we validate + register with a rollback path and only then persist.
     let mut shortcut_changed = false;
-    if previous_shortcut != next_shortcut {
+    if shortcut_requested_change {
         shortcut_changed = true;
         if let Err(parse_err) = ctx.shortcut_validate(&next_shortcut) {
+            log::warn!(
+                "cmd=update_settings invalid shortcut requested={} err={}",
+                next_shortcut,
+                parse_err
+            );
             return err(&format!("invalid shortcut: {parse_err}"));
         }
 
@@ -548,8 +767,18 @@ fn update_settings_impl(
         if let Err(register_err) = ctx.shortcut_register(&next_shortcut) {
             // Best-effort restore the previous shortcut so the user can still summon the quick window.
             let _ = ctx.shortcut_register(&previous_shortcut);
+            log::error!(
+                "cmd=update_settings failed to register shortcut requested={} err={}",
+                next_shortcut,
+                register_err
+            );
             return err(&format!("failed to register shortcut: {register_err}"));
         }
+        log::info!(
+            "cmd=update_settings shortcut updated old={} new={}",
+            previous_shortcut,
+            next_shortcut
+        );
     }
 
     // Currently language is a UI concern (and must never brick the app). We normalize above and
@@ -564,9 +793,19 @@ fn update_settings_impl(
             ctx.shortcut_unregister_all();
             let _ = ctx.shortcut_register(&previous_shortcut);
         }
+        log::error!("cmd=update_settings persist failed err={error}");
         return err(&format!("storage error: {error:?}"));
     }
 
+    log::info!(
+        "cmd=update_settings ok theme={} language={} close_behavior={:?} minimize_behavior={:?} backup_schedule={:?} update_behavior={:?}",
+        settings.theme,
+        settings.language,
+        settings.close_behavior,
+        settings.minimize_behavior,
+        settings.backup_schedule,
+        settings.update_behavior
+    );
     ok(settings)
 }
 
@@ -576,13 +815,23 @@ fn snooze_task_impl(
     task_id: String,
     until: i64,
 ) -> CommandResult<bool> {
+    log::info!("cmd=snooze_task start task_id={} until={}", task_id, until);
     let mut tasks = state.tasks();
+    let mut found = false;
     if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) {
+        found = true;
         task.reminder.snoozed_until = Some(until);
         task.reminder.last_fired_at = Some(Utc::now().timestamp());
         state.update_task(task.clone());
     }
+    if !found {
+        log::warn!("cmd=snooze_task task not found task_id={}", task_id);
+    }
     if let Err(error) = persist(ctx, state) {
+        log::error!(
+            "cmd=snooze_task persist failed task_id={} err={error}",
+            task_id
+        );
         return err(&format!("storage error: {error:?}"));
     }
     ok(true)
@@ -593,13 +842,23 @@ fn dismiss_forced_impl(
     state: &AppState,
     task_id: String,
 ) -> CommandResult<bool> {
+    log::info!("cmd=dismiss_forced start task_id={}", task_id);
     let mut tasks = state.tasks();
+    let mut found = false;
     if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) {
+        found = true;
         task.reminder.forced_dismissed = true;
         task.reminder.last_fired_at = Some(Utc::now().timestamp());
         state.update_task(task.clone());
     }
+    if !found {
+        log::warn!("cmd=dismiss_forced task not found task_id={}", task_id);
+    }
     if let Err(error) = persist(ctx, state) {
+        log::error!(
+            "cmd=dismiss_forced persist failed task_id={} err={error}",
+            task_id
+        );
         return err(&format!("storage error: {error:?}"));
     }
     ok(true)
@@ -610,8 +869,13 @@ fn delete_task_impl(
     state: &AppState,
     task_id: String,
 ) -> CommandResult<bool> {
+    log::info!("cmd=delete_task task_id={}", task_id);
     state.remove_task(&task_id);
     if let Err(error) = persist(ctx, state) {
+        log::error!(
+            "cmd=delete_task persist failed task_id={} err={error}",
+            task_id
+        );
         return err(&format!("storage error: {error:?}"));
     }
     ok(true)
@@ -622,8 +886,10 @@ fn delete_tasks_impl(
     state: &AppState,
     task_ids: Vec<String>,
 ) -> CommandResult<bool> {
+    log::info!("cmd=delete_tasks count={}", task_ids.len());
     state.remove_tasks(&task_ids);
     if let Err(error) = persist(ctx, state) {
+        log::error!("cmd=delete_tasks persist failed err={error}");
         return err(&format!("storage error: {error:?}"));
     }
     ok(true)
@@ -754,13 +1020,20 @@ pub fn update_settings(
 #[cfg(all(feature = "app", not(test)))]
 #[tauri::command]
 pub fn show_settings_window(app: AppHandle) -> CommandResult<bool> {
-    show_settings_window_impl(&app);
-    ok(true)
+    log::info!("cmd=show_settings_window");
+    match show_settings_window_impl(&app) {
+        Ok(()) => ok(true),
+        Err(message) => {
+            log::error!("cmd=show_settings_window failed: {message}");
+            err(&message)
+        }
+    }
 }
 
 #[cfg(all(feature = "app", not(test)))]
 #[tauri::command]
 pub fn set_shortcut_capture_active(state: State<AppState>, active: bool) -> CommandResult<bool> {
+    log::info!("cmd=set_shortcut_capture_active active={}", active);
     state.set_shortcut_capture_active(active);
     ok(true)
 }
@@ -813,6 +1086,7 @@ pub struct BackupEntry {
 }
 
 fn list_backups_impl(ctx: &impl CommandCtx) -> CommandResult<Vec<BackupEntry>> {
+    log::info!("cmd=list_backups start");
     let root = match ctx.app_data_dir() {
         Ok(path) => path,
         Err(e) => return err(&format!("app_data_dir error: {e}")),
@@ -824,44 +1098,67 @@ fn list_backups_impl(ctx: &impl CommandCtx) -> CommandResult<Vec<BackupEntry>> {
         Ok(list) => list,
         Err(StorageError::Io(io)) if io.kind() == std::io::ErrorKind::NotFound => {
             if let Err(error) = storage.ensure_dirs() {
+                log::error!("cmd=list_backups ensure_dirs failed err={error}");
                 return err(&format!("storage error: {error:?}"));
             }
+            log::info!("cmd=list_backups backup dir missing; created");
             Vec::new()
         }
-        Err(error) => return err(&format!("storage error: {error:?}")),
+        Err(error) => {
+            log::error!("cmd=list_backups list failed err={error}");
+            return err(&format!("storage error: {error:?}"));
+        }
     };
 
-    ok(list
+    let entries: Vec<BackupEntry> = list
         .into_iter()
         .map(|(name, modified_at)| BackupEntry { name, modified_at })
-        .collect())
+        .collect();
+    log::info!("cmd=list_backups ok count={}", entries.len());
+    ok(entries)
 }
 
 fn delete_backup_impl(ctx: &impl CommandCtx, filename: String) -> CommandResult<bool> {
+    log::info!("cmd=delete_backup start filename={}", filename);
     let root = match ctx.app_data_dir() {
         Ok(path) => path,
         Err(e) => return err(&format!("app_data_dir error: {e}")),
     };
     let storage = Storage::new(root);
     if let Err(error) = storage.ensure_dirs() {
+        log::error!(
+            "cmd=delete_backup ensure_dirs failed filename={} err={error}",
+            filename
+        );
         return err(&format!("storage error: {error:?}"));
     }
     if let Err(error) = storage.delete_backup(&filename) {
+        log::error!("cmd=delete_backup failed filename={} err={error}", filename);
         return err(&format!("storage error: {error:?}"));
     }
+    log::info!("cmd=delete_backup ok filename={}", filename);
     ok(true)
 }
 
 fn create_backup_impl(ctx: &impl CommandCtx, state: &AppState) -> CommandResult<bool> {
+    log::info!("cmd=create_backup start");
     let root = match ctx.app_data_dir() {
         Ok(path) => path,
         Err(e) => return err(&format!("app_data_dir error: {e}")),
     };
     let storage = Storage::new(root);
     if let Err(error) = storage.ensure_dirs() {
+        log::error!("cmd=create_backup ensure_dirs failed err={error}");
         return err(&format!("storage error: {error:?}"));
     }
-    if let Err(error) = storage.save_tasks(&state.tasks_file(), true) {
+    let tasks_file = state.tasks_file();
+    log::info!(
+        "cmd=create_backup saving tasks with backup tasks={} projects={}",
+        tasks_file.tasks.len(),
+        tasks_file.projects.len()
+    );
+    if let Err(error) = storage.save_tasks(&tasks_file, true) {
+        log::error!("cmd=create_backup save_tasks failed err={error}");
         return err(&format!("storage error: {error:?}"));
     }
     let now = Utc::now().timestamp();
@@ -869,8 +1166,10 @@ fn create_backup_impl(ctx: &impl CommandCtx, state: &AppState) -> CommandResult<
     settings.last_backup_at = Some(now);
     state.update_settings(settings.clone());
     if let Err(error) = storage.save_settings(&state.settings_file()) {
+        log::error!("cmd=create_backup save_settings failed err={error}");
         return err(&format!("storage error: {error:?}"));
     }
+    log::info!("cmd=create_backup ok last_backup_at={now}");
     ok(true)
 }
 
@@ -879,18 +1178,35 @@ fn restore_backup_impl(
     state: &AppState,
     filename: String,
 ) -> CommandResult<Vec<Task>> {
+    log::info!("cmd=restore_backup start filename={}", filename);
     let root = match ctx.app_data_dir() {
         Ok(path) => path,
         Err(e) => return err(&format!("app_data_dir error: {e}")),
     };
     let storage = Storage::new(root);
     if let Err(error) = storage.ensure_dirs() {
+        log::error!(
+            "cmd=restore_backup ensure_dirs failed filename={} err={error}",
+            filename
+        );
         return err(&format!("storage error: {error:?}"));
     }
     let data = match storage.restore_backup(&filename) {
         Ok(data) => data,
-        Err(error) => return err(&format!("storage error: {error:?}")),
+        Err(error) => {
+            log::error!(
+                "cmd=restore_backup failed filename={} err={error}",
+                filename
+            );
+            return err(&format!("storage error: {error:?}"));
+        }
     };
+    log::info!(
+        "cmd=restore_backup loaded filename={} tasks={} projects={}",
+        filename,
+        data.tasks.len(),
+        data.projects.len()
+    );
     state.replace_projects(data.projects.clone());
     state.replace_tasks(data.tasks.clone());
     ctx.update_tray_count(&state.tasks(), &state.settings());
@@ -900,6 +1216,7 @@ fn restore_backup_impl(
         settings: state.settings(),
     };
     ctx.emit_state_updated(payload);
+    log::info!("cmd=restore_backup ok filename={}", filename);
     ok(data.tasks)
 }
 
@@ -908,18 +1225,32 @@ fn import_backup_impl(
     state: &AppState,
     path: String,
 ) -> CommandResult<Vec<Task>> {
+    log::info!("cmd=import_backup start path={}", path);
     let root = match ctx.app_data_dir() {
         Ok(path) => path,
         Err(e) => return err(&format!("app_data_dir error: {e}")),
     };
     let storage = Storage::new(root);
     if let Err(error) = storage.ensure_dirs() {
+        log::error!(
+            "cmd=import_backup ensure_dirs failed path={} err={error}",
+            path
+        );
         return err(&format!("storage error: {error:?}"));
     }
     let data = match storage.restore_from_path(std::path::Path::new(&path)) {
         Ok(data) => data,
-        Err(error) => return err(&format!("storage error: {error:?}")),
+        Err(error) => {
+            log::error!("cmd=import_backup failed path={} err={error}", path);
+            return err(&format!("storage error: {error:?}"));
+        }
     };
+    log::info!(
+        "cmd=import_backup loaded path={} tasks={} projects={}",
+        path,
+        data.tasks.len(),
+        data.projects.len()
+    );
     state.replace_projects(data.projects.clone());
     state.replace_tasks(data.tasks.clone());
     ctx.update_tray_count(&state.tasks(), &state.settings());
@@ -929,6 +1260,7 @@ fn import_backup_impl(
         settings: state.settings(),
     };
     ctx.emit_state_updated(payload);
+    log::info!("cmd=import_backup ok path={}", path);
     ok(data.tasks)
 }
 
@@ -951,6 +1283,7 @@ fn write_atomic_bytes(path: &Path, bytes: &[u8]) -> Result<(), StorageError> {
 }
 
 fn export_tasks_json_impl(ctx: &dyn CommandCtx, state: &AppState) -> CommandResult<String> {
+    log::info!("cmd=export_tasks_json start");
     let root = match ctx.app_data_dir() {
         Ok(path) => path,
         Err(e) => return err(&format!("app_data_dir error: {e}")),
@@ -978,13 +1311,26 @@ fn export_tasks_json_impl(ctx: &dyn CommandCtx, state: &AppState) -> CommandResu
         serde_json::to_vec_pretty(&data)
     } {
         Ok(bytes) => bytes,
-        Err(e) => return err(&format!("json error: {e}")),
+        Err(e) => {
+            log::error!("cmd=export_tasks_json json serialize failed err={e}");
+            return err(&format!("json error: {e}"));
+        }
     };
 
     if let Err(error) = write_atomic_bytes(&path, &json) {
+        log::error!(
+            "cmd=export_tasks_json write failed path={} err={error}",
+            path.display()
+        );
         return err(&format!("export error: {error:?}"));
     }
 
+    log::info!(
+        "cmd=export_tasks_json ok path={} tasks={} projects={}",
+        path.display(),
+        data.tasks.len(),
+        data.projects.len()
+    );
     ok(path.to_string_lossy().to_string())
 }
 
@@ -995,6 +1341,7 @@ fn csv_escape(value: &str) -> String {
 }
 
 fn export_tasks_csv_impl(ctx: &impl CommandCtx, state: &AppState) -> CommandResult<String> {
+    log::info!("cmd=export_tasks_csv start");
     let root = match ctx.app_data_dir() {
         Ok(path) => path,
         Err(e) => return err(&format!("app_data_dir error: {e}")),
@@ -1002,6 +1349,7 @@ fn export_tasks_csv_impl(ctx: &impl CommandCtx, state: &AppState) -> CommandResu
 
     let path = export_default_path(&root, "csv");
     let tasks = state.tasks();
+    let tasks_len = tasks.len();
 
     let mut out = String::new();
     out.push_str("id,project_id,title,due_at,important,completed,quadrant,tags,notes,steps\n");
@@ -1044,13 +1392,23 @@ fn export_tasks_csv_impl(ctx: &impl CommandCtx, state: &AppState) -> CommandResu
     }
 
     if let Err(error) = write_atomic_bytes(&path, out.as_bytes()) {
+        log::error!(
+            "cmd=export_tasks_csv write failed path={} err={error}",
+            path.display()
+        );
         return err(&format!("export error: {error:?}"));
     }
 
+    log::info!(
+        "cmd=export_tasks_csv ok path={} tasks={}",
+        path.display(),
+        tasks_len
+    );
     ok(path.to_string_lossy().to_string())
 }
 
 fn export_tasks_markdown_impl(ctx: &impl CommandCtx, state: &AppState) -> CommandResult<String> {
+    log::info!("cmd=export_tasks_markdown start");
     let root = match ctx.app_data_dir() {
         Ok(path) => path,
         Err(e) => return err(&format!("app_data_dir error: {e}")),
@@ -1150,9 +1508,21 @@ fn export_tasks_markdown_impl(ctx: &impl CommandCtx, state: &AppState) -> Comman
     write_section("Completed", &done, true);
 
     if let Err(error) = write_atomic_bytes(&path, out.as_bytes()) {
+        log::error!(
+            "cmd=export_tasks_markdown write failed path={} err={error}",
+            path.display()
+        );
         return err(&format!("export error: {error:?}"));
     }
 
+    log::info!(
+        "cmd=export_tasks_markdown ok path={} overdue={} today={} future={} done={}",
+        path.display(),
+        overdue.len(),
+        today_list.len(),
+        future.len(),
+        done.len()
+    );
     ok(path.to_string_lossy().to_string())
 }
 

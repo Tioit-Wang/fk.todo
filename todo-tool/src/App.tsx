@@ -391,11 +391,14 @@ function App() {
       };
 
       if (typeof win.requestIdleCallback === "function") {
-        const id = win.requestIdleCallback(() => {
-          void runCheck().catch((err) => {
-            console.warn("updater check failed", err);
-          });
-        }, { timeout: 2000 });
+        const id = win.requestIdleCallback(
+          () => {
+            void runCheck().catch((err) => {
+              console.warn("updater check failed", err);
+            });
+          },
+          { timeout: 2000 },
+        );
         return () => win.cancelIdleCallback?.(id);
       }
 
@@ -520,7 +523,11 @@ function App() {
           }
 
           const nextTasks = raw.map(normalizeTask);
-          return reconcileById(prev, nextTasks, (a, b) => a.updated_at === b.updated_at);
+          return reconcileById(
+            prev,
+            nextTasks,
+            (a, b) => a.updated_at === b.updated_at,
+          );
         });
         setProjects((prev) => {
           const raw = res.data?.projects ?? [];
@@ -890,12 +897,27 @@ function App() {
   }
 
   async function handleOpenSettingsWindow() {
-    const res = await showSettingsWindow();
-    if (!res.ok) {
+    let opened = false;
+    try {
+      const res = await showSettingsWindow();
+      opened = res.ok;
+      if (res.ok) return;
       toast.notify(res.error ?? t("settings.openFailed"), {
         tone: "danger",
         durationMs: 6000,
       });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast.notify(message || t("settings.openFailed"), {
+        tone: "danger",
+        durationMs: 6000,
+      });
+    }
+
+    // Fallback: if opening the dedicated settings window fails (or is blocked by platform quirks),
+    // route the current window to the in-window settings view so the user isn't stuck.
+    if (!opened && getCurrentWindow().label === "main") {
+      window.location.hash = "#/main/settings";
     }
   }
 
@@ -941,7 +963,9 @@ function App() {
     }
   }
 
-  async function handleCreateFromComposer(draft: TaskComposerDraft) {
+  async function handleCreateFromComposer(
+    draft: TaskComposerDraft,
+  ): Promise<boolean> {
     const task = newTask(draft.title, new Date(), draft.project_id);
     task.due_at = draft.due_at;
     task.important = draft.important;
@@ -953,7 +977,33 @@ function App() {
       draft.reminder_offset_minutes,
     );
     task.updated_at = Math.floor(Date.now() / 1000);
-    await createTask(task);
+    try {
+      const res = await createTask(task);
+      if (!res.ok) {
+        toast.notify(res.error ?? t("alert.operationFailed"), {
+          tone: "danger",
+          durationMs: 6000,
+        });
+        return false;
+      }
+      if (res.data) {
+        const created = normalizeTask(res.data);
+        // Optimistically append so the UI stays responsive even if `state_updated` events are
+        // delayed/dropped (multi-window + dev hot reload can occasionally cause this).
+        setTasks((prev) => {
+          if (prev.some((item) => item.id === created.id)) return prev;
+          return [...prev, created];
+        });
+      }
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast.notify(message || t("alert.operationFailed"), {
+        tone: "danger",
+        durationMs: 6000,
+      });
+      return false;
+    }
   }
 
   async function handleToggleComplete(task: Task) {
@@ -1238,13 +1288,30 @@ function App() {
   })();
 
   useEffect(() => {
-    // Legacy route: settings is now a separate window; redirect the main window back home.
+    // When someone navigates the main window to the settings route (e.g. legacy link),
+    // try opening the dedicated settings window. If that fails, keep the in-window settings
+    // route so the user still has a working settings UI.
     if (view !== "main") return;
     if (mainPage !== "settings") return;
     setEditingTaskId(null);
     setConfirmDeleteTaskId(null);
-    void showSettingsWindow().catch(() => {});
-    window.location.hash = "#/main";
+
+    let disposed = false;
+    void (async () => {
+      try {
+        const res = await showSettingsWindow();
+        if (disposed) return;
+        if (res.ok) {
+          window.location.hash = "#/main";
+        }
+      } catch {
+        // Best-effort: keep the settings route in the main window as a fallback.
+      }
+    })();
+
+    return () => {
+      disposed = true;
+    };
   }, [view, mainPage]);
 
   // Daily "today focus" prompt: show it only in the main window home page and only once per day.
@@ -1348,6 +1415,20 @@ function App() {
               void getCurrentWindow()
                 .hide()
                 .catch(() => {});
+            }}
+          />
+        )}
+
+        {view === "main" && mainPage === "settings" && (
+          <SettingsView
+            tasks={tasks}
+            projects={projects}
+            settings={settings}
+            onUpdateSettings={handleUpdateSettings}
+            updateBusy={updateBusy}
+            onCheckUpdate={handleManualUpdateCheck}
+            onBack={() => {
+              window.location.hash = "#/main";
             }}
           />
         )}
