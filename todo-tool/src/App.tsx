@@ -62,7 +62,7 @@ import { I18nProvider, makeTranslator, resolveAppLanguage } from "./i18n";
 import { newTask } from "./logic";
 import { TAURI_NAVIGATE } from "./events";
 import { detectPlatform } from "./platform";
-import { buildReminderConfig } from "./reminder";
+import { buildReminderConfig, getReminderTargetTime } from "./reminder";
 import { computeSnoozeUntilSeconds, type SnoozePresetId } from "./snooze";
 import { normalizeTheme } from "./theme";
 import type { Project, Settings, Task } from "./types";
@@ -103,6 +103,10 @@ function normalizeSettings(settings: Settings): Settings {
     typeof settings.deepseek_api_key === "string"
       ? settings.deepseek_api_key
       : "";
+  const ai_model =
+    typeof settings.ai_model === "string" && settings.ai_model.trim()
+      ? settings.ai_model.trim()
+      : "deepseek-chat";
   const ai_prompt =
     typeof settings.ai_prompt === "string" ? settings.ai_prompt : "";
   const update_behavior =
@@ -134,6 +138,7 @@ function normalizeSettings(settings: Settings): Settings {
     today_focus_ids,
     ai_enabled,
     deepseek_api_key,
+    ai_model,
     ai_prompt,
     update_behavior,
     today_focus_date,
@@ -204,6 +209,21 @@ function playBeep() {
   } catch {
     // Ignore audio errors in restricted environments.
   }
+}
+
+function isActiveForcedReminder(task: Task, nowSeconds: number): boolean {
+  if (task.completed) return false;
+  if (task.reminder.kind !== "forced") return false;
+  if (task.reminder.forced_dismissed) return false;
+
+  const targetTime = getReminderTargetTime(task);
+  if (targetTime == null) return false;
+  if (nowSeconds < targetTime) return false;
+
+  // Follow backend semantics: show only after the reminder has been marked as fired
+  // (scheduler writes last_fired_at to persisted state).
+  const lastFiredAt = task.reminder.last_fired_at;
+  return typeof lastFiredAt === "number" && lastFiredAt >= targetTime;
 }
 
 function App() {
@@ -862,6 +882,7 @@ function App() {
 
   // Keep reminder queues in sync with current tasks (completed/dismissed tasks should drop out).
   useEffect(() => {
+    const nowSeconds = Math.floor(Date.now() / 1000);
     setForcedQueueIds((prev) =>
       prev.filter((id) => {
         const task = tasks.find((item) => item.id === id);
@@ -869,7 +890,10 @@ function App() {
           task &&
           !task.completed &&
           task.reminder.kind === "forced" &&
-          !task.reminder.forced_dismissed
+          !task.reminder.forced_dismissed &&
+          // Guard against state changes from other windows (e.g. snoozed_until set)
+          // so the overlay doesn't get stuck showing a snoozed reminder.
+          isActiveForcedReminder(task, nowSeconds)
         );
       }),
     );
@@ -880,6 +904,18 @@ function App() {
       }),
     );
   }, [tasks]);
+
+  // Fallback: the reminder window can be created after `reminder_fired` is emitted, so it may
+  // miss the event. Rebuild the forced queue from persisted reminder state when in reminder view.
+  useEffect(() => {
+    if (view !== "reminder") return;
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const forcedIds = tasks
+      .filter((task) => isActiveForcedReminder(task, nowSeconds))
+      .map((task) => task.id);
+    if (forcedIds.length === 0) return;
+    setForcedQueueIds((prev) => mergeUniqueIds(prev, forcedIds));
+  }, [tasks, view]);
 
   const forcedTasks = useMemo(() => {
     return forcedQueueIds
@@ -1092,12 +1128,16 @@ function App() {
     const aiSettings = settingsRef.current;
     const aiEnabled = Boolean(aiSettings?.ai_enabled);
     const apiKey = aiSettings?.deepseek_api_key?.trim?.() ?? "";
-    const aiReady = aiEnabled && Boolean(apiKey);
+    const model = aiSettings?.ai_model?.trim?.() ?? "";
+    const aiReady = aiEnabled && Boolean(apiKey) && Boolean(model);
     if (aiEnabled && !aiReady) {
       // Don't block task creation if AI is enabled but not configured yet.
       if (!aiKeyMissingWarnedRef.current) {
         aiKeyMissingWarnedRef.current = true;
-        toast.notify(t("settings.ai.keyMissingFallback"), {
+        const message = !apiKey
+          ? t("settings.ai.keyMissingFallback")
+          : t("settings.ai.modelMissingFallback");
+        toast.notify(message, {
           tone: "default",
           durationMs: 6000,
         });

@@ -125,7 +125,8 @@ export function MainView({
 
   const aiReady =
     Boolean(settings?.ai_enabled) &&
-    Boolean((settings?.deepseek_api_key ?? "").trim());
+    Boolean((settings?.deepseek_api_key ?? "").trim()) &&
+    Boolean((settings?.ai_model ?? "").trim());
   const aiPlaceholderOptions = useMemo(() => {
     if (!aiReady) return [];
     return [

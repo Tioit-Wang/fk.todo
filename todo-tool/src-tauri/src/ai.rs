@@ -521,8 +521,15 @@ pub async fn plan_with_deepseek(
     let now = chrono::Utc::now().timestamp();
     let (system, user) = build_prompt(settings, input, now, projects, tasks);
 
+    let model = settings.ai_model.trim();
+    let model = if model.is_empty() {
+        "deepseek-chat"
+    } else {
+        model
+    };
+
     let payload = serde_json::json!({
-        "model": "deepseek-chat",
+        "model": model,
         "temperature": 0.2,
         "max_tokens": 1200,
         "stream": false,

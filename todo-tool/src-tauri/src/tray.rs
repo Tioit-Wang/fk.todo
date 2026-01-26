@@ -190,18 +190,27 @@ pub fn init_tray(app: &mut App, settings: &Settings) -> Result<(), Box<dyn std::
             {
                 let app = tray.app_handle();
                 log::info!("tray: left_click");
-                if let Some(window) = app.get_webview_window("quick") {
+                if let Some(window) = app.get_webview_window("main") {
                     if let Err(err) = window.unminimize() {
-                        log::warn!("tray: failed to unminimize quick window (left click): {err}");
+                        log::warn!("tray: failed to unminimize main window (left click): {err}");
                     }
                     if let Err(err) = window.show() {
-                        log::warn!("tray: failed to show quick window (left click): {err}");
+                        log::warn!("tray: failed to show main window (left click): {err}");
                     }
                     if let Err(err) = window.set_focus() {
-                        log::warn!("tray: failed to focus quick window (left click): {err}");
+                        log::warn!("tray: failed to focus main window (left click): {err}");
+                    }
+                    // Ask the frontend to navigate; avoids injecting JS via eval.
+                    if let Err(err) = window.emit(
+                        EVENT_NAVIGATE,
+                        NavigatePayload {
+                            hash: "#/main".to_string(),
+                        },
+                    ) {
+                        log::warn!("tray: failed to emit navigate event (left click): {err}");
                     }
                 } else {
-                    log::warn!("tray: quick window missing (left click)");
+                    log::warn!("tray: main window missing (left click)");
                 }
             }
         })

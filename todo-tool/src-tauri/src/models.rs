@@ -148,6 +148,8 @@ pub struct Settings {
     pub ai_enabled: bool,
     #[serde(default)]
     pub deepseek_api_key: String,
+    #[serde(default = "default_ai_model")]
+    pub ai_model: String,
     #[serde(default = "default_ai_prompt")]
     pub ai_prompt: String,
     #[serde(default)]
@@ -190,6 +192,7 @@ impl Default for Settings {
             language: default_language(),
             ai_enabled: false,
             deepseek_api_key: String::new(),
+            ai_model: default_ai_model(),
             ai_prompt: default_ai_prompt(),
             update_behavior: UpdateBehavior::NextRestart,
             sound_enabled: true,
@@ -274,6 +277,10 @@ fn default_language() -> String {
 fn default_ai_prompt() -> String {
     // Keep the default prompt in sync with prompts/ai_prompt.zh-CN.md.
     include_str!("../prompts/ai_prompt.zh-CN.md").to_string()
+}
+
+fn default_ai_model() -> String {
+    "deepseek-chat".to_string()
 }
 
 #[cfg(all(feature = "app", not(test)))]
@@ -470,6 +477,7 @@ mod tests {
         assert_eq!(settings.language, "auto");
         assert!(!settings.ai_enabled);
         assert!(settings.deepseek_api_key.is_empty());
+        assert_eq!(settings.ai_model, "deepseek-chat");
         assert_eq!(settings.ai_prompt, default_ai_prompt());
         assert_eq!(
             serde_json::to_value(&settings.update_behavior).expect("serialize update_behavior"),
@@ -530,6 +538,7 @@ mod tests {
         assert_eq!(settings.language, "auto");
         assert!(!settings.ai_enabled);
         assert!(settings.deepseek_api_key.is_empty());
+        assert_eq!(settings.ai_model, "deepseek-chat");
         assert_eq!(settings.ai_prompt, default_ai_prompt());
         assert_eq!(
             serde_json::to_value(&settings.update_behavior).expect("serialize update_behavior"),

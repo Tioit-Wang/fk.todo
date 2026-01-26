@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { formatDue } from "../date";
 import { useI18n } from "../i18n";
@@ -9,7 +9,10 @@ import type { SnoozePresetId } from "../snooze";
 
 import { Icons } from "./icons";
 
-function formatSpan(seconds: number, t: (key: string, params?: Record<string, string | number>) => string) {
+function formatSpan(
+  seconds: number,
+  t: (key: string, params?: Record<string, string | number>) => string,
+) {
   const abs = Math.max(0, Math.floor(Math.abs(seconds)));
   const mins = Math.floor(abs / 60);
   const hours = Math.floor(mins / 60);
@@ -19,11 +22,13 @@ function formatSpan(seconds: number, t: (key: string, params?: Record<string, st
   const remMins = mins % 60;
 
   if (days > 0) {
-    if (remHours > 0) return t("forced.time.daysHours", { days, hours: remHours });
+    if (remHours > 0)
+      return t("forced.time.daysHours", { days, hours: remHours });
     return t("forced.time.days", { days });
   }
   if (hours > 0) {
-    if (remMins > 0) return t("forced.time.hoursMins", { hours, mins: remMins });
+    if (remMins > 0)
+      return t("forced.time.hoursMins", { hours, mins: remMins });
     return t("forced.time.hours", { hours });
   }
   if (mins > 0) return t("forced.time.mins", { mins });
@@ -50,6 +55,7 @@ export function ForcedReminderOverlay({
   const { t } = useI18n();
   const now = Math.floor(Date.now() / 1000);
   const overdue = task ? isOverdue(task, now) : false;
+  const [showMoreSnooze, setShowMoreSnooze] = useState(false);
 
   const relative = useMemo(() => {
     if (!task) return "";
@@ -80,14 +86,28 @@ export function ForcedReminderOverlay({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [task, onComplete, onSnooze]);
 
+  useEffect(() => {
+    setShowMoreSnooze(false);
+  }, [task?.id]);
+
   if (!task) return null;
 
   return (
-    <div className="forced-reminder" style={{ ["--forced-color" as any]: color }}>
+    <div
+      className="forced-reminder"
+      style={{ ["--forced-color" as any]: color }}
+    >
       <div className="forced-reminder-scrim" aria-hidden="true" />
 
-      <div className="forced-reminder-sheet" role="alertdialog" aria-label={t("forced.title")}>
-        <div className="forced-reminder-accent" style={{ backgroundColor: color }} />
+      <div
+        className="forced-reminder-sheet"
+        role="alertdialog"
+        aria-label={t("forced.title")}
+      >
+        <div
+          className="forced-reminder-accent"
+          style={{ backgroundColor: color }}
+        />
 
         <div className="forced-reminder-inner">
           <div className="forced-reminder-icon" aria-hidden="true">
@@ -97,11 +117,17 @@ export function ForcedReminderOverlay({
           <div className="forced-reminder-main">
             <div className="forced-reminder-toprow">
               <span className="forced-reminder-badge">
-                <span className="forced-reminder-dot" style={{ backgroundColor: color }} />
+                <span
+                  className="forced-reminder-dot"
+                  style={{ backgroundColor: color }}
+                />
                 {t("forced.title")}
               </span>
               {queueTotal > 1 && (
-                <span className="forced-reminder-queue" title={t("forced.queue")}>
+                <span
+                  className="forced-reminder-queue"
+                  title={t("forced.queue")}
+                >
                   {queueIndex}/{queueTotal}
                 </span>
               )}
@@ -110,7 +136,9 @@ export function ForcedReminderOverlay({
             <div className="forced-reminder-title">{task.title}</div>
 
             <div className="forced-reminder-meta">
-              <span className={`forced-reminder-relative ${overdue ? "overdue" : ""}`}>
+              <span
+                className={`forced-reminder-relative ${overdue ? "overdue" : ""}`}
+              >
                 {relative}
               </span>
               <span className="forced-reminder-chip">
@@ -133,30 +161,73 @@ export function ForcedReminderOverlay({
           </div>
 
           <div className="forced-reminder-actions">
-            <button type="button" className="forced-btn ghost" onClick={onDismiss}>
+            <button
+              type="button"
+              className="forced-btn ghost"
+              onClick={onDismiss}
+            >
               {t("forced.action.dismiss")}
-            </button>
-            <button type="button" className="forced-btn secondary" onClick={() => onSnooze("m5")}>
-              <Icons.Snooze />
-              {t("forced.action.snooze5")}
-            </button>
-            <button type="button" className="forced-btn secondary" onClick={() => onSnooze("m15")}>
-              <Icons.Snooze />
-              {t("forced.action.snooze15")}
-            </button>
-            <button type="button" className="forced-btn secondary" onClick={() => onSnooze("h1")}>
-              <Icons.Snooze />
-              {t("forced.action.snooze1h")}
             </button>
             <button
               type="button"
               className="forced-btn secondary"
-              onClick={() => onSnooze("tomorrow0900")}
+              onClick={() => onSnooze("m5")}
             >
               <Icons.Snooze />
-              {t("forced.action.snoozeTomorrowMorning")}
+              {t("forced.action.snooze5")}
             </button>
-            <button type="button" className="forced-btn primary" onClick={onComplete}>
+            <button
+              type="button"
+              className="forced-btn ghost"
+              onClick={() => setShowMoreSnooze((prev) => !prev)}
+            >
+              {showMoreSnooze ? <Icons.ArrowUp /> : <Icons.ArrowDown />}
+              {showMoreSnooze
+                ? t("forced.action.snoozeLess")
+                : t("forced.action.snoozeMore")}
+            </button>
+            {showMoreSnooze && (
+              <>
+                <button
+                  type="button"
+                  className="forced-btn secondary"
+                  onClick={() => {
+                    setShowMoreSnooze(false);
+                    onSnooze("m15");
+                  }}
+                >
+                  <Icons.Snooze />
+                  {t("forced.action.snooze15")}
+                </button>
+                <button
+                  type="button"
+                  className="forced-btn secondary"
+                  onClick={() => {
+                    setShowMoreSnooze(false);
+                    onSnooze("h1");
+                  }}
+                >
+                  <Icons.Snooze />
+                  {t("forced.action.snooze1h")}
+                </button>
+                <button
+                  type="button"
+                  className="forced-btn secondary"
+                  onClick={() => {
+                    setShowMoreSnooze(false);
+                    onSnooze("tomorrow0900");
+                  }}
+                >
+                  <Icons.Snooze />
+                  {t("forced.action.snoozeTomorrowMorning")}
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              className="forced-btn primary"
+              onClick={onComplete}
+            >
               <Icons.Check />
               {t("forced.action.complete")}
             </button>
@@ -167,4 +238,3 @@ export function ForcedReminderOverlay({
     </div>
   );
 }
-

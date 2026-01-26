@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { open } from "@tauri-apps/plugin-dialog";
 import {
   isPermissionGranted,
   requestPermission,
 } from "@tauri-apps/plugin-notification";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
+import { formatDue } from "../date";
 import { getAppVersion } from "../version";
 import { describeError, frontendLog } from "../frontendLog";
 import {
@@ -33,18 +35,13 @@ import {
 } from "../sampleData";
 import { captureShortcutFromEvent } from "../shortcut";
 import { normalizeTheme } from "../theme";
-import type {
-  BackupSchedule,
-  MinimizeBehavior,
-  Project,
-  Settings,
-  Task,
-} from "../types";
+import type { BackupSchedule, Project, Settings, Task } from "../types";
 
 import { WindowTitlebar } from "../components/WindowTitlebar";
 import { useToast } from "../components/ToastProvider";
 import { useConfirmDialog } from "../components/useConfirmDialog";
 import { Icons } from "../components/icons";
+import { Switch } from "../components/Switch";
 import { detectPlatform } from "../platform";
 
 type PermissionStatus = "unknown" | "granted" | "denied";
@@ -79,7 +76,7 @@ export function SettingsView({
   const [permissionStatus, setPermissionStatus] =
     useState<PermissionStatus>("unknown");
   const [backups, setBackups] = useState<BackupEntry[]>([]);
-  const [importPath, setImportPath] = useState("");
+  const [importPath, setImportPath] = useState<string | null>(null);
   const [shortcutDraft, setShortcutDraft] = useState("");
   const [shortcutCapturing, setShortcutCapturing] = useState(false);
   const [shortcutHint, setShortcutHint] = useState<string | null>(null);
@@ -93,8 +90,13 @@ export function SettingsView({
   const [exportPath, setExportPath] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [deepseekKeyDraft, setDeepseekKeyDraft] = useState("");
+  const [aiModelDraft, setAiModelDraft] = useState("deepseek-chat");
   const [aiPromptDraft, setAiPromptDraft] = useState("");
-  const aiDraftSyncedRef = useRef(false);
+  const lastAiSettingsRef = useRef<{
+    deepseekKey: string;
+    aiModel: string;
+    aiPrompt: string;
+  } | null>(null);
 
   async function handleBack() {
     setShortcutCapturing(false);
@@ -193,16 +195,29 @@ export function SettingsView({
   }
 
   async function handleImportBackup() {
-    if (!importPath.trim()) return;
-    const ok = await requestConfirm({
-      title: t("settings.backup.import"),
-      description: t("settings.backup.restoreConfirm"),
-      confirmText: t("common.restore"),
-      cancelText: t("common.cancel"),
-    });
-    if (!ok) return;
-    await importBackup(importPath.trim());
-    setImportPath("");
+    try {
+      const selected = await open({
+        multiple: false,
+        directory: false,
+        filters: [{ name: "Backup", extensions: ["json"] }],
+      });
+      if (!selected || Array.isArray(selected)) return;
+      const ok = await requestConfirm({
+        title: t("settings.backup.import"),
+        description: t("settings.backup.restoreConfirm"),
+        confirmText: t("common.restore"),
+        cancelText: t("common.cancel"),
+      });
+      if (!ok) return;
+      await importBackup(selected);
+      setImportPath(selected);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast.notify(message || t("common.unknownError"), {
+        tone: "danger",
+        durationMs: 6000,
+      });
+    }
   }
 
   async function handleExport(kind: "json" | "csv" | "md") {
@@ -241,6 +256,15 @@ export function SettingsView({
         cancelText: null,
       });
     }
+  }
+
+  async function handleShowAbout() {
+    await requestConfirm({
+      title: t("settings.about.title"),
+      description: t("settings.about.description"),
+      confirmText: t("common.close"),
+      cancelText: null,
+    });
   }
 
   async function handleAddAiNovelAssistantSamples() {
@@ -366,11 +390,46 @@ export function SettingsView({
 
   // AI inputs are free-form text; avoid overwriting local edits on unrelated settings updates.
   useEffect(() => {
-    if (!settings) return;
-    if (aiDraftSyncedRef.current) return;
-    aiDraftSyncedRef.current = true;
-    setDeepseekKeyDraft(settings.deepseek_api_key ?? "");
-    setAiPromptDraft(settings.ai_prompt ?? "");
+    if (!settings) {
+      lastAiSettingsRef.current = null;
+      setDeepseekKeyDraft("");
+      setAiModelDraft("deepseek-chat");
+      setAiPromptDraft("");
+      return;
+    }
+
+    const nextKey = settings.deepseek_api_key ?? "";
+    const nextModel = settings.ai_model ?? "deepseek-chat";
+    const nextPrompt = settings.ai_prompt ?? "";
+
+    const prev = lastAiSettingsRef.current;
+    if (!prev) {
+      lastAiSettingsRef.current = {
+        deepseekKey: nextKey,
+        aiModel: nextModel,
+        aiPrompt: nextPrompt,
+      };
+      setDeepseekKeyDraft(nextKey);
+      setAiModelDraft(nextModel);
+      setAiPromptDraft(nextPrompt);
+      return;
+    }
+
+    if (deepseekKeyDraft === prev.deepseekKey && nextKey !== prev.deepseekKey) {
+      setDeepseekKeyDraft(nextKey);
+    }
+    if (aiModelDraft === prev.aiModel && nextModel !== prev.aiModel) {
+      setAiModelDraft(nextModel);
+    }
+    if (aiPromptDraft === prev.aiPrompt && nextPrompt !== prev.aiPrompt) {
+      setAiPromptDraft(nextPrompt);
+    }
+
+    lastAiSettingsRef.current = {
+      deepseekKey: nextKey,
+      aiModel: nextModel,
+      aiPrompt: nextPrompt,
+    };
   }, [settings]);
 
   useEffect(() => {
@@ -523,6 +582,47 @@ export function SettingsView({
     if (permissionStatus === "denied") return t("settings.permission.denied");
     return t("settings.permission.unknown");
   }, [permissionStatus, t]);
+  const aiPlaceholderItems = useMemo(
+    () => [
+      { token: "{{Now}}", desc: t("settings.ai.placeholder.now") },
+      { token: "{{UserInput}}", desc: t("settings.ai.placeholder.userInput") },
+      {
+        token: "{{UserCurrentProjectId}}",
+        desc: t("settings.ai.placeholder.currentProject"),
+      },
+      {
+        token: "{{ProjectList}}",
+        desc: t("settings.ai.placeholder.projectList"),
+      },
+      { token: "{{OpenTasks}}", desc: t("settings.ai.placeholder.openTasks") },
+      {
+        token: "{{UserSelectedReminder}}",
+        desc: t("settings.ai.placeholder.selectedReminder"),
+      },
+      {
+        token: "{{UserSelectedRepeat}}",
+        desc: t("settings.ai.placeholder.selectedRepeat"),
+      },
+      {
+        token: "{{WorkEndTime}}",
+        desc: t("settings.ai.placeholder.workEndTime"),
+      },
+      { token: "{{mustdo_now}}", desc: t("settings.ai.placeholder.legacyNow") },
+      {
+        token: "{{mustdo_user_input}}",
+        desc: t("settings.ai.placeholder.legacyUserInput"),
+      },
+      {
+        token: "{{mustdo_selected_fields}}",
+        desc: t("settings.ai.placeholder.legacySelectedFields"),
+      },
+      {
+        token: "{{mustdo_output_schema}}",
+        desc: t("settings.ai.placeholder.legacyOutputSchema"),
+      },
+    ],
+    [t],
+  );
 
   const scrollToSection = useCallback((id: string) => {
     const node = document.getElementById(id);
@@ -557,6 +657,13 @@ export function SettingsView({
                 onClick={() => scrollToSection("settings-general")}
               >
                 {t("settings.section.general")}
+              </button>
+              <button
+                type="button"
+                className="settings-nav-btn"
+                onClick={() => scrollToSection("settings-ai")}
+              >
+                {t("settings.section.ai")}
               </button>
               <button
                 type="button"
@@ -654,6 +761,16 @@ export function SettingsView({
                       </option>
                     </select>
                   </div>
+                  <div className="settings-row">
+                    <label>{t("settings.about.title")}</label>
+                    <button
+                      type="button"
+                      className="pill"
+                      onClick={() => void handleShowAbout()}
+                    >
+                      {t("settings.about.button")}
+                    </button>
+                  </div>
                 </div>
               </section>
 
@@ -727,142 +844,30 @@ export function SettingsView({
                   </div>
 
                   <div className="settings-row">
-                    <label>{t("settings.ai")}</label>
-                    <button
-                      type="button"
-                      className={`pill ${settings.ai_enabled ? "active" : ""}`}
-                      onClick={async () => {
-                        const nextEnabled = !settings.ai_enabled;
-                        const nextKey = deepseekKeyDraft.trim();
-                        const ok = await onUpdateSettings({
-                          ...settings,
-                          ai_enabled: nextEnabled,
-                          deepseek_api_key: nextKey,
-                          ai_prompt: aiPromptDraft,
-                        });
-                        if (!ok) return;
-                        setDeepseekKeyDraft(nextKey);
-                      }}
-                      aria-pressed={settings.ai_enabled}
-                    >
-                      {settings.ai_enabled ? t("common.on") : t("common.off")}
-                    </button>
-                    <span className="settings-status">
-                      {t("settings.ai.vendor")}
-                    </span>
-                  </div>
-
-                  {settings.ai_enabled && (
-                    <>
-                      <div className="settings-row">
-                        <label>{t("settings.ai.apiKey")}</label>
-                        <input
-                          type="password"
-                          value={deepseekKeyDraft}
-                          placeholder={t("settings.ai.apiKeyPlaceholder")}
-                          onChange={(event) => setDeepseekKeyDraft(event.target.value)}
-                          onBlur={() => {
-                            const nextKey = deepseekKeyDraft.trim();
-                            if (nextKey === settings.deepseek_api_key) return;
-                            void onUpdateSettings({
-                              ...settings,
-                              deepseek_api_key: nextKey,
-                            }).then((ok) => {
-                              if (ok) {
-                                setDeepseekKeyDraft(nextKey);
-                                return;
-                              }
-                              setDeepseekKeyDraft(settings.deepseek_api_key);
-                            });
-                          }}
-                          autoComplete="off"
-                          spellCheck={false}
-                        />
-                      </div>
-
-                      <div className="settings-row settings-row-multiline">
-                        <label>{t("settings.ai.prompt")}</label>
-                        <div>
-                          <textarea
-                            className="settings-textarea"
-                            value={aiPromptDraft}
-                            placeholder={t("settings.ai.promptPlaceholder")}
-                            onChange={(event) => setAiPromptDraft(event.target.value)}
-                            onBlur={() => {
-                              if (aiPromptDraft === settings.ai_prompt) return;
-                              void onUpdateSettings({
-                                ...settings,
-                                ai_prompt: aiPromptDraft,
-                              }).then((ok) => {
-                                if (ok) return;
-                                setAiPromptDraft(settings.ai_prompt);
-                              });
-                            }}
-                            rows={8}
-                          />
-                          <div className="settings-status">
-                            {t("settings.ai.promptHelp")}
-                          </div>
-                        </div>
-                      </div>
-                    </>
-                  )}
-
-                  <div className="settings-row">
                     <label>{t("settings.quickBlur")}</label>
-                    <button
-                      type="button"
-                      className={`pill ${settings.quick_blur_enabled ? "active" : ""}`}
-                      onClick={() =>
+                    <Switch
+                      checked={settings.quick_blur_enabled}
+                      ariaLabel={t("settings.quickBlur")}
+                      onChange={(nextEnabled) =>
                         void onUpdateSettings({
                           ...settings,
-                          quick_blur_enabled: !settings.quick_blur_enabled,
+                          quick_blur_enabled: nextEnabled,
                         })
                       }
-                      aria-pressed={settings.quick_blur_enabled}
-                    >
-                      {settings.quick_blur_enabled
-                        ? t("common.on")
-                        : t("common.off")}
-                    </button>
+                    />
                   </div>
                   <div className="settings-row">
                     <label>{t("settings.sound")}</label>
-                    <button
-                      type="button"
-                      className={`pill ${settings.sound_enabled ? "active" : ""}`}
-                      onClick={() =>
+                    <Switch
+                      checked={settings.sound_enabled}
+                      ariaLabel={t("settings.sound")}
+                      onChange={(nextEnabled) =>
                         void onUpdateSettings({
                           ...settings,
-                          sound_enabled: !settings.sound_enabled,
+                          sound_enabled: nextEnabled,
                         })
                       }
-                      aria-pressed={settings.sound_enabled}
-                    >
-                      {settings.sound_enabled
-                        ? t("common.on")
-                        : t("common.off")}
-                    </button>
-                  </div>
-                  <div className="settings-row">
-                    <label>{t("settings.minimizeBehavior")}</label>
-                    <select
-                      value={settings.minimize_behavior}
-                      onChange={(event) =>
-                        void onUpdateSettings({
-                          ...settings,
-                          minimize_behavior: event.currentTarget
-                            .value as MinimizeBehavior,
-                        })
-                      }
-                    >
-                      <option value="hide_to_tray">
-                        {t("settings.minimizeBehavior.hide")}
-                      </option>
-                      <option value="minimize">
-                        {t("settings.minimizeBehavior.minimize")}
-                      </option>
-                    </select>
+                    />
                   </div>
                   <div className="settings-row">
                     <label>{t("settings.closeBehavior")}</label>
@@ -900,6 +905,153 @@ export function SettingsView({
                 </div>
               </section>
 
+              <section id="settings-ai" className="settings-card">
+                <div className="settings-card-header">
+                  <h2 className="settings-card-title">
+                    {t("settings.section.ai")}
+                  </h2>
+                </div>
+                <div className="settings-card-body">
+                  <div className="settings-row">
+                    <label>{t("settings.ai")}</label>
+                    <Switch
+                      checked={settings.ai_enabled}
+                      ariaLabel={t("settings.ai")}
+                      onChange={async (nextEnabled) => {
+                        const nextKey = deepseekKeyDraft.trim();
+                        const nextModel = aiModelDraft.trim();
+                        if (nextEnabled) {
+                          if (!nextKey) {
+                            toast.notify(t("settings.ai.keyRequired"), {
+                              tone: "danger",
+                            });
+                            return;
+                          }
+                          if (!nextModel) {
+                            toast.notify(t("settings.ai.modelRequired"), {
+                              tone: "danger",
+                            });
+                            return;
+                          }
+                        }
+                        const ok = await onUpdateSettings({
+                          ...settings,
+                          ai_enabled: nextEnabled,
+                          deepseek_api_key: nextKey,
+                          ai_model: nextModel,
+                          ai_prompt: aiPromptDraft,
+                        });
+                        if (!ok) return;
+                        setDeepseekKeyDraft(nextKey);
+                        setAiModelDraft(nextModel || "deepseek-chat");
+                      }}
+                    />
+                    <span className="settings-status">
+                      {t("settings.ai.vendor")}
+                    </span>
+                  </div>
+                  {settings.ai_enabled && (
+                    <>
+                      <div className="settings-row">
+                        <label>{t("settings.ai.model")}</label>
+                        <select
+                          value={aiModelDraft}
+                          onChange={(event) => {
+                            const nextModel = event.currentTarget.value;
+                            const fallbackModel = settings.ai_model;
+                            setAiModelDraft(nextModel);
+                            void onUpdateSettings({
+                              ...settings,
+                              ai_model: nextModel,
+                            }).then((ok) => {
+                              if (ok) return;
+                              setAiModelDraft(fallbackModel);
+                            });
+                          }}
+                        >
+                          <option value="deepseek-chat">
+                            {t("settings.ai.modelDeepseekChat")}
+                          </option>
+                          <option value="deepseek-reasoner">
+                            {t("settings.ai.modelDeepseekReasoner")}
+                          </option>
+                        </select>
+                      </div>
+                      <div className="settings-row">
+                        <label>{t("settings.ai.apiKey")}</label>
+                        <input
+                          type="password"
+                          value={deepseekKeyDraft}
+                          placeholder={t("settings.ai.apiKeyPlaceholder")}
+                          onChange={(event) =>
+                            setDeepseekKeyDraft(event.target.value)
+                          }
+                          onBlur={() => {
+                            const nextKey = deepseekKeyDraft.trim();
+                            const fallbackKey = settings.deepseek_api_key;
+                            if (nextKey === settings.deepseek_api_key) return;
+                            void onUpdateSettings({
+                              ...settings,
+                              deepseek_api_key: nextKey,
+                            }).then((ok) => {
+                              if (ok) {
+                                setDeepseekKeyDraft(nextKey);
+                                return;
+                              }
+                              setDeepseekKeyDraft(fallbackKey);
+                            });
+                          }}
+                          autoComplete="off"
+                          spellCheck={false}
+                        />
+                      </div>
+
+                      <div className="settings-row settings-row-multiline">
+                        <label>{t("settings.ai.prompt")}</label>
+                        <div>
+                          <textarea
+                            className="settings-textarea"
+                            value={aiPromptDraft}
+                            placeholder={t("settings.ai.promptPlaceholder")}
+                            onChange={(event) =>
+                              setAiPromptDraft(event.target.value)
+                            }
+                            onBlur={() => {
+                              const fallbackPrompt = settings.ai_prompt;
+                              if (aiPromptDraft === settings.ai_prompt) return;
+                              void onUpdateSettings({
+                                ...settings,
+                                ai_prompt: aiPromptDraft,
+                              }).then((ok) => {
+                                if (ok) return;
+                                setAiPromptDraft(fallbackPrompt);
+                              });
+                            }}
+                            rows={8}
+                          />
+                          <div className="settings-placeholder-title">
+                            {t("settings.ai.placeholderTitle")}
+                          </div>
+                          <ul className="settings-placeholder-list">
+                            {aiPlaceholderItems.map((item) => (
+                              <li
+                                key={item.token}
+                                className="settings-placeholder-item"
+                              >
+                                <span className="settings-placeholder-token">
+                                  {item.token}
+                                </span>
+                                <span>{item.desc}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </section>
+
               <section id="settings-notifications" className="settings-card">
                 <div className="settings-card-header">
                   <h2 className="settings-card-title">
@@ -926,7 +1078,7 @@ export function SettingsView({
                         <Icons.ExternalLink />
                         {t("settings.permission.systemSettings")}
                       </button>
-                      )}
+                    )}
                   </div>
                   <div className="settings-row">
                     <label>{t("settings.reminderRepeatInterval")}</label>
@@ -1041,49 +1193,50 @@ export function SettingsView({
                     ) : (
                       backups.map((backup) => (
                         <div key={backup.name} className="backup-item">
-                          <span>{backup.name}</span>
-                          <button
-                            type="button"
-                            className="pill"
-                            onClick={() =>
-                              void handleRestoreBackup(backup.name)
-                            }
-                          >
-                            {t("settings.backup.restore")}
-                          </button>
-                          <button
-                            type="button"
-                            className="pill"
-                            onClick={() => void handleDeleteBackup(backup.name)}
-                          >
-                            {t("settings.backup.delete")}
-                          </button>
+                          <div className="backup-info">
+                            <div className="backup-name">{backup.name}</div>
+                            <div className="backup-meta">
+                              {formatDue(backup.modified_at)}
+                            </div>
+                          </div>
+                          <div className="backup-actions">
+                            <button
+                              type="button"
+                              className="pill"
+                              onClick={() =>
+                                void handleRestoreBackup(backup.name)
+                              }
+                            >
+                              {t("settings.backup.restore")}
+                            </button>
+                            <button
+                              type="button"
+                              className="pill"
+                              onClick={() =>
+                                void handleDeleteBackup(backup.name)
+                              }
+                            >
+                              {t("settings.backup.delete")}
+                            </button>
+                          </div>
                         </div>
                       ))
                     )}
                   </div>
-                  <div className="settings-row">
+                  <div className="settings-row settings-row-multiline">
                     <label>{t("settings.backup.import")}</label>
-                    <input
-                      placeholder={t("settings.backup.importPlaceholder")}
-                      value={importPath}
-                      onChange={(event) =>
-                        setImportPath(event.currentTarget.value)
-                      }
-                    />
-                    <button
-                      type="button"
-                      className="pill"
-                      onClick={() => void handleImportBackup()}
-                      disabled={!importPath.trim()}
-                      title={
-                        !importPath.trim()
-                          ? t("settings.backup.importHintEmpty")
-                          : t("settings.backup.importAction")
-                      }
-                    >
-                      {t("settings.backup.importAction")}
-                    </button>
+                    <div className="backup-import">
+                      <button
+                        type="button"
+                        className="pill"
+                        onClick={() => void handleImportBackup()}
+                      >
+                        {t("settings.backup.importAction")}
+                      </button>
+                      <span className="settings-status">
+                        {importPath ?? t("settings.backup.importHintEmpty")}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </section>

@@ -12,7 +12,8 @@ fn ensure_reminder_window<R: Runtime>(app: &AppHandle<R>) -> Option<WebviewWindo
             .title("MustDo")
             .decorations(false)
             .resizable(false)
-            .minimizable(true)
+            // "Forced reminder" should not be bypassable by minimizing a skip-taskbar window.
+            .minimizable(false)
             // The reminder overlay looks best with a transparent window background, but on macOS
             // this is gated behind `macos-private-api`, so we only enable it on non-macOS by default.
             // The actual banner UI is rendered by the frontend.
@@ -77,6 +78,14 @@ fn ensure_settings_window<R: Runtime>(app: &AppHandle<R>) -> Option<WebviewWindo
 pub fn show_reminder_window<R: Runtime>(app: &AppHandle<R>) {
     log::debug!("show_reminder_window: request");
     if let Some(window) = ensure_reminder_window(app) {
+        // Best-effort: this window is skip-taskbar; if it was minimized it may look like
+        // "only beep, no UI". Always try to restore it.
+        if let Err(err) = window.unminimize() {
+            log::warn!("show_reminder_window: failed to unminimize reminder window: {err}");
+        }
+        if let Err(err) = window.set_always_on_top(true) {
+            log::warn!("show_reminder_window: failed to set always_on_top: {err}");
+        }
         if let Err(err) = window.show() {
             log::warn!("show_reminder_window: failed to show reminder window: {err}");
         }

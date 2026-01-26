@@ -67,6 +67,7 @@ pub fn run() {
                 })
                 .build(),
         )
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let boot = std::time::Instant::now();
@@ -162,6 +163,7 @@ pub fn run() {
             let projects = tasks_file.projects;
 
             let settings_path = app_data_dir.join("settings.json");
+            let mut settings_missing = false;
             let settings_file = match storage.load_settings() {
                 Ok(file) => {
                     let settings = &file.settings;
@@ -186,6 +188,7 @@ pub fn run() {
                         crate::storage::StorageError::Io(io_err)
                             if io_err.kind() == std::io::ErrorKind::NotFound =>
                         {
+                            settings_missing = true;
                             log::info!(
                                 "boot: settings.json missing path={} -> defaults elapsed_ms={}",
                                 settings_path.display(),
@@ -212,6 +215,10 @@ pub fn run() {
             // Normalize potentially user-edited settings files. We keep the app bootable even if
             // the shortcut is invalid/unregisterable, otherwise users can brick the app.
             let mut settings_dirty = false;
+            if settings_missing {
+                // First run: ensure settings.json is created so future loads are deterministic.
+                settings_dirty = true;
+            }
             let original_shortcut = settings.shortcut.clone();
             let original_language = settings.language.clone();
             let trimmed_shortcut = settings.shortcut.trim().to_string();
@@ -233,6 +240,22 @@ pub fn run() {
             };
             if normalized_language != settings.language {
                 settings.language = normalized_language;
+                settings_dirty = true;
+            }
+
+            // AI settings: keep persisted config stable (and avoid bricking AI flows on empty model).
+            let trimmed_ai_model = settings.ai_model.trim().to_string();
+            if trimmed_ai_model != settings.ai_model {
+                settings.ai_model = trimmed_ai_model;
+                settings_dirty = true;
+            }
+            if settings.ai_model.is_empty() {
+                settings.ai_model = crate::models::Settings::default().ai_model;
+                settings_dirty = true;
+            }
+            let trimmed_deepseek_key = settings.deepseek_api_key.trim().to_string();
+            if trimmed_deepseek_key != settings.deepseek_api_key {
+                settings.deepseek_api_key = trimmed_deepseek_key;
                 settings_dirty = true;
             }
 

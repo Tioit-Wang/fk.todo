@@ -770,6 +770,10 @@ fn update_settings_impl(
 
     // AI settings: keep API key stable.
     settings.deepseek_api_key = settings.deepseek_api_key.trim().to_string();
+    settings.ai_model = settings.ai_model.trim().to_string();
+    if settings.ai_model.is_empty() {
+        settings.ai_model = Settings::default().ai_model;
+    }
 
     log::info!(
         "cmd=update_settings start theme={} language={} close_behavior={:?} minimize_behavior={:?} backup_schedule={:?} update_behavior={:?} repeat_interval_sec={} repeat_max_times={} shortcut_change={}",
@@ -1003,6 +1007,9 @@ pub async fn ai_plan_task(
     }
     if settings.deepseek_api_key.trim().is_empty() {
         return Err("deepseek api key missing (settings.deepseek_api_key)".to_string());
+    }
+    if settings.ai_model.trim().is_empty() {
+        return Err("ai model missing (settings.ai_model)".to_string());
     }
 
     log::info!(

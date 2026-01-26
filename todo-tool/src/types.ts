@@ -72,6 +72,7 @@ export interface Settings {
   language: "auto" | "zh" | "en";
   ai_enabled: boolean;
   deepseek_api_key: string;
+  ai_model: string;
   ai_prompt: string;
   update_behavior: UpdateBehavior;
   sound_enabled: boolean;
