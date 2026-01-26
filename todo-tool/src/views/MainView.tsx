@@ -39,6 +39,7 @@ export function MainView({
   projects,
   settings,
   normalTasks,
+  aiPlanning,
   onUpdateTask,
   onUpdateProject,
   onDeleteProject,
@@ -62,6 +63,7 @@ export function MainView({
   projects: Project[];
   settings: Settings | null;
   normalTasks: Task[];
+  aiPlanning: boolean;
   onUpdateTask: (next: Task) => Promise<void> | void;
   onUpdateProject: (next: Project) => Promise<void> | void;
   onDeleteProject: (projectId: string) => Promise<void> | void;
@@ -120,6 +122,20 @@ export function MainView({
   const [renameDraftName, setRenameDraftName] = useState("");
   const [projectBusy, setProjectBusy] = useState(false);
   const renameProjectRef = useRef<HTMLInputElement | null>(null);
+
+  const aiReady =
+    Boolean(settings?.ai_enabled) &&
+    Boolean((settings?.deepseek_api_key ?? "").trim());
+  const aiPlaceholderOptions = useMemo(() => {
+    if (!aiReady) return [];
+    return [
+      t("composer.placeholderAiInfo"),
+      t("composer.placeholderAiExample1"),
+      t("composer.placeholderAiExample2"),
+      t("composer.placeholderAiExample3"),
+      t("composer.placeholderAiExample4"),
+    ];
+  }, [aiReady, t]);
 
   useEffect(() => {
     if (!projectDraftOpen) return;
@@ -1128,14 +1144,13 @@ export function MainView({
 
       <div className="main-input-bar">
         <TaskComposer
-          placeholder={
-            settings?.ai_enabled && (settings?.deepseek_api_key ?? "").trim()
-              ? t("composer.placeholderAi")
-              : undefined
+          placeholderOptions={
+            aiPlaceholderOptions.length > 0 ? aiPlaceholderOptions : undefined
           }
           projectId={
             sidebarSelection === "project" ? selectedProjectId : "inbox"
           }
+          busy={aiPlanning}
           onSubmit={onCreateFromComposer}
         />
       </div>

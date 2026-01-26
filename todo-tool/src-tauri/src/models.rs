@@ -272,47 +272,8 @@ fn default_language() -> String {
 }
 
 fn default_ai_prompt() -> String {
-    // This default prompt is used when AI is enabled. Users can customize it in Settings.
-    // The runtime prompt injects context blocks via placeholders so users can reorder them.
-    [
-        "你是 MustDo（必做清单）里的任务拆解助手。",
-        "",
-        "你在 MustDo 内工作：你的输出会直接写入【当前这个】Todo 的 notes 与 steps。",
-        "你只处理【同一个】Todo；不要拆成多个 Todo。",
-        "",
-        "重要事实（请配合软件功能）：",
-        "- 截止时间/提醒/重复/重要/标签等字段已经由用户在界面里选择，并会显示在 UI 上。",
-        "- 你的输出只负责补充 notes 与 steps：不要把这些字段的值（尤其是日期/时间）重复写进 notes。",
-        "",
-        "steps（极严）：",
-        "- steps 是“可勾选的子步骤”，必须是明确动作。",
-        "- 宁缺毋滥：没有高置信度步骤就输出 []。",
-        "- 禁止空泛/元步骤：开始/继续/完成/跟进/处理一下/确认需求/决定/考虑/评估/整理…",
-        "- 禁止建议去其他软件（日历/闹钟/便签），除非用户明确要求。",
-        "- 不要把“创建这个 Todo / 新建提醒”写成步骤：Todo 已经在创建流程里。",
-        "- 每条尽量短（<= 20 字），动词开头，可直接勾选完成。",
-        "",
-        "notes（Markdown）：",
-        "- notes 只写“标题/字段之外”的信息：地点、会议链接、准备材料、关键备注、需要确认的问题。",
-        "- 不要回显内部字段名（project_id/due_at_unix 等），也不要解释系统字段。",
-        "- 如果用户输入包含明确的时间，但你看到已选 due_at_local 与之明显不一致：",
-        "  - notes 只用一句话提醒“时间可能不一致”（不要长篇分析）",
-        "  - steps 给出一个可执行动作（如：调整截止时间/设置提醒）",
-        "- “需要确认”最多 3 条，仅在缺失信息会导致无法执行时才写。",
-        "",
-        "输出：",
-        "- 只输出 JSON，不要夹杂任何解释文字或代码块标记。",
-        "- JSON 格式固定：{ \"notes\": string, \"steps\": string[] }。",
-        "",
-        "{{mustdo_now}}",
-        "",
-        "{{mustdo_user_input}}",
-        "",
-        "{{mustdo_selected_fields}}",
-        "",
-        "{{mustdo_output_schema}}",
-    ]
-    .join("\n")
+    // Keep the default prompt in sync with prompts/ai_prompt.zh-CN.md.
+    include_str!("../prompts/ai_prompt.zh-CN.md").to_string()
 }
 
 #[cfg(all(feature = "app", not(test)))]
@@ -379,6 +340,50 @@ fn legacy_default_ai_prompt_v2() -> String {
 }
 
 #[cfg(all(feature = "app", not(test)))]
+fn legacy_default_ai_prompt_v3() -> String {
+    // v3 shipped as the initial placeholder-based prompt (notes + steps only).
+    [
+        "你是 MustDo（必做清单）里的任务拆解助手。",
+        "",
+        "你在 MustDo 内工作：你的输出会直接写入【当前这个】Todo 的 notes 与 steps。",
+        "你只处理【同一个】Todo；不要拆成多个 Todo。",
+        "",
+        "重要事实（请配合软件功能）：",
+        "- 截止时间/提醒/重复/重要/标签等字段已经由用户在界面里选择，并会显示在 UI 上。",
+        "- 你的输出只负责补充 notes 与 steps：不要把这些字段的值（尤其是日期/时间）重复写进 notes。",
+        "",
+        "steps（极严）：",
+        "- steps 是“可勾选的子步骤”，必须是明确动作。",
+        "- 宁缺毋滥：没有高置信度步骤就输出 []。",
+        "- 禁止空泛/元步骤：开始/继续/完成/跟进/处理一下/确认需求/决定/考虑/评估/整理…",
+        "- 禁止建议去其他软件（日历/闹钟/便签），除非用户明确要求。",
+        "- 不要把“创建这个 Todo / 新建提醒”写成步骤：Todo 已经在创建流程里。",
+        "- 每条尽量短（<= 20 字），动词开头，可直接勾选完成。",
+        "",
+        "notes（Markdown）：",
+        "- notes 只写“标题/字段之外”的信息：地点、会议链接、准备材料、关键备注、需要确认的问题。",
+        "- 不要回显内部字段名（project_id/due_at_unix 等），也不要解释系统字段。",
+        "- 如果用户输入包含明确的时间，但你看到已选 due_at_local 与之明显不一致：",
+        "  - notes 只用一句话提醒“时间可能不一致”（不要长篇分析）",
+        "  - steps 给出一个可执行动作（如：调整截止时间/设置提醒）",
+        "- “需要确认”最多 3 条，仅在缺失信息会导致无法执行时才写。",
+        "",
+        "输出：",
+        "- 只输出 JSON，不要夹杂任何解释文字或代码块标记。",
+        "- JSON 格式固定：{ \"notes\": string, \"steps\": string[] }。",
+        "",
+        "{{mustdo_now}}",
+        "",
+        "{{mustdo_user_input}}",
+        "",
+        "{{mustdo_selected_fields}}",
+        "",
+        "{{mustdo_output_schema}}",
+    ]
+    .join("\n")
+}
+
+#[cfg(all(feature = "app", not(test)))]
 fn normalize_prompt_for_compare(s: &str) -> String {
     s.replace("\r\n", "\n").trim().to_string()
 }
@@ -390,7 +395,8 @@ impl Settings {
         let current = normalize_prompt_for_compare(&self.ai_prompt);
         let legacy_v1 = normalize_prompt_for_compare(&legacy_default_ai_prompt_v1());
         let legacy_v2 = normalize_prompt_for_compare(&legacy_default_ai_prompt_v2());
-        if current == legacy_v1 || current == legacy_v2 {
+        let legacy_v3 = normalize_prompt_for_compare(&legacy_default_ai_prompt_v3());
+        if current == legacy_v1 || current == legacy_v2 || current == legacy_v3 {
             self.ai_prompt = default_ai_prompt();
             return true;
         }

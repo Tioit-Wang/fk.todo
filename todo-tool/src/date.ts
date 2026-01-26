@@ -26,6 +26,56 @@ export function fromDateTimeLocal(value: string) {
   return Math.floor(parsed.getTime() / 1000);
 }
 
+// Parse "YYYY-MM-DD h:m:s" (also accepts "YYYY-MM-DD hh:mm" / "YYYY-MM-DDThh:mm[:ss]").
+// We avoid `Date.parse` on space-separated strings because it's runtime-dependent.
+export function parseLocalDateTimeString(value: string) {
+  const raw = value.trim();
+  if (!raw) return null;
+
+  const normalized = raw.replace("T", " ");
+  const parts = normalized.split(/\s+/);
+  if (parts.length < 2) return null;
+
+  const [datePart, timePart] = parts;
+  const [yStr, mStr, dStr] = datePart.split("-");
+  const [hhStr, mmStr, ssStr] = timePart.split(":");
+
+  const y = Number(yStr);
+  const m = Number(mStr);
+  const d = Number(dStr);
+  const hh = Number(hhStr);
+  const mm = Number(mmStr);
+  const ss = ssStr == null || ssStr === "" ? 0 : Number(ssStr);
+
+  if (
+    !Number.isFinite(y) ||
+    !Number.isFinite(m) ||
+    !Number.isFinite(d) ||
+    !Number.isFinite(hh) ||
+    !Number.isFinite(mm) ||
+    !Number.isFinite(ss)
+  ) {
+    return null;
+  }
+
+  const dt = new Date(y, m - 1, d, hh, mm, ss, 0);
+  if (Number.isNaN(dt.getTime())) return null;
+
+  // Guard against Date auto-rollover (e.g. 2026-02-31).
+  if (
+    dt.getFullYear() !== y ||
+    dt.getMonth() !== m - 1 ||
+    dt.getDate() !== d ||
+    dt.getHours() !== hh ||
+    dt.getMinutes() !== mm ||
+    dt.getSeconds() !== ss
+  ) {
+    return null;
+  }
+
+  return Math.floor(dt.getTime() / 1000);
+}
+
 export function todayMidnight(now: Date) {
   const d = new Date(now);
   d.setHours(0, 0, 0, 0);

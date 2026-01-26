@@ -139,8 +139,23 @@ export interface AiPlanRequest {
 }
 
 export interface AiPlan {
-  notes: string;
-  steps: string[];
+  project_id: string;
+  title: string;
+  due_at: string | null;
+  important: boolean | null;
+  notes: string | null;
+  // Backward compatible: older prompts may still return string[].
+  steps: Array<string | { title: string }>;
+  tags: string[];
+  sample_tag: string | null;
+  reminder:
+    | {
+        kind: ReminderKind | null;
+        remind_at: string | null;
+        forced_dismissed: boolean | null;
+      }
+    | null;
+  repeat: RepeatRule | null;
 }
 
 export async function aiPlanTask(request: AiPlanRequest) {

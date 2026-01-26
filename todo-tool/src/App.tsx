@@ -53,7 +53,11 @@ import {
   updateSettings,
   updateTask,
 } from "./api";
-import { formatDue, formatLocalDateKey } from "./date";
+import {
+  formatDue,
+  formatLocalDateKey,
+  parseLocalDateTimeString,
+} from "./date";
 import { I18nProvider, makeTranslator, resolveAppLanguage } from "./i18n";
 import { newTask } from "./logic";
 import { TAURI_NAVIGATE } from "./events";
@@ -96,8 +100,11 @@ function normalizeSettings(settings: Settings): Settings {
     : [];
   const ai_enabled = Boolean(settings.ai_enabled);
   const deepseek_api_key =
-    typeof settings.deepseek_api_key === "string" ? settings.deepseek_api_key : "";
-  const ai_prompt = typeof settings.ai_prompt === "string" ? settings.ai_prompt : "";
+    typeof settings.deepseek_api_key === "string"
+      ? settings.deepseek_api_key
+      : "";
+  const ai_prompt =
+    typeof settings.ai_prompt === "string" ? settings.ai_prompt : "";
   const update_behavior =
     settings.update_behavior === "auto" ||
     settings.update_behavior === "next_restart" ||
@@ -229,6 +236,7 @@ function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [aiPlanning, setAiPlanning] = useState(false);
 
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [confirmDeleteTaskId, setConfirmDeleteTaskId] = useState<string | null>(
@@ -305,10 +313,14 @@ function App() {
       }
       unlisten = listener;
     })().catch((err) => {
-      void frontendLog("error", "frontend: failed to register navigate listener", {
-        window: getCurrentWindow().label,
-        err: describeError(err),
-      });
+      void frontendLog(
+        "error",
+        "frontend: failed to register navigate listener",
+        {
+          window: getCurrentWindow().label,
+          err: describeError(err),
+        },
+      );
     });
 
     return () => {
@@ -455,8 +467,14 @@ function App() {
             id: NOTIFICATION_ACTION_TYPE,
             actions: [
               { id: NOTIFICATION_ACTION_SNOOZE_5, title: t("banner.snooze5") },
-              { id: NOTIFICATION_ACTION_SNOOZE_15, title: t("banner.snooze15") },
-              { id: NOTIFICATION_ACTION_SNOOZE_1H, title: t("banner.snooze1h") },
+              {
+                id: NOTIFICATION_ACTION_SNOOZE_15,
+                title: t("banner.snooze15"),
+              },
+              {
+                id: NOTIFICATION_ACTION_SNOOZE_1H,
+                title: t("banner.snooze1h"),
+              },
               {
                 id: NOTIFICATION_ACTION_SNOOZE_TOMORROW,
                 title: t("banner.snoozeTomorrowMorning"),
@@ -516,10 +534,14 @@ function App() {
           });
         });
         void window.setFocus().catch((err) => {
-          void frontendLog("warn", "window.setFocus failed (notification action)", {
-            window: windowLabel,
-            err: describeError(err),
-          });
+          void frontendLog(
+            "warn",
+            "window.setFocus failed (notification action)",
+            {
+              window: windowLabel,
+              err: describeError(err),
+            },
+          );
         });
       });
 
@@ -1001,9 +1023,13 @@ function App() {
     // Fallback: if opening the dedicated settings window fails (or is blocked by platform quirks),
     // route the current window to the in-window settings view so the user isn't stuck.
     if (!opened && getCurrentWindow().label === "main") {
-      void frontendLog("warn", "show_settings_window failed; falling back to route", {
-        hash: "#/main/settings",
-      });
+      void frontendLog(
+        "warn",
+        "show_settings_window failed; falling back to route",
+        {
+          hash: "#/main/settings",
+        },
+      );
       window.location.hash = "#/main/settings";
     }
   }
@@ -1053,17 +1079,15 @@ function App() {
   async function handleCreateFromComposer(
     draft: TaskComposerDraft,
   ): Promise<boolean> {
-    const task = newTask(draft.title, new Date(), draft.project_id);
+    const now = new Date();
+    const nowSec = Math.floor(now.getTime() / 1000);
+
+    const task = newTask(draft.title, now, draft.project_id);
     task.due_at = draft.due_at;
     task.important = draft.important;
     task.tags = draft.tags;
     task.repeat = draft.repeat;
-    task.reminder = buildReminderConfig(
-      draft.reminder_kind,
-      draft.due_at,
-      draft.reminder_offset_minutes,
-    );
-    task.updated_at = Math.floor(Date.now() / 1000);
+    task.updated_at = nowSec;
 
     const aiSettings = settingsRef.current;
     const aiEnabled = Boolean(aiSettings?.ai_enabled);
@@ -1083,6 +1107,14 @@ function App() {
     if (aiReady) {
       const prompt = aiSettings?.ai_prompt ?? "";
       const hasPlaceholder =
+        prompt.includes("{{Now}}") ||
+        prompt.includes("{{UserInput}}") ||
+        prompt.includes("{{UserCurrentProjectId}}") ||
+        prompt.includes("{{ProjectList}}") ||
+        prompt.includes("{{OpenTasks}}") ||
+        prompt.includes("{{UserSelectedReminder}}") ||
+        prompt.includes("{{UserSelectedRepeat}}") ||
+        prompt.includes("{{WorkEndTime}}") ||
         prompt.includes("{{mustdo_now}}") ||
         prompt.includes("{{mustdo_user_input}}") ||
         prompt.includes("{{mustdo_selected_fields}}") ||
@@ -1095,17 +1127,23 @@ function App() {
         });
       }
 
-      const planRes = await aiPlanTask({
-        raw_input: draft.raw_input,
-        title: draft.title,
-        project_id: draft.project_id,
-        tags: draft.tags,
-        due_at: draft.due_at,
-        important: draft.important,
-        repeat: draft.repeat,
-        reminder_kind: draft.reminder_kind,
-        reminder_offset_minutes: draft.reminder_offset_minutes,
-      });
+      setAiPlanning(true);
+      let planRes: Awaited<ReturnType<typeof aiPlanTask>>;
+      try {
+        planRes = await aiPlanTask({
+          raw_input: draft.raw_input,
+          title: draft.title,
+          project_id: draft.project_id,
+          tags: draft.tags,
+          due_at: draft.due_at,
+          important: draft.important,
+          repeat: draft.repeat,
+          reminder_kind: draft.reminder_kind,
+          reminder_offset_minutes: draft.reminder_offset_minutes,
+        });
+      } finally {
+        setAiPlanning(false);
+      }
 
       if (!planRes.ok || !planRes.data) {
         toast.notify(planRes.error ?? t("alert.operationFailed"), {
@@ -1115,23 +1153,115 @@ function App() {
         return false;
       }
 
-      const notes = typeof planRes.data.notes === "string" ? planRes.data.notes.trim() : "";
-      task.notes = notes ? notes : undefined;
+      const ai = planRes.data;
 
-      const stepTitles = Array.isArray(planRes.data.steps) ? planRes.data.steps : [];
-      if (stepTitles.length > 0) {
-        const ts = Math.floor(Date.now() / 1000);
-        task.steps = stepTitles
-          .map((title) => (typeof title === "string" ? title.trim() : ""))
-          .filter(Boolean)
-          .slice(0, 12)
-          .map((title, index) => ({
-            id: crypto.randomUUID(),
-            title,
-            completed: false,
-            created_at: ts + index,
-          }));
+      const aiTitle = typeof ai.title === "string" ? ai.title.trim() : "";
+      if (aiTitle) task.title = aiTitle;
+
+      const validProjectIds = new Set(projects.map((p) => p.id));
+      const aiProjectId =
+        typeof ai.project_id === "string" ? ai.project_id.trim() : "";
+      if (aiProjectId && validProjectIds.has(aiProjectId)) {
+        task.project_id = aiProjectId;
       }
+
+      if (!draft.due_at_is_customized) {
+        const aiDueAt = typeof ai.due_at === "string" ? ai.due_at.trim() : "";
+        const parsed = aiDueAt ? parseLocalDateTimeString(aiDueAt) : null;
+        if (parsed != null) task.due_at = parsed;
+      }
+
+      if (!draft.important && typeof ai.important === "boolean") {
+        task.important = ai.important;
+      }
+
+      const aiNotes = typeof ai.notes === "string" ? ai.notes.trim() : "";
+      task.notes = aiNotes ? aiNotes : undefined;
+
+      // Merge tags: keep user-entered hashtags, then append AI-suggested tags.
+      const aiTags = Array.isArray(ai.tags) ? ai.tags : [];
+      if (aiTags.length > 0) {
+        const merged: string[] = [];
+        const seen = new Set<string>();
+        for (const rawTag of [...task.tags, ...aiTags]) {
+          const tag = typeof rawTag === "string" ? rawTag.trim() : "";
+          if (!tag || seen.has(tag)) continue;
+          seen.add(tag);
+          merged.push(tag);
+        }
+        task.tags = merged;
+      }
+
+      const aiSampleTag =
+        typeof ai.sample_tag === "string" ? ai.sample_tag.trim() : "";
+      if (aiSampleTag) task.sample_tag = aiSampleTag;
+
+      // Apply repeat only if the user didn't set one in the composer.
+      if (
+        draft.repeat.type === "none" &&
+        ai.repeat &&
+        ai.repeat.type !== "none"
+      ) {
+        task.repeat = ai.repeat;
+      }
+
+      // Steps: accept legacy string[] and new {title}[] formats.
+      const rawSteps = Array.isArray(ai.steps) ? ai.steps : [];
+      const stepTitles = rawSteps
+        .map((step) => {
+          if (typeof step === "string") return step.trim();
+          if (step && typeof step === "object" && "title" in step) {
+            const title = (step as { title?: unknown }).title;
+            return typeof title === "string" ? title.trim() : "";
+          }
+          return "";
+        })
+        .filter(Boolean)
+        .slice(0, 12);
+      if (stepTitles.length > 0) {
+        task.steps = stepTitles.map((title, index) => ({
+          id: crypto.randomUUID(),
+          title,
+          completed: false,
+          created_at: nowSec + index,
+        }));
+      }
+
+      // Apply reminder only if the user didn't set one in the composer.
+      if (draft.reminder_kind === "none" && ai.reminder) {
+        const kind = ai.reminder.kind;
+        if (kind === "none") {
+          task.reminder = { kind: "none", forced_dismissed: false };
+        } else if (kind === "normal" || kind === "forced") {
+          const aiRemindAt =
+            typeof ai.reminder.remind_at === "string"
+              ? ai.reminder.remind_at.trim()
+              : "";
+          const parsed = aiRemindAt
+            ? parseLocalDateTimeString(aiRemindAt)
+            : null;
+          const defaultTarget =
+            kind === "normal" ? task.due_at - 10 * 60 : task.due_at;
+          const remindAt = Math.max(parsed ?? defaultTarget, nowSec);
+          task.reminder = {
+            kind,
+            remind_at: remindAt,
+            snoozed_until: undefined,
+            forced_dismissed: Boolean(ai.reminder.forced_dismissed),
+            last_fired_at: undefined,
+          };
+        }
+      }
+    }
+
+    // If the user set reminder fields in the composer, apply them last (after AI-derived due_at).
+    if (draft.reminder_kind !== "none") {
+      task.reminder = buildReminderConfig(
+        draft.reminder_kind,
+        task.due_at,
+        draft.reminder_offset_minutes,
+        nowSec,
+      );
     }
 
     try {
@@ -1548,6 +1678,7 @@ function App() {
             tasks={tasks}
             settings={settings}
             normalTasks={normalTasks}
+            aiPlanning={aiPlanning}
             onUpdateSettings={handleUpdateSettings}
             onUpdateTask={handleUpdateTask}
             onCreateFromComposer={handleCreateFromComposer}
@@ -1625,6 +1756,7 @@ function App() {
             projects={projects}
             settings={settings}
             normalTasks={normalTasks}
+            aiPlanning={aiPlanning}
             onUpdateTask={handleUpdateTask}
             onUpdateProject={handleUpdateProject}
             onDeleteProject={handleDeleteProject}

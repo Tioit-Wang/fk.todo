@@ -139,7 +139,16 @@ const STRINGS: Record<AppLanguage, Record<string, string>> = {
     "quick.sort.created": "创建时间",
 
     "composer.placeholder": "输入任务内容，回车添加",
-    "composer.placeholderAi": "AI 模式：输入自然语言，回车生成任务",
+    "composer.placeholderAi":
+      "AI 模式：输入自然语言，回车生成任务。需 AI 补全步骤/循环/提醒请明确说明（例：请拆分步骤；每周五 10 点提醒）",
+    "composer.placeholderCountdown": "（{seconds}秒）",
+    "composer.placeholderAiInfo":
+      "AI 模式：需要 AI 补全步骤/循环/提醒请明确说明",
+    "composer.placeholderAiExample1": "示例：请拆分步骤",
+    "composer.placeholderAiExample2": "示例：每周五 10 点提醒我发周报",
+    "composer.placeholderAiExample3": "示例：明天早上 9 点前完成并提醒",
+    "composer.placeholderAiExample4": "示例：开会请提前 30 分钟提醒",
+    "composer.aiPlanning": "AI 正在结合时间/项目生成…",
     "composer.options": "任务选项",
     "composer.due": "到期时间",
     "composer.reminder": "提醒",
@@ -347,7 +356,7 @@ const STRINGS: Record<AppLanguage, Record<string, string>> = {
     "settings.ai.prompt": "系统提示词",
     "settings.ai.promptPlaceholder": "可选：自定义系统提示词（支持占位符）",
     "settings.ai.promptHelp":
-      "占位符说明：{{mustdo_now}}=当前时间；{{mustdo_user_input}}=用户输入原文+标题；{{mustdo_selected_fields}}=已选字段；{{mustdo_output_schema}}=输出 JSON 示例。未包含时会在运行时自动补齐。",
+      "占位符说明（新）：{{Now}}=当前时间；{{UserInput}}=用户输入原文；{{UserCurrentProjectId}}=当前打开项目；{{ProjectList}}=项目列表；{{OpenTasks}}=未完成任务（节选/截断）；{{UserSelectedReminder}}=已选提醒；{{UserSelectedRepeat}}=已选重复；{{WorkEndTime}}=默认下班时间。兼容旧：{{mustdo_now}}/{{mustdo_user_input}}/{{mustdo_selected_fields}}/{{mustdo_output_schema}}。未包含时会在运行时自动补齐。",
     "settings.ai.placeholderMissingWarn":
       "系统提示词未检测到占位符：已在本次调用自动补齐（建议在设置中保留占位符）",
     "settings.quickBlur": "快捷界面毛玻璃",
@@ -495,7 +504,7 @@ const STRINGS: Record<AppLanguage, Record<string, string>> = {
     "project.menu.pin": "Pin",
     "project.menu.unpin": "Unpin",
     "project.menu.rename": "Rename",
-    "project.confirmDelete.title": "Delete project \"{name}\"?",
+    "project.confirmDelete.title": 'Delete project "{name}"?',
     "project.confirmDelete.description":
       "Tasks in this project will be moved to Default. This action cannot be undone.",
 
@@ -557,7 +566,18 @@ const STRINGS: Record<AppLanguage, Record<string, string>> = {
     "quick.sort.created": "Created",
 
     "composer.placeholder": "Type a task and press Enter",
-    "composer.placeholderAi": "AI mode: type naturally and press Enter",
+    "composer.placeholderAi":
+      "AI mode: type naturally and press Enter. Ask explicitly for steps/repeat/reminders (e.g. split steps; remind Fri 10:00)",
+    "composer.placeholderCountdown": " ({seconds}s)",
+    "composer.placeholderAiInfo":
+      "AI mode: ask explicitly for steps/repeat/reminders",
+    "composer.placeholderAiExample1": "Example: split the steps",
+    "composer.placeholderAiExample2": "Example: remind me every Fri at 10:00",
+    "composer.placeholderAiExample3":
+      "Example: finish by 9:00 tomorrow with a reminder",
+    "composer.placeholderAiExample4":
+      "Example: meeting — remind me 30 min early",
+    "composer.aiPlanning": "AI is preparing time/project details…",
     "composer.options": "Task options",
     "composer.due": "Due",
     "composer.reminder": "Reminder",
@@ -706,7 +726,8 @@ const STRINGS: Record<AppLanguage, Record<string, string>> = {
     "update.updatingPercent": "Updating... {percent}%",
     "update.updateNow": "Update now",
     "update.later": "Later",
-    "update.readyNextRestart": "Update installed; it will take effect after you restart the app",
+    "update.readyNextRestart":
+      "Update installed; it will take effect after you restart the app",
     "update.failed": "Update failed",
     "update.retry": "Retry",
 
@@ -763,9 +784,10 @@ const STRINGS: Record<AppLanguage, Record<string, string>> = {
     "settings.ai.keyMissingFallback":
       "AI is enabled but the DeepSeek API key is missing. Falling back to normal task creation.",
     "settings.ai.prompt": "System prompt",
-    "settings.ai.promptPlaceholder": "Optional: customize the system prompt (supports placeholders)",
+    "settings.ai.promptPlaceholder":
+      "Optional: customize the system prompt (supports placeholders)",
     "settings.ai.promptHelp":
-      "Placeholders: {{mustdo_now}}=current time; {{mustdo_user_input}}=user input + title; {{mustdo_selected_fields}}=selected fields; {{mustdo_output_schema}}=output JSON example. Missing placeholders will be appended at runtime.",
+      "Placeholders (new): {{Now}}=current time; {{UserInput}}=user input; {{UserCurrentProjectId}}=current project; {{ProjectList}}=project list; {{OpenTasks}}=open tasks (truncated); {{UserSelectedReminder}}=selected reminder; {{UserSelectedRepeat}}=selected repeat; {{WorkEndTime}}=work end time. Legacy supported: {{mustdo_now}}/{{mustdo_user_input}}/{{mustdo_selected_fields}}/{{mustdo_output_schema}}. Missing placeholders will be appended at runtime.",
     "settings.ai.placeholderMissingWarn":
       "No placeholders detected in the system prompt. They will be appended automatically for this run.",
     "settings.quickBlur": "Quick blur",

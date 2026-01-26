@@ -1,12 +1,26 @@
 use chrono::{Local, TimeZone};
 use serde::{Deserialize, Serialize};
 
-use crate::models::{ReminderKind, RepeatRule, Settings, Timestamp};
+use crate::models::{Project, ReminderKind, RepeatRule, Settings, Task, Timestamp};
 
-const PLACEHOLDER_NOW: &str = "{{mustdo_now}}";
-const PLACEHOLDER_USER_INPUT: &str = "{{mustdo_user_input}}";
-const PLACEHOLDER_SELECTED_FIELDS: &str = "{{mustdo_selected_fields}}";
-const PLACEHOLDER_OUTPUT_SCHEMA: &str = "{{mustdo_output_schema}}";
+// Legacy placeholders (v1/v2/v3 prompt style).
+const PLACEHOLDER_NOW_LEGACY: &str = "{{mustdo_now}}";
+const PLACEHOLDER_USER_INPUT_LEGACY: &str = "{{mustdo_user_input}}";
+const PLACEHOLDER_SELECTED_FIELDS_LEGACY: &str = "{{mustdo_selected_fields}}";
+const PLACEHOLDER_OUTPUT_SCHEMA_LEGACY: &str = "{{mustdo_output_schema}}";
+
+// New placeholders (task understanding + base field completion).
+const PLACEHOLDER_NOW: &str = "{{Now}}";
+const PLACEHOLDER_USER_INPUT: &str = "{{UserInput}}";
+const PLACEHOLDER_USER_CURRENT_PROJECT_ID: &str = "{{UserCurrentProjectId}}";
+const PLACEHOLDER_PROJECT_LIST: &str = "{{ProjectList}}";
+const PLACEHOLDER_OPEN_TASKS: &str = "{{OpenTasks}}";
+const PLACEHOLDER_USER_SELECTED_REMINDER: &str = "{{UserSelectedReminder}}";
+const PLACEHOLDER_USER_SELECTED_REPEAT: &str = "{{UserSelectedRepeat}}";
+const PLACEHOLDER_WORK_END_TIME: &str = "{{WorkEndTime}}";
+
+const DEFAULT_WORK_END_TIME: &str = "18:00:00";
+const MAX_OPEN_TASKS_CHARS: usize = 8_000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -27,9 +41,62 @@ pub struct AiPlanRequest {
 #[serde(rename_all = "snake_case")]
 pub struct AiPlan {
     #[serde(default)]
-    pub notes: String,
+    pub project_id: String,
     #[serde(default)]
-    pub steps: Vec<String>,
+    pub title: String,
+    pub due_at: Option<String>,
+    pub important: Option<bool>,
+    pub notes: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_steps")]
+    pub steps: Vec<AiStep>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    pub sample_tag: Option<String>,
+    pub reminder: Option<AiReminder>,
+    pub repeat: Option<RepeatRule>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct AiStep {
+    pub title: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct AiReminder {
+    pub kind: Option<ReminderKind>,
+    pub remind_at: Option<String>,
+    pub forced_dismissed: Option<bool>,
+}
+
+fn deserialize_steps<'de, D>(deserializer: D) -> Result<Vec<AiStep>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize as _;
+    use serde_json::Value;
+
+    let value = Value::deserialize(deserializer)?;
+    let Value::Array(items) = value else {
+        return Ok(Vec::new());
+    };
+
+    let mut out = Vec::new();
+    for item in items {
+        match item {
+            Value::String(title) => out.push(AiStep { title }),
+            Value::Object(map) => {
+                if let Some(Value::String(title)) = map.get("title") {
+                    out.push(AiStep {
+                        title: title.to_string(),
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(out)
 }
 
 fn format_local(ts: Timestamp) -> String {
@@ -37,7 +104,7 @@ fn format_local(ts: Timestamp) -> String {
     Local
         .timestamp_opt(ts, 0)
         .single()
-        .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
+        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
         .unwrap_or_else(|| format!("{ts}"))
 }
 
@@ -86,30 +153,107 @@ fn build_output_schema_block() -> &'static str {
     "请严格按 JSON 输出：\n{\"notes\":\"...\",\"steps\":[\"...\",\"...\"]}\n"
 }
 
+fn build_project_list_block(projects: &[Project]) -> String {
+    #[derive(Serialize)]
+    struct ProjectLite<'a> {
+        id: &'a str,
+        name: &'a str,
+        sample_tag: &'a Option<String>,
+    }
+
+    let list: Vec<ProjectLite<'_>> = projects
+        .iter()
+        .map(|p| ProjectLite {
+            id: p.id.as_str(),
+            name: p.name.as_str(),
+            sample_tag: &p.sample_tag,
+        })
+        .collect();
+
+    serde_json::to_string(&list).unwrap_or_else(|_| "[]".to_string())
+}
+
+fn build_open_tasks_block(tasks: &[Task], projects: &[Project]) -> String {
+    use std::collections::HashMap;
+
+    let project_name_by_id: HashMap<&str, &str> = projects
+        .iter()
+        .map(|p| (p.id.as_str(), p.name.as_str()))
+        .collect();
+
+    let mut open: Vec<&Task> = tasks.iter().filter(|t| !t.completed).collect();
+    // Helpful ordering: due soon + important first.
+    open.sort_by_key(|t| (t.due_at, !t.important, t.created_at));
+
+    let mut out = String::new();
+    out.push('[');
+
+    let mut first = true;
+    for task in open {
+        let entry = serde_json::json!({
+          "project_id": task.project_id,
+          "project_name": project_name_by_id.get(task.project_id.as_str()).copied().unwrap_or(""),
+          "title": task.title,
+          "due_at": format_local(task.due_at),
+          "important": task.important,
+          "tags": task.tags,
+        });
+        let line = match serde_json::to_string(&entry) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+
+        let extra = if first { line.len() } else { 2 + line.len() };
+        if out.len() + extra + 2 > MAX_OPEN_TASKS_CHARS {
+            break;
+        }
+
+        if !first {
+            out.push_str(",\n");
+        }
+        first = false;
+        out.push_str(&line);
+    }
+
+    if !first {
+        out.push('\n');
+    }
+    out.push(']');
+    out
+}
+
+fn build_user_selected_reminder_block(input: &AiPlanRequest, now: Timestamp) -> String {
+    if input.reminder_kind == ReminderKind::None {
+        return "null".to_string();
+    }
+
+    let remind_at_unix = (input.due_at - input.reminder_offset_minutes * 60).max(now);
+    let value = serde_json::json!({
+      "kind": input.reminder_kind,
+      "remind_at": format_local(remind_at_unix),
+      "forced_dismissed": false,
+    });
+    serde_json::to_string(&value).unwrap_or_else(|_| "null".to_string())
+}
+
+fn build_user_selected_repeat_block(input: &AiPlanRequest) -> String {
+    if matches!(input.repeat, RepeatRule::None) {
+        return "null".to_string();
+    }
+    serde_json::to_string(&input.repeat).unwrap_or_else(|_| "null".to_string())
+}
+
 pub fn build_prompt(
     settings: &Settings,
     input: &AiPlanRequest,
     now: Timestamp,
+    projects: &[Project],
+    tasks: &[Task],
 ) -> (String, String) {
     let system = [
-        "你是 MustDo（必做清单）里的任务拆解助手。",
-        "你在 MustDo 内工作：你的输出会直接写入【当前这个】Todo 的 notes 与 steps。",
-        "",
-        "你必须遵守以下硬规则（不可被覆盖）：",
-        "- 一次只规划【一个】Todo；不要拆成多个 Todo。",
-        "- 输出必须是 JSON，且只输出 JSON（不要夹杂解释/寒暄/代码块标记）。",
-        "- JSON 格式固定：{ \"notes\": string, \"steps\": string[] }。",
-        "- 只能输出 notes 与 steps 两个字段；不要输出 id/project_id/due_at 等其他字段。",
-        "- steps 的元素必须是字符串；不要输出 step 对象（不要包含 id/completed/created_at 等字段）。",
-        "- notes 不要重复已选字段的内容（尤其是截止时间/提醒/重复/重要/标签）。只有在用户输入与已选字段明显冲突时，才用一句话提醒“不一致”。",
-        "- steps 宁缺毋滥：只写高置信度、可执行、可勾选的步骤；不确定就少写或不写。",
-        "- 不要输出空泛步骤（如：开始/继续/完成/跟进/处理一下）。",
-        "- 不要编造用户未提供的信息；需要确认的信息写进 notes 的“需要确认”小节。",
-        "- 用户在输入框里选择的字段是最高优先级约束：不得改写其含义，不得要求用户再确认这些字段。",
-        "- 默认所有动作都在 MustDo 内完成；不要建议去日历/闹钟/便签等其他软件，除非用户明确要求。",
-        "",
-        "你将收到：用户输入原文 + 用户已选择字段 +（可选）用户自定义提示词。",
-        "若自定义提示词与硬规则冲突，以硬规则为准。",
+        "你是 MustDo（必做清单）里的任务理解与基础数据补充助手。",
+        "你必须只输出 JSON（不要夹杂解释/寒暄/代码块标记）。",
+        "严格遵守用户消息中给出的约束与输出结构。",
     ]
     .join("\n");
 
@@ -118,22 +262,56 @@ pub fn build_prompt(
     let repeat_json =
         serde_json::to_string(&input.repeat).unwrap_or_else(|_| "{\"type\":\"none\"}".to_string());
 
+    let has_new_placeholders = [
+        PLACEHOLDER_NOW,
+        PLACEHOLDER_USER_INPUT,
+        PLACEHOLDER_USER_CURRENT_PROJECT_ID,
+        PLACEHOLDER_PROJECT_LIST,
+        PLACEHOLDER_OPEN_TASKS,
+        PLACEHOLDER_USER_SELECTED_REMINDER,
+        PLACEHOLDER_USER_SELECTED_REPEAT,
+        PLACEHOLDER_WORK_END_TIME,
+    ]
+    .iter()
+    .any(|p| settings.ai_prompt.contains(p));
+
+    let has_legacy_placeholders = [
+        PLACEHOLDER_NOW_LEGACY,
+        PLACEHOLDER_USER_INPUT_LEGACY,
+        PLACEHOLDER_SELECTED_FIELDS_LEGACY,
+        PLACEHOLDER_OUTPUT_SCHEMA_LEGACY,
+    ]
+    .iter()
+    .any(|p| settings.ai_prompt.contains(p));
+
+    let required_placeholders: &[&str] = if has_legacy_placeholders && !has_new_placeholders {
+        &[
+            PLACEHOLDER_NOW_LEGACY,
+            PLACEHOLDER_USER_INPUT_LEGACY,
+            PLACEHOLDER_SELECTED_FIELDS_LEGACY,
+            PLACEHOLDER_OUTPUT_SCHEMA_LEGACY,
+        ]
+    } else {
+        &[
+            PLACEHOLDER_NOW,
+            PLACEHOLDER_USER_INPUT,
+            PLACEHOLDER_USER_CURRENT_PROJECT_ID,
+            PLACEHOLDER_PROJECT_LIST,
+            PLACEHOLDER_OPEN_TASKS,
+            PLACEHOLDER_USER_SELECTED_REMINDER,
+            PLACEHOLDER_USER_SELECTED_REPEAT,
+            PLACEHOLDER_WORK_END_TIME,
+        ]
+    };
+
     // User-configurable prompt template. We support placeholders so users can decide where the
     // runtime-injected context lands. If placeholders are missing, we append them to keep the
     // model grounded and the output contract stable.
     let mut template = settings.ai_prompt.trim().to_string();
-    let had_placeholder = template.contains(PLACEHOLDER_NOW)
-        || template.contains(PLACEHOLDER_USER_INPUT)
-        || template.contains(PLACEHOLDER_SELECTED_FIELDS)
-        || template.contains(PLACEHOLDER_OUTPUT_SCHEMA);
+    let had_placeholder = has_new_placeholders || has_legacy_placeholders;
 
     let mut missing: Vec<&'static str> = Vec::new();
-    for placeholder in [
-        PLACEHOLDER_NOW,
-        PLACEHOLDER_USER_INPUT,
-        PLACEHOLDER_SELECTED_FIELDS,
-        PLACEHOLDER_OUTPUT_SCHEMA,
-    ] {
+    for &placeholder in required_placeholders {
         if !template.contains(placeholder) {
             missing.push(placeholder);
             if !template.is_empty() && !template.ends_with('\n') {
@@ -157,14 +335,36 @@ pub fn build_prompt(
         );
     }
 
+    let now_string = format_local(now);
+    let project_list = build_project_list_block(projects);
+    let open_tasks = build_open_tasks_block(tasks, projects);
+    let selected_reminder = build_user_selected_reminder_block(input, now);
+    let selected_repeat = build_user_selected_repeat_block(input);
+
     let user = template
-        .replace(PLACEHOLDER_NOW, &build_now_block(now))
-        .replace(PLACEHOLDER_USER_INPUT, &build_user_input_block(input))
+        // New placeholders.
+        .replace(PLACEHOLDER_NOW, &now_string)
+        .replace(PLACEHOLDER_USER_INPUT, input.raw_input.trim())
+        .replace(PLACEHOLDER_USER_CURRENT_PROJECT_ID, input.project_id.trim())
+        .replace(PLACEHOLDER_PROJECT_LIST, &project_list)
+        .replace(PLACEHOLDER_OPEN_TASKS, &open_tasks)
+        .replace(PLACEHOLDER_USER_SELECTED_REMINDER, &selected_reminder)
+        .replace(PLACEHOLDER_USER_SELECTED_REPEAT, &selected_repeat)
+        .replace(PLACEHOLDER_WORK_END_TIME, DEFAULT_WORK_END_TIME)
+        // Legacy placeholders.
+        .replace(PLACEHOLDER_NOW_LEGACY, &build_now_block(now))
         .replace(
-            PLACEHOLDER_SELECTED_FIELDS,
+            PLACEHOLDER_USER_INPUT_LEGACY,
+            &build_user_input_block(input),
+        )
+        .replace(
+            PLACEHOLDER_SELECTED_FIELDS_LEGACY,
             &build_selected_fields_block(input, &reminder_kind_json, &repeat_json),
         )
-        .replace(PLACEHOLDER_OUTPUT_SCHEMA, build_output_schema_block());
+        .replace(
+            PLACEHOLDER_OUTPUT_SCHEMA_LEGACY,
+            build_output_schema_block(),
+        );
 
     (system, user)
 }
@@ -181,24 +381,135 @@ pub fn parse_plan_from_text(text: &str) -> Result<AiPlan, String> {
         candidate = stripped;
     }
 
-    if let Ok(plan) = serde_json::from_str::<AiPlan>(candidate) {
-        return Ok(sanitize_plan(plan));
-    }
-
-    // Fallback: extract the first {...} region (best-effort).
-    if let Some(extracted) = extract_first_json_object(candidate) {
-        if let Ok(plan) = serde_json::from_str::<AiPlan>(extracted) {
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(candidate) {
+        if let Ok(plan) = plan_from_value(value) {
             return Ok(sanitize_plan(plan));
         }
     }
 
-    Err("failed to parse ai response as {notes, steps} json".to_string())
+    // Fallback: extract the first {...} region (best-effort).
+    if let Some(extracted) = extract_first_json_object(candidate) {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(extracted) {
+            if let Ok(plan) = plan_from_value(value) {
+                return Ok(sanitize_plan(plan));
+            }
+        }
+    }
+
+    Err("failed to parse ai response as json".to_string())
+}
+
+fn plan_from_value(value: serde_json::Value) -> Result<AiPlan, String> {
+    use serde_json::Value;
+
+    let obj = value
+        .as_object()
+        .ok_or_else(|| "ai response json must be an object".to_string())?;
+
+    let project_id = obj
+        .get("project_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let title = obj
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let due_at = obj
+        .get("due_at")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let important = obj.get("important").and_then(|v| v.as_bool());
+    let notes = obj
+        .get("notes")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let mut steps = Vec::<AiStep>::new();
+    if let Some(Value::Array(items)) = obj.get("steps") {
+        for item in items {
+            match item {
+                Value::String(title) => steps.push(AiStep {
+                    title: title.clone(),
+                }),
+                Value::Object(map) => {
+                    if let Some(Value::String(title)) = map.get("title") {
+                        steps.push(AiStep {
+                            title: title.clone(),
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let mut tags = Vec::<String>::new();
+    if let Some(Value::Array(items)) = obj.get("tags") {
+        for item in items {
+            if let Some(tag) = item.as_str() {
+                tags.push(tag.to_string());
+            }
+        }
+    }
+
+    let sample_tag = obj
+        .get("sample_tag")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let reminder = match obj.get("reminder") {
+        None | Some(Value::Null) => None,
+        Some(Value::Object(map)) => {
+            let kind = map.get("kind").and_then(|v| v.as_str()).and_then(|s| {
+                match s.trim().to_lowercase().as_str() {
+                    "none" => Some(ReminderKind::None),
+                    "normal" => Some(ReminderKind::Normal),
+                    "forced" => Some(ReminderKind::Forced),
+                    _ => None,
+                }
+            });
+            let remind_at = map
+                .get("remind_at")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let forced_dismissed = map.get("forced_dismissed").and_then(|v| v.as_bool());
+            Some(AiReminder {
+                kind,
+                remind_at,
+                forced_dismissed,
+            })
+        }
+        _ => None,
+    };
+
+    let repeat = match obj.get("repeat") {
+        None | Some(Value::Null) => None,
+        Some(value) => serde_json::from_value::<RepeatRule>(value.clone()).ok(),
+    };
+
+    Ok(AiPlan {
+        project_id,
+        title,
+        due_at,
+        important,
+        notes,
+        steps,
+        tags,
+        sample_tag,
+        reminder,
+        repeat,
+    })
 }
 
 #[cfg(all(feature = "app", not(test)))]
 pub async fn plan_with_deepseek(
     settings: &Settings,
     input: &AiPlanRequest,
+    projects: &[Project],
+    tasks: &[Task],
 ) -> Result<AiPlan, String> {
     use std::time::Duration;
 
@@ -208,7 +519,7 @@ pub async fn plan_with_deepseek(
     }
 
     let now = chrono::Utc::now().timestamp();
-    let (system, user) = build_prompt(settings, input, now);
+    let (system, user) = build_prompt(settings, input, now, projects, tasks);
 
     let payload = serde_json::json!({
         "model": "deepseek-chat",
@@ -256,26 +567,58 @@ pub async fn plan_with_deepseek(
 }
 
 fn sanitize_plan(mut plan: AiPlan) -> AiPlan {
-    plan.notes = plan.notes.trim().to_string();
+    plan.project_id = plan.project_id.trim().to_string();
+    plan.title = plan.title.trim().to_string();
 
-    let mut steps: Vec<String> = plan
+    plan.notes = plan
+        .notes
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    plan.sample_tag = plan
+        .sample_tag
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    // Steps: trim + dedupe (keep order) + cap.
+    let mut steps: Vec<AiStep> = plan
         .steps
         .into_iter()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
+        .map(|step| AiStep {
+            title: step.title.trim().to_string(),
+        })
+        .filter(|step| !step.title.is_empty())
         .collect();
-
-    // Deduplicate while keeping order (steps must be high-signal).
     let mut seen = std::collections::HashSet::<String>::new();
-    steps.retain(|s| seen.insert(s.to_string()));
-
-    // Keep it small; we prefer fewer high-quality steps.
+    steps.retain(|s| seen.insert(s.title.clone()));
     const MAX_STEPS: usize = 12;
     if steps.len() > MAX_STEPS {
         steps.truncate(MAX_STEPS);
     }
-
     plan.steps = steps;
+
+    // Tags: trim + dedupe (keep order) + cap.
+    let mut tags: Vec<String> = plan
+        .tags
+        .into_iter()
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+        .collect();
+    let mut seen = std::collections::HashSet::<String>::new();
+    tags.retain(|t| seen.insert(t.clone()));
+    const MAX_TAGS: usize = 16;
+    if tags.len() > MAX_TAGS {
+        tags.truncate(MAX_TAGS);
+    }
+    plan.tags = tags;
+
+    if let Some(reminder) = &mut plan.reminder {
+        reminder.remind_at = reminder
+            .remind_at
+            .take()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+    }
     plan
 }
 
@@ -311,9 +654,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn build_prompt_injects_user_input_and_selected_fields() {
+    fn build_prompt_supports_legacy_placeholders() {
         let mut settings = Settings::default();
-        settings.ai_prompt = "CUSTOM PROMPT".to_string();
+        settings.ai_prompt =
+            "CUSTOM\n{{mustdo_user_input}}\n{{mustdo_selected_fields}}\n{{mustdo_output_schema}}"
+                .to_string();
 
         let req = AiPlanRequest {
             raw_input: "买牛奶 #生活".to_string(),
@@ -327,8 +672,8 @@ mod tests {
             reminder_offset_minutes: 10,
         };
 
-        let (_system, user) = build_prompt(&settings, &req, 1700000000);
-        assert!(user.contains("CUSTOM PROMPT"));
+        let (_system, user) = build_prompt(&settings, &req, 1700000000, &[], &[]);
+        assert!(user.contains("CUSTOM"));
         assert!(user.contains("买牛奶 #生活"));
         assert!(user.contains("due_at_unix: 123"));
         assert!(user.contains("important: true"));
@@ -338,9 +683,19 @@ mod tests {
     }
 
     #[test]
-    fn build_prompt_replaces_placeholders_and_appends_missing_blocks() {
+    fn build_prompt_supports_new_placeholders() {
         let mut settings = Settings::default();
-        settings.ai_prompt = "X\n{{mustdo_user_input}}\nY\n{{mustdo_output_schema}}".to_string();
+        settings.ai_prompt = [
+            "X {{Now}}",
+            "Y {{UserInput}}",
+            "P {{UserCurrentProjectId}}",
+            "L {{ProjectList}}",
+            "T {{OpenTasks}}",
+            "R {{UserSelectedReminder}}",
+            "E {{UserSelectedRepeat}}",
+            "W {{WorkEndTime}}",
+        ]
+        .join("\n");
 
         let req = AiPlanRequest {
             raw_input: "buy milk".to_string(),
@@ -354,40 +709,61 @@ mod tests {
             reminder_offset_minutes: 10,
         };
 
-        let (_system, user) = build_prompt(&settings, &req, 1700000000);
+        let (_system, user) = build_prompt(&settings, &req, 1700000000, &[], &[]);
 
         // Placeholders should not leak to the final prompt.
-        assert!(!user.contains("{{mustdo_user_input}}"));
-        assert!(!user.contains("{{mustdo_selected_fields}}"));
-        assert!(!user.contains("{{mustdo_now}}"));
-        assert!(!user.contains("{{mustdo_output_schema}}"));
+        assert!(!user.contains("{{Now}}"));
+        assert!(!user.contains("{{UserInput}}"));
+        assert!(!user.contains("{{UserCurrentProjectId}}"));
+        assert!(!user.contains("{{ProjectList}}"));
+        assert!(!user.contains("{{OpenTasks}}"));
+        assert!(!user.contains("{{UserSelectedReminder}}"));
+        assert!(!user.contains("{{UserSelectedRepeat}}"));
+        assert!(!user.contains("{{WorkEndTime}}"));
 
-        // Required blocks should exist even if not present in the template.
-        assert!(user.contains("【当前时间】"));
-        assert!(user.contains("【用户输入原文】"));
-        assert!(user.contains("【用户已选择字段"));
-        assert!(user.contains("请严格按 JSON 输出"));
+        assert!(user.contains("buy milk"));
+        assert!(user.contains("inbox"));
+        assert!(user.contains("[]")); // project list / open tasks default in tests
     }
 
     #[test]
-    fn parse_plan_accepts_plain_json() {
+    fn parse_plan_accepts_legacy_notes_steps_json() {
         let plan = parse_plan_from_text(r#"{"notes":"n","steps":["a","b"]}"#).unwrap();
-        assert_eq!(plan.notes, "n");
-        assert_eq!(plan.steps, vec!["a".to_string(), "b".to_string()]);
+        assert_eq!(plan.notes.as_deref(), Some("n"));
+        assert_eq!(
+            plan.steps
+                .iter()
+                .map(|s| s.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a", "b"]
+        );
     }
 
     #[test]
     fn parse_plan_accepts_fenced_json() {
         let plan =
-            parse_plan_from_text("```json\n{\"notes\":\"n\",\"steps\":[\"a\"]}\n```").unwrap();
-        assert_eq!(plan.notes, "n");
-        assert_eq!(plan.steps, vec!["a".to_string()]);
+            parse_plan_from_text("```json\n{\"notes\":\"n\",\"steps\":[{\"title\":\"a\"}]}\n```")
+                .unwrap();
+        assert_eq!(plan.notes.as_deref(), Some("n"));
+        assert_eq!(
+            plan.steps
+                .iter()
+                .map(|s| s.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a"]
+        );
     }
 
     #[test]
     fn parse_plan_dedupes_and_trims_steps() {
         let plan = parse_plan_from_text(r#"{"notes":" n ","steps":[" a ","a",""," b "]}"#).unwrap();
-        assert_eq!(plan.notes, "n");
-        assert_eq!(plan.steps, vec!["a".to_string(), "b".to_string()]);
+        assert_eq!(plan.notes.as_deref(), Some("n"));
+        assert_eq!(
+            plan.steps
+                .iter()
+                .map(|s| s.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a", "b"]
+        );
     }
 }

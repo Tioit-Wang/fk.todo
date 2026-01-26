@@ -45,6 +45,7 @@ export function QuickView({
   tasks,
   settings,
   normalTasks,
+  aiPlanning,
   onUpdateSettings,
   onUpdateTask,
   onCreateFromComposer,
@@ -58,6 +59,7 @@ export function QuickView({
   tasks: Task[];
   settings: Settings | null;
   normalTasks: Task[];
+  aiPlanning: boolean;
   onUpdateSettings: (next: Settings) => Promise<boolean>;
   onUpdateTask: (next: Task) => Promise<void> | void;
   onCreateFromComposer: (
@@ -99,6 +101,20 @@ export function QuickView({
     ],
     [t],
   );
+
+  const aiReady =
+    Boolean(settings?.ai_enabled) &&
+    Boolean((settings?.deepseek_api_key ?? "").trim());
+  const aiPlaceholderOptions = useMemo(() => {
+    if (!aiReady) return [];
+    return [
+      t("composer.placeholderAiInfo"),
+      t("composer.placeholderAiExample1"),
+      t("composer.placeholderAiExample2"),
+      t("composer.placeholderAiExample3"),
+      t("composer.placeholderAiExample4"),
+    ];
+  }, [aiReady, t]);
 
   useEffect(() => {
     settingsRef.current = settings;
@@ -318,9 +334,13 @@ export function QuickView({
         }
         unlistenFocus = focused;
       } catch (err) {
-        void frontendLog("warn", "quick window onFocusChanged subscription failed", {
-          err: describeError(err),
-        });
+        void frontendLog(
+          "warn",
+          "quick window onFocusChanged subscription failed",
+          {
+            err: describeError(err),
+          },
+        );
       }
     })();
 
@@ -443,14 +463,13 @@ export function QuickView({
       </div>
 
       <div className="quick-input-bar">
-          <TaskComposer
-          placeholder={
-            settings?.ai_enabled && (settings?.deepseek_api_key ?? "").trim()
-              ? t("composer.placeholderAi")
-              : undefined
+        <TaskComposer
+          placeholderOptions={
+            aiPlaceholderOptions.length > 0 ? aiPlaceholderOptions : undefined
           }
-            onSubmit={onCreateFromComposer}
-          />
+          busy={aiPlanning}
+          onSubmit={onCreateFromComposer}
+        />
       </div>
     </div>
   );

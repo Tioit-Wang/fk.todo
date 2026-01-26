@@ -1575,6 +1575,11 @@ textarea:focus-visible {
     color: var(--muted);
 }
 
+.composer-input:disabled {
+    cursor: not-allowed;
+    opacity: 0.8;
+}
+
 .composer-actions {
     position: absolute;
     right: 8px;
@@ -1583,6 +1588,24 @@ textarea:focus-visible {
     display: flex;
     gap: 6px;
     align-items: center;
+}
+
+.composer-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--muted-strong);
+    padding-left: 4px;
+}
+
+.composer-status-spinner {
+    width: 12px;
+    height: 12px;
+    border-radius: 999px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    animation: composer-spin 0.8s linear infinite;
 }
 
 .composer-action-btn {
@@ -1597,9 +1620,20 @@ textarea:focus-visible {
     place-items: center;
 }
 
+.composer-action-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.65;
+}
+
 .composer-action-btn.active {
     border-color: var(--accent);
     background: var(--accent-soft);
+}
+
+@keyframes composer-spin {
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 .composer-popup {

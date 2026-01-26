@@ -996,7 +996,8 @@ pub async fn ai_plan_task(
     state: State<'_, AppState>,
     request: AiPlanRequest,
 ) -> Result<AiPlan, String> {
-    let settings = state.inner().settings();
+    let snapshot = state.inner().snapshot();
+    let settings = &snapshot.settings;
     if !settings.ai_enabled {
         return Err("ai is disabled (settings.ai_enabled=false)".to_string());
     }
@@ -1015,7 +1016,9 @@ pub async fn ai_plan_task(
         request.tags.len()
     );
 
-    match crate::ai::plan_with_deepseek(&settings, &request).await {
+    match crate::ai::plan_with_deepseek(settings, &request, &snapshot.projects, &snapshot.tasks)
+        .await
+    {
         Ok(plan) => Ok(plan),
         Err(message) => {
             log::warn!("cmd=ai_plan_task failed err={}", message);

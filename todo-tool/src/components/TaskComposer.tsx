@@ -18,12 +18,15 @@ import {
 import { extractTagsFromTitle } from "../tags";
 import type { ReminderKind, RepeatRule } from "../types";
 
+const PLACEHOLDER_ROTATE_SECONDS = 10;
+
 export type TaskComposerDraft = {
   raw_input: string;
   title: string;
   project_id: string;
   tags: string[];
   due_at: number;
+  due_at_is_customized: boolean;
   important: boolean;
   repeat: RepeatRule;
   reminder_kind: ReminderKind;
@@ -32,11 +35,15 @@ export type TaskComposerDraft = {
 
 export function TaskComposer({
   placeholder,
+  placeholderOptions,
   projectId,
+  busy = false,
   onSubmit,
 }: {
   placeholder?: string;
+  placeholderOptions?: string[];
   projectId?: string;
+  busy?: boolean;
   onSubmit: (
     draft: TaskComposerDraft,
   ) => Promise<boolean | void> | boolean | void;
@@ -61,7 +68,23 @@ export function TaskComposer({
   const [reminderOffset, setReminderOffset] = useState<number>(10);
 
   const initialDueAtRef = useRef<number>(dueAt);
-  const placeholderText = placeholder ?? t("composer.placeholder");
+  const placeholderItems = useMemo(
+    () => (placeholderOptions ?? []).map((item) => item.trim()).filter(Boolean),
+    [placeholderOptions],
+  );
+  const [placeholderIndex, setPlaceholderIndex] = useState(0);
+  const [placeholderCountdown, setPlaceholderCountdown] = useState(
+    PLACEHOLDER_ROTATE_SECONDS,
+  );
+  const shouldRotatePlaceholder =
+    placeholderItems.length > 1 && !busy && !title.trim();
+  const placeholderCountdownSuffix = shouldRotatePlaceholder
+    ? t("composer.placeholderCountdown", { seconds: placeholderCountdown })
+    : "";
+  const placeholderText =
+    placeholderItems.length > 0
+      ? `${placeholderItems[placeholderIndex % placeholderItems.length]}${placeholderCountdownSuffix}`
+      : (placeholder ?? t("composer.placeholder"));
 
   const quickDuePresets = useMemo(
     () => [
@@ -135,7 +158,39 @@ export function TaskComposer({
     };
   }, [activePopup]);
 
+  useEffect(() => {
+    if (placeholderItems.length === 0) {
+      setPlaceholderIndex(0);
+      setPlaceholderCountdown(PLACEHOLDER_ROTATE_SECONDS);
+      return;
+    }
+    setPlaceholderIndex((prev) => (prev >= placeholderItems.length ? 0 : prev));
+  }, [placeholderItems.length]);
+
+  useEffect(() => {
+    if (placeholderItems.length <= 1) return;
+    if (busy || title.trim()) return;
+    setPlaceholderCountdown(PLACEHOLDER_ROTATE_SECONDS);
+    const handle = window.setInterval(() => {
+      setPlaceholderCountdown((prev) => {
+        if (prev <= 1) {
+          setPlaceholderIndex((index) => (index + 1) % placeholderItems.length);
+          return PLACEHOLDER_ROTATE_SECONDS;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(handle);
+  }, [busy, placeholderItems.length, title]);
+
+  useEffect(() => {
+    if (busy) {
+      setActivePopup(null);
+    }
+  }, [busy]);
+
   async function handleSubmit(rawTitle?: string) {
+    if (busy) return;
     const sourceTitle = rawTitle ?? title;
     const { title: parsedTitle, tags } = extractTagsFromTitle(sourceTitle);
     if (!parsedTitle) return;
@@ -146,6 +201,7 @@ export function TaskComposer({
         project_id: projectId ?? "inbox",
         tags,
         due_at: dueAt,
+        due_at_is_customized: isDueCustomized,
         important,
         repeat,
         reminder_kind: reminderKind,
@@ -178,6 +234,8 @@ export function TaskComposer({
           className="composer-input"
           placeholder={placeholderText}
           value={title}
+          disabled={busy}
+          aria-busy={busy}
           onChange={(e) => setTitle(e.currentTarget.value)}
           onKeyDown={(e) => {
             if (e.key !== "Enter") return;
@@ -212,6 +270,7 @@ export function TaskComposer({
             title={t("composer.due")}
             label={t("composer.due")}
             aria-expanded={activePopup === "due"}
+            disabled={busy}
           >
             <Icons.Calendar />
           </IconButton>
@@ -221,6 +280,7 @@ export function TaskComposer({
             title={t("composer.reminder")}
             label={t("composer.reminder")}
             aria-expanded={activePopup === "reminder"}
+            disabled={busy}
           >
             <Icons.Bell />
           </IconButton>
@@ -230,6 +290,7 @@ export function TaskComposer({
             title={t("composer.repeat")}
             label={t("composer.repeat")}
             aria-expanded={activePopup === "repeat"}
+            disabled={busy}
           >
             <Icons.Repeat />
           </IconButton>
@@ -243,6 +304,7 @@ export function TaskComposer({
               important ? t("task.unmarkImportant") : t("task.markImportant")
             }
             aria-pressed={important}
+            disabled={busy}
           >
             <Icons.Star />
           </IconButton>
@@ -541,6 +603,13 @@ export function TaskComposer({
           </div>
         )}
       </div>
+
+      {busy && (
+        <div className="composer-status" role="status" aria-live="polite">
+          <span className="composer-status-spinner" aria-hidden="true" />
+          <span>{t("composer.aiPlanning")}</span>
+        </div>
+      )}
     </div>
   );
 }
