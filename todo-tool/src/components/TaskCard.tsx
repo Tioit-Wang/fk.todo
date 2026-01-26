@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type DragEvent } from "react";
 
 import { formatDue } from "../date";
+import { getReminderTargetTime } from "../reminder";
 import { formatRepeatRule } from "../repeat";
 import type { ReschedulePresetId } from "../reschedule";
 import { isOverdue } from "../scheduler";
@@ -28,6 +29,7 @@ export function TaskCard({
   onReschedulePreset,
   onUpdateTask,
   showNotesPreview,
+  projectLabel,
 }: {
   task: Task;
   mode: "quick" | "main";
@@ -46,10 +48,19 @@ export function TaskCard({
   onReschedulePreset?: (preset: ReschedulePresetId) => void;
   onUpdateTask?: (next: Task) => Promise<void> | void;
   showNotesPreview?: boolean;
+  projectLabel?: string;
 }) {
   const { t } = useI18n();
   const now = Math.floor(Date.now() / 1000);
   const overdue = isOverdue(task, now);
+  const reminderTarget = getReminderTargetTime(task);
+  const reminderLabel = reminderTarget != null ? formatDue(reminderTarget) : "";
+  const reminderClass =
+    task.reminder.kind === "forced"
+      ? "danger"
+      : task.reminder.kind === "none"
+        ? "muted"
+        : "";
   const overdueFlag = overdue
     ? (() => {
         const delta = Math.max(0, now - task.due_at);
@@ -238,10 +249,26 @@ export function TaskCard({
         <div className="task-content">
           <span className="task-title">{task.title}</span>
           <div className="task-meta">
-            <span className="task-due-time">
+            <span
+              className="task-time task-due-time"
+              title={`${t("task.meta.due")} ${formatDue(task.due_at)}`}
+            >
               <Icons.Clock />
+              <span className="task-time-label">{t("task.meta.due")}</span>
               {formatDue(task.due_at)}
             </span>
+            {reminderTarget != null && (
+              <span
+                className={`task-time task-reminder-time ${reminderClass}`}
+                title={`${t("task.meta.reminder")} ${reminderLabel}`}
+              >
+                <Icons.Bell />
+                <span className="task-time-label">
+                  {t("task.meta.reminder")}
+                </span>
+                {reminderLabel}
+              </span>
+            )}
             {overdueFlag && (
               <span className="task-overdue-flag" title={overdueFlag}>
                 {overdueFlag}
@@ -260,13 +287,14 @@ export function TaskCard({
                 <Icons.Repeat />
               </span>
             )}
-            {task.reminder.kind !== "none" && (
+            {projectLabel ? (
               <span
-                className={`task-chip ${task.reminder.kind === "forced" ? "danger" : ""}`}
+                className="tag-chip small task-project-chip"
+                title={projectLabel}
               >
-                <Icons.Bell />
+                {projectLabel}
               </span>
-            )}
+            ) : null}
           </div>
           {task.tags.length > 0 && (
             <div className="task-tags">

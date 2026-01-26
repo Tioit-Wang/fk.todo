@@ -28,6 +28,18 @@ export function isDueTomorrow(task: Task, now: Date) {
   );
 }
 
+export function isDueThisWeek(task: Task, now: Date) {
+  const due = new Date(task.due_at * 1000);
+  const start = new Date(now);
+  const day = start.getDay();
+  const diffFromMonday = (day + 6) % 7;
+  start.setDate(start.getDate() - diffFromMonday);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 7);
+  return due.getTime() >= start.getTime() && due.getTime() < end.getTime();
+}
+
 export function isDueInFuture(task: Task, now: Date) {
   const due = new Date(task.due_at * 1000);
   const endTomorrow = new Date(now);

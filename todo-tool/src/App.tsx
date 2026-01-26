@@ -1716,6 +1716,7 @@ function App() {
         {view === "quick" && (
           <QuickView
             tasks={tasks}
+            projects={projects}
             settings={settings}
             normalTasks={normalTasks}
             aiPlanning={aiPlanning}
@@ -1775,6 +1776,7 @@ function App() {
         {view === "main" && mainPage === "calendar" && (
           <CalendarView
             tasks={tasks}
+            projects={projects}
             settings={settings}
             normalTasks={normalTasks}
             onNormalSnooze={handleNormalSnooze}

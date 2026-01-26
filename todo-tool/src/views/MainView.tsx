@@ -99,7 +99,7 @@ export function MainView({
   const [searchQuery, setSearchQuery] = useState("");
 
   const [sidebarSelection, setSidebarSelection] = useState<
-    "today" | "important" | "project"
+    "today" | "week" | "important" | "project"
   >("today");
   const [selectedProjectId, setSelectedProjectId] = useState<string>("inbox");
 
@@ -191,6 +191,13 @@ export function MainView({
     return new Map(projects.map((project) => [project.id, project]));
   }, [projects]);
 
+  const resolveProjectLabel = (projectId: string) => {
+    if (projectId === "inbox") return t("nav.inbox");
+    const project = projectsById.get(projectId);
+    if (project?.name) return project.name;
+    return projectId;
+  };
+
   async function handleToggleProjectPin(project: Project) {
     if (projectBusy) return;
     if (project.id === "inbox") return;
@@ -280,9 +287,12 @@ export function MainView({
 
   const scope = useMemo<MainScope>(() => {
     if (sidebarSelection === "today") return { kind: "today" };
+    if (sidebarSelection === "week") return { kind: "week" };
     if (sidebarSelection === "important") return { kind: "important" };
     return { kind: "project", projectId: selectedProjectId };
   }, [sidebarSelection, selectedProjectId]);
+
+  const showProjectLabels = sidebarSelection !== "project";
 
   const scopedTasks = useMemo(() => {
     const now = new Date();
@@ -651,6 +661,18 @@ export function MainView({
                 <Icons.Calendar />
                 <span>{t("nav.today")}</span>
               </button>
+              <button
+                type="button"
+                className={`sidebar-item ${sidebarSelection === "week" ? "active" : ""}`}
+                onClick={() => {
+                  setSidebarSelection("week");
+                  setListTab("open");
+                  setMainView("list");
+                }}
+              >
+                <Icons.Grid />
+                <span>{t("nav.week")}</span>
+              </button>
 
               <button
                 type="button"
@@ -1001,6 +1023,11 @@ export function MainView({
                             key={task.id}
                             task={task}
                             mode="main"
+                            projectLabel={
+                              showProjectLabels
+                                ? resolveProjectLabel(task.project_id)
+                                : undefined
+                            }
                             showMove={mainSort === "manual"}
                             draggable
                             onDragStart={(event) =>
@@ -1104,6 +1131,11 @@ export function MainView({
                         key={task.id}
                         task={task}
                         mode="main"
+                        projectLabel={
+                          showProjectLabels
+                            ? resolveProjectLabel(task.project_id)
+                            : undefined
+                        }
                         selectable={bulkMode}
                         selected={bulkSelectedSet.has(task.id)}
                         onToggleSelected={() => toggleBulkSelected(task.id)}

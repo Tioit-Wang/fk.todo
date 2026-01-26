@@ -1073,7 +1073,7 @@ textarea:focus-visible {
     padding-left: 20px;
 }
 
-.task-due-time {
+.task-time {
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -1082,6 +1082,33 @@ textarea:focus-visible {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.task-time-label {
+    color: var(--muted-strong);
+}
+
+.task-card.overdue .task-due-time .task-time-label {
+    color: inherit;
+}
+
+.task-reminder-time.danger .task-time-label {
+    color: inherit;
+}
+
+.task-project-chip {
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.task-reminder-time.muted {
+    color: var(--muted);
+}
+
+.task-reminder-time.danger {
+    color: var(--danger);
 }
 
 .task-overdue-flag {

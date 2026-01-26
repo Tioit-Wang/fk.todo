@@ -1,4 +1,4 @@
-import { isDueToday, isOverdue } from "../scheduler";
+import { isDueThisWeek, isDueToday, isOverdue } from "../scheduler";
 import { taskMatchesQuery } from "../search";
 import type { Task } from "../types";
 
@@ -7,6 +7,7 @@ export type ListTabId = "all" | "open" | "done";
 
 export type MainScope =
   | { kind: "today" }
+  | { kind: "week" }
   | { kind: "important" }
   | { kind: "project"; projectId: string };
 
@@ -53,6 +54,9 @@ export function filterTasksByScope(
     return tasks.filter(
       (task) => isDueToday(task, now) || isOverdue(task, nowSeconds),
     );
+  }
+  if (scope.kind === "week") {
+    return tasks.filter((task) => isDueThisWeek(task, now));
   }
   if (scope.kind === "important") {
     return tasks.filter((task) => task.important);

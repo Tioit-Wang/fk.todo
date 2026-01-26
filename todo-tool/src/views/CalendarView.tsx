@@ -11,10 +11,11 @@ import { TaskCard } from "../components/TaskCard";
 import { describeError, frontendLog } from "../frontendLog";
 import { useI18n } from "../i18n";
 import type { SnoozePresetId } from "../snooze";
-import type { Settings, Task } from "../types";
+import type { Project, Settings, Task } from "../types";
 
 export function CalendarView({
   tasks,
+  projects,
   settings,
   normalTasks,
   onNormalSnooze,
@@ -27,6 +28,7 @@ export function CalendarView({
   onBack,
 }: {
   tasks: Task[];
+  projects: Project[];
   settings: Settings | null;
   normalTasks: Task[];
   onNormalSnooze: (task: Task, preset: SnoozePresetId) => Promise<void> | void;
@@ -50,12 +52,29 @@ export function CalendarView({
   const [selectedDay, setSelectedDay] = useState<Date>(() => new Date(today));
   const [showCompleted, setShowCompleted] = useState(false);
 
+  const projectsById = useMemo(() => {
+    return new Map(projects.map((project) => [project.id, project]));
+  }, [projects]);
+
+  const resolveProjectLabel = (projectId: string) => {
+    if (projectId === "inbox") return t("nav.inbox");
+    const project = projectsById.get(projectId);
+    if (project?.name) return project.name;
+    return projectId;
+  };
+
   const cursorMonthKey = useMemo(() => monthKey(cursorMonth), [cursorMonth]);
 
-  const cells = useMemo(() => buildMonthGrid(cursorMonth, today), [cursorMonth, today]);
+  const cells = useMemo(
+    () => buildMonthGrid(cursorMonth, today),
+    [cursorMonth, today],
+  );
 
   const taskCountsByDay = useMemo(() => {
-    const map = new Map<string, { total: number; important: number; overdue: number }>();
+    const map = new Map<
+      string,
+      { total: number; important: number; overdue: number }
+    >();
     const nowSec = Math.floor(Date.now() / 1000);
     for (const task of tasks) {
       if (!showCompleted && task.completed) continue;
@@ -69,11 +88,16 @@ export function CalendarView({
     return map;
   }, [tasks, showCompleted]);
 
-  const selectedKey = useMemo(() => formatLocalDateKey(selectedDay), [selectedDay]);
+  const selectedKey = useMemo(
+    () => formatLocalDateKey(selectedDay),
+    [selectedDay],
+  );
   const selectedTasks = useMemo(() => {
     const list = tasks
       .filter((task) => (showCompleted ? true : !task.completed))
-      .filter((task) => sameLocalDate(task.due_at, Math.floor(selectedDay.getTime() / 1000)))
+      .filter((task) =>
+        sameLocalDate(task.due_at, Math.floor(selectedDay.getTime() / 1000)),
+      )
       .slice()
       .sort((a, b) => a.due_at - b.due_at || a.created_at - b.created_at);
     return list;
@@ -127,7 +151,12 @@ export function CalendarView({
         title={t("calendar.title")}
         onMinimize={handleMinimize}
         right={
-          <button type="button" className="main-toggle" onClick={onBack} title={t("common.back")}>
+          <button
+            type="button"
+            className="main-toggle"
+            onClick={onBack}
+            title={t("common.back")}
+          >
             <span className="settings-back-icon" aria-hidden="true">
               <Icons.ChevronRight />
             </span>
@@ -137,18 +166,37 @@ export function CalendarView({
       />
 
       <div className="main-content">
-        <NotificationBanner tasks={normalTasks} onSnooze={onNormalSnooze} onComplete={onNormalComplete} />
+        <NotificationBanner
+          tasks={normalTasks}
+          onSnooze={onNormalSnooze}
+          onComplete={onNormalComplete}
+        />
 
         <div className="calendar-toolbar">
           <div className="calendar-toolbar-left">
-            <button type="button" className="pill" onClick={() => goToMonth(-1)} aria-label={t("calendar.prevMonth")}>
+            <button
+              type="button"
+              className="pill"
+              onClick={() => goToMonth(-1)}
+              aria-label={t("calendar.prevMonth")}
+            >
               {t("calendar.prevMonth")}
             </button>
             <div className="calendar-month">{cursorMonthKey}</div>
-            <button type="button" className="pill" onClick={() => goToMonth(1)} aria-label={t("calendar.nextMonth")}>
+            <button
+              type="button"
+              className="pill"
+              onClick={() => goToMonth(1)}
+              aria-label={t("calendar.nextMonth")}
+            >
               {t("calendar.nextMonth")}
             </button>
-            <button type="button" className="pill" onClick={goToToday} aria-label={t("calendar.today")}>
+            <button
+              type="button"
+              className="pill"
+              onClick={goToToday}
+              aria-label={t("calendar.today")}
+            >
               {t("calendar.today")}
             </button>
           </div>
@@ -159,13 +207,19 @@ export function CalendarView({
               onClick={() => setShowCompleted((prev) => !prev)}
               aria-pressed={showCompleted}
             >
-              {showCompleted ? t("calendar.hideCompleted") : t("calendar.showCompleted")}
+              {showCompleted
+                ? t("calendar.hideCompleted")
+                : t("calendar.showCompleted")}
             </button>
           </div>
         </div>
 
         <div className="calendar-layout">
-          <div className="calendar-grid" role="grid" aria-label={t("calendar.title")}>
+          <div
+            className="calendar-grid"
+            role="grid"
+            aria-label={t("calendar.title")}
+          >
             <div className="calendar-weekdays" aria-hidden="true">
               {[1, 2, 3, 4, 5, 6, 7].map((id) => (
                 <div key={id} className="calendar-weekday">
@@ -202,14 +256,22 @@ export function CalendarView({
                     aria-pressed={selected}
                   >
                     <div className="calendar-day-top">
-                      <span className="calendar-day-number">{cell.date.getDate()}</span>
+                      <span className="calendar-day-number">
+                        {cell.date.getDate()}
+                      </span>
                       {counts && counts.total > 0 && (
                         <span
                           className={[
                             "calendar-day-count",
-                            counts.overdue > 0 ? "overdue" : counts.important > 0 ? "important" : "",
+                            counts.overdue > 0
+                              ? "overdue"
+                              : counts.important > 0
+                                ? "important"
+                                : "",
                           ].join(" ")}
-                          title={t("calendar.taskCount", { count: counts.total })}
+                          title={t("calendar.taskCount", {
+                            count: counts.total,
+                          })}
                         >
                           {counts.total}
                         </span>
@@ -238,6 +300,7 @@ export function CalendarView({
                     key={task.id}
                     task={task}
                     mode="main"
+                    projectLabel={resolveProjectLabel(task.project_id)}
                     selectable={false}
                     onToggleComplete={() => void onToggleComplete(task)}
                     onToggleImportant={() => void onToggleImportant(task)}

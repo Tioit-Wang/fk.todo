@@ -27,7 +27,7 @@ import {
 } from "../reschedule";
 import { taskMatchesQuery } from "../search";
 import type { SnoozePresetId } from "../snooze";
-import type { Settings, Task } from "../types";
+import type { Project, Settings, Task } from "../types";
 
 function isQuickTab(value: string): value is QuickTab {
   return (
@@ -43,6 +43,7 @@ const QUICK_WINDOW_INNER = { width: 500, height: 650 } as const;
 
 export function QuickView({
   tasks,
+  projects,
   settings,
   normalTasks,
   aiPlanning,
@@ -57,6 +58,7 @@ export function QuickView({
   onNormalComplete,
 }: {
   tasks: Task[];
+  projects: Project[];
   settings: Settings | null;
   normalTasks: Task[];
   aiPlanning: boolean;
@@ -116,6 +118,17 @@ export function QuickView({
       t("composer.placeholderAiExample4"),
     ];
   }, [aiReady, t]);
+
+  const projectsById = useMemo(() => {
+    return new Map(projects.map((project) => [project.id, project]));
+  }, [projects]);
+
+  const resolveProjectLabel = (projectId: string) => {
+    if (projectId === "inbox") return t("nav.inbox");
+    const project = projectsById.get(projectId);
+    if (project?.name) return project.name;
+    return projectId;
+  };
 
   useEffect(() => {
     settingsRef.current = settings;
@@ -453,6 +466,7 @@ export function QuickView({
             key={task.id}
             task={task}
             mode="quick"
+            projectLabel={resolveProjectLabel(task.project_id)}
             onToggleComplete={() => onToggleComplete(task)}
             onToggleImportant={() => onToggleImportant(task)}
             onReschedulePreset={(preset) => void handleReschedule(task, preset)}

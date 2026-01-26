@@ -69,6 +69,7 @@ const STRINGS: Record<AppLanguage, Record<string, string>> = {
 
     "nav.sidebar": "侧边栏",
     "nav.today": "今日",
+    "nav.week": "本周",
     "nav.important": "重要",
     "nav.projects": "项目",
     "nav.projects.add": "新建项目",
@@ -84,6 +85,8 @@ const STRINGS: Record<AppLanguage, Record<string, string>> = {
 
     "task.overdueFlag.days": "已过期{days}天",
     "task.overdueFlag.hours": "已过期{hours}小时",
+    "task.meta.due": "到期",
+    "task.meta.reminder": "提醒",
 
     "today.title": "今日计划",
     "today.section.focus": "今日焦点",
@@ -521,6 +524,7 @@ const STRINGS: Record<AppLanguage, Record<string, string>> = {
 
     "nav.sidebar": "Sidebar",
     "nav.today": "Today",
+    "nav.week": "This week",
     "nav.important": "Important",
     "nav.projects": "Projects",
     "nav.projects.add": "Add project",
@@ -536,6 +540,8 @@ const STRINGS: Record<AppLanguage, Record<string, string>> = {
 
     "task.overdueFlag.days": "Overdue {days}d",
     "task.overdueFlag.hours": "Overdue {hours}h",
+    "task.meta.due": "Due",
+    "task.meta.reminder": "Reminder",
 
     "today.title": "Today",
     "today.section.focus": "Today focus",
