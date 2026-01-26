@@ -20,6 +20,7 @@ import {
   rescheduleTask,
   type ReschedulePresetId,
 } from "../reschedule";
+import { isDueToday, isOverdue } from "../scheduler";
 import type { SnoozePresetId } from "../snooze";
 import type { Project, Settings, Task } from "../types";
 import {
@@ -33,6 +34,12 @@ import {
   type MainScope,
   type MainSortId,
 } from "./mainViewModel";
+
+function resolveDynamicQuadrant(task: Task, now: Date, nowSeconds: number) {
+  const urgent = isOverdue(task, nowSeconds) || isDueToday(task, now);
+  if (task.important) return urgent ? 1 : 2;
+  return urgent ? 3 : 4;
+}
 
 export function MainView({
   tasks,
@@ -334,8 +341,11 @@ export function MainView({
 
   const tasksByQuadrant = useMemo(() => {
     const map: Record<number, Task[]> = { 1: [], 2: [], 3: [], 4: [] };
+    const now = new Date();
+    const nowSeconds = Math.floor(now.getTime() / 1000);
     openScopedTasks.forEach((task) => {
-      map[task.quadrant]?.push(task);
+      const quadrant = resolveDynamicQuadrant(task, now, nowSeconds);
+      map[quadrant]?.push(task);
     });
     return map;
   }, [openScopedTasks]);
@@ -359,8 +369,11 @@ export function MainView({
       3: { total: 0, completed: 0 },
       4: { total: 0, completed: 0 },
     };
+    const now = new Date();
+    const nowSeconds = Math.floor(now.getTime() / 1000);
     scopedTasks.forEach((task) => {
-      const entry = counts[task.quadrant];
+      const quadrant = resolveDynamicQuadrant(task, now, nowSeconds);
+      const entry = counts[quadrant];
       if (!entry) return;
       entry.total += 1;
       if (task.completed) entry.completed += 1;
@@ -488,18 +501,6 @@ export function MainView({
     const nowSeconds = Math.floor(now.getTime() / 1000);
     const nextDueAt = computeRescheduleDueAt(task, preset, now);
     await onUpdateTask(rescheduleTask(task, nextDueAt, nowSeconds));
-  }
-
-  function handleDropToQuadrant(quadrant: number, taskId: string) {
-    const task = tasks.find((item) => item.id === taskId);
-    if (!task || task.quadrant === quadrant) return;
-    const now = Math.floor(Date.now() / 1000);
-    void onUpdateTask({
-      ...task,
-      quadrant,
-      sort_order: Date.now(),
-      updated_at: now,
-    });
   }
 
   function handleDragStart(task: Task, event: DragEvent) {
@@ -993,15 +994,7 @@ export function MainView({
                 className="quadrant-grid"
               >
                 {quadrants.map((quad) => (
-                  <div
-                    key={quad.id}
-                    className={`quadrant ${quad.className}`}
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={(event) => {
-                      const id = event.dataTransfer.getData("text/plain");
-                      if (id) handleDropToQuadrant(quad.id, id);
-                    }}
-                  >
+                  <div key={quad.id} className={`quadrant ${quad.className}`}>
                     <div className="quadrant-header">
                       <div>
                         <h2 className="quadrant-title">{quad.title}</h2>
@@ -1029,10 +1022,6 @@ export function MainView({
                                 : undefined
                             }
                             showMove={mainSort === "manual"}
-                            draggable
-                            onDragStart={(event) =>
-                              handleDragStart(task, event)
-                            }
                             onMoveUp={() =>
                               void handleMoveTask(
                                 task,
