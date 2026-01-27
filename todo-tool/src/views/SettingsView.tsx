@@ -833,6 +833,78 @@ export function SettingsView({
                     </select>
                   </div>
                   <div className="settings-row">
+                    <label>{t("settings.uiRadius")}</label>
+                    <select
+                      value={settings.ui_radius}
+                      onChange={(event) =>
+                        void onUpdateSettings({
+                          ...settings,
+                          ui_radius: event.currentTarget
+                            .value as Settings["ui_radius"],
+                        })
+                      }
+                    >
+                      <option value="theme">
+                        {t("settings.uiRadius.theme")}
+                      </option>
+                      <option value="sharp">
+                        {t("settings.uiRadius.sharp")}
+                      </option>
+                      <option value="round">
+                        {t("settings.uiRadius.round")}
+                      </option>
+                    </select>
+                  </div>
+                  <div className="settings-row">
+                    <label>{t("settings.uiBorder")}</label>
+                    <select
+                      value={settings.ui_border}
+                      onChange={(event) =>
+                        void onUpdateSettings({
+                          ...settings,
+                          ui_border: event.currentTarget
+                            .value as Settings["ui_border"],
+                        })
+                      }
+                    >
+                      <option value="theme">
+                        {t("settings.uiBorder.theme")}
+                      </option>
+                      <option value="thin">
+                        {t("settings.uiBorder.thin")}
+                      </option>
+                      <option value="thick">
+                        {t("settings.uiBorder.thick")}
+                      </option>
+                    </select>
+                  </div>
+                  <div className="settings-row">
+                    <label>{t("settings.uiShadow")}</label>
+                    <select
+                      value={settings.ui_shadow}
+                      onChange={(event) =>
+                        void onUpdateSettings({
+                          ...settings,
+                          ui_shadow: event.currentTarget
+                            .value as Settings["ui_shadow"],
+                        })
+                      }
+                    >
+                      <option value="theme">
+                        {t("settings.uiShadow.theme")}
+                      </option>
+                      <option value="none">
+                        {t("settings.uiShadow.none")}
+                      </option>
+                      <option value="soft">
+                        {t("settings.uiShadow.soft")}
+                      </option>
+                      <option value="strong">
+                        {t("settings.uiShadow.strong")}
+                      </option>
+                    </select>
+                  </div>
+                  <div className="settings-row">
                     <label>{t("settings.language")}</label>
                     <select
                       value={settings.language}

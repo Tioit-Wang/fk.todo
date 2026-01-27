@@ -69,6 +69,9 @@ export interface Task {
 export interface Settings {
   shortcut: string;
   theme: string;
+  ui_radius: "theme" | "sharp" | "round";
+  ui_border: "theme" | "thin" | "thick";
+  ui_shadow: "theme" | "none" | "soft" | "strong";
   language: "auto" | "zh" | "en";
   ai_enabled: boolean;
   deepseek_api_key: string;

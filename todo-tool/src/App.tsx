@@ -820,7 +820,11 @@ function App() {
   useEffect(() => {
     settingsRef.current = settings;
     if (!settings) return;
-    document.documentElement.dataset.theme = normalizeTheme(settings.theme);
+    const root = document.documentElement;
+    root.dataset.theme = normalizeTheme(settings.theme);
+    root.dataset.uiRadius = settings.ui_radius;
+    root.dataset.uiBorder = settings.ui_border;
+    root.dataset.uiShadow = settings.ui_shadow;
   }, [settings]);
 
   useEffect(() => {

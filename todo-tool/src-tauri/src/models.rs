@@ -137,11 +137,45 @@ pub enum UpdateBehavior {
     Disabled,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum UiRadius {
+    #[default]
+    Theme,
+    Sharp,
+    Round,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum UiBorder {
+    #[default]
+    Theme,
+    Thin,
+    Thick,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum UiShadow {
+    #[default]
+    Theme,
+    None,
+    Soft,
+    Strong,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct Settings {
     pub shortcut: String,
     pub theme: String,
+    #[serde(default)]
+    pub ui_radius: UiRadius,
+    #[serde(default)]
+    pub ui_border: UiBorder,
+    #[serde(default)]
+    pub ui_shadow: UiShadow,
     #[serde(default = "default_language")]
     pub language: String,
     #[serde(default)]
@@ -189,6 +223,9 @@ impl Default for Settings {
         Self {
             shortcut: "CommandOrControl+Shift+T".to_string(),
             theme: "retro".to_string(),
+            ui_radius: UiRadius::Theme,
+            ui_border: UiBorder::Theme,
+            ui_shadow: UiShadow::Theme,
             language: default_language(),
             ai_enabled: false,
             deepseek_api_key: String::new(),
@@ -474,6 +511,18 @@ mod tests {
         let settings = Settings::default();
         assert_eq!(settings.shortcut, "CommandOrControl+Shift+T");
         assert_eq!(settings.theme, "retro");
+        assert_eq!(
+            serde_json::to_value(&settings.ui_radius).expect("serialize ui_radius"),
+            serde_json::json!("theme")
+        );
+        assert_eq!(
+            serde_json::to_value(&settings.ui_border).expect("serialize ui_border"),
+            serde_json::json!("theme")
+        );
+        assert_eq!(
+            serde_json::to_value(&settings.ui_shadow).expect("serialize ui_shadow"),
+            serde_json::json!("theme")
+        );
         assert_eq!(settings.language, "auto");
         assert!(!settings.ai_enabled);
         assert!(settings.deepseek_api_key.is_empty());
@@ -531,6 +580,18 @@ mod tests {
         );
 
         // These fields must be filled by serde defaults.
+        assert_eq!(
+            serde_json::to_value(&settings.ui_radius).expect("serialize ui_radius"),
+            serde_json::json!("theme")
+        );
+        assert_eq!(
+            serde_json::to_value(&settings.ui_border).expect("serialize ui_border"),
+            serde_json::json!("theme")
+        );
+        assert_eq!(
+            serde_json::to_value(&settings.ui_shadow).expect("serialize ui_shadow"),
+            serde_json::json!("theme")
+        );
         assert_eq!(
             serde_json::to_value(&settings.minimize_behavior).expect("serialize minimize_behavior"),
             serde_json::json!("hide_to_tray")
