@@ -504,63 +504,64 @@
 }
 
 :root[data-theme="cyberpunk"] {
-    color: #f5f1ff;
-    background-color: #0b0617;
+    color: #f6f3ff;
+    background-color: #06010c;
 
-    --text: #f5f1ff;
-    --muted: rgba(245, 241, 255, 0.7);
-    --muted-strong: rgba(245, 241, 255, 0.88);
+    /* Cyberpunk palette (neon cyan / magenta). */
+    --text: #f6f3ff;
+    --muted: rgba(246, 243, 255, 0.7);
+    --muted-strong: rgba(246, 243, 255, 0.88);
 
-    --panel: rgba(17, 10, 35, 0.92);
-    --panel-strong: rgba(17, 10, 35, 0.98);
+    --panel: rgba(12, 5, 24, 0.9);
+    --panel-strong: rgba(12, 5, 24, 0.96);
 
-    --border-rgb: 134 110 255;
-    --border-alpha: 0.24;
-    --border-strong-rgb: 134 110 255;
-    --border-strong-alpha: 0.38;
+    --border-rgb: 160 116 255;
+    --border-alpha: 0.18;
+    --border-strong-rgb: 0 240 255;
+    --border-strong-alpha: 0.32;
 
-    --radius-xs: 6px;
-    --radius-checkbox: 7px;
+    --radius-xs: 4px;
+    --radius-checkbox: 6px;
     --radius-sm: 8px;
     --radius-md: 10px;
-    --radius-lg: 14px;
-    --radius-xl: 16px;
-    --radius-2xl: 18px;
-    --radius-3xl: 20px;
+    --radius-lg: 12px;
+    --radius-xl: 14px;
+    --radius-2xl: 16px;
+    --radius-3xl: 18px;
 
-    --accent: rgba(0, 240, 255, 0.92);
-    --accent-soft: rgba(0, 240, 255, 0.18);
+    --accent: rgba(0, 240, 255, 0.95);
+    --accent-soft: rgba(0, 240, 255, 0.16);
 
-    --danger: rgba(255, 78, 125, 0.92);
-    --danger-soft: rgba(255, 78, 125, 0.18);
-    --danger-border: rgba(255, 78, 125, 0.52);
+    --danger: rgba(255, 74, 104, 0.92);
+    --danger-soft: rgba(255, 74, 104, 0.16);
+    --danger-border: rgba(255, 74, 104, 0.52);
 
-    --warning: rgba(255, 209, 77, 0.92);
-    --warning-soft: rgba(255, 209, 77, 0.18);
-    --warning-border: rgba(255, 209, 77, 0.52);
+    --warning: rgba(255, 214, 84, 0.92);
+    --warning-soft: rgba(255, 214, 84, 0.16);
+    --warning-border: rgba(255, 214, 84, 0.52);
 
-    --success: rgba(70, 255, 170, 0.9);
-    --success-soft: rgba(70, 255, 170, 0.18);
-    --success-border: rgba(70, 255, 170, 0.48);
+    --success: rgba(80, 255, 140, 0.9);
+    --success-soft: rgba(80, 255, 140, 0.16);
+    --success-border: rgba(80, 255, 140, 0.48);
 
-    --neutral-soft: rgba(245, 241, 255, 0.12);
+    --neutral-soft: rgba(246, 243, 255, 0.12);
 
-    --overlay: rgba(4, 0, 10, 0.68);
-    --shadow-rgb: 134 110 255;
-    --shadow-alpha-sm: 0.16;
-    --shadow-alpha-md: 0.22;
-    --shadow-alpha-lg: 0.3;
-    --focus-ring: rgba(0, 240, 255, 0.52);
+    --overlay: rgba(2, 0, 10, 0.72);
+    --shadow-rgb: 60 0 130;
+    --shadow-alpha-sm: 0.14;
+    --shadow-alpha-md: 0.18;
+    --shadow-alpha-lg: 0.24;
+    --focus-ring: rgba(0, 240, 255, 0.6);
 
     --scrollbar-size: 10px;
-    --scrollbar-thumb: rgba(134, 110, 255, 0.26);
-    --scrollbar-thumb-hover: rgba(255, 70, 225, 0.32);
-    --scrollbar-thumb-active: rgba(255, 70, 225, 0.44);
+    --scrollbar-thumb: rgba(160, 116, 255, 0.24);
+    --scrollbar-thumb-hover: rgba(255, 61, 240, 0.34);
+    --scrollbar-thumb-active: rgba(0, 240, 255, 0.42);
 
     --quick-bg:
         radial-gradient(
             1100px 700px at 10% 0%,
-            rgba(255, 70, 225, 0.22),
+            rgba(255, 61, 240, 0.24),
             rgba(0, 0, 0, 0) 60%
         ),
         radial-gradient(
@@ -568,12 +569,31 @@
             rgba(0, 240, 255, 0.18),
             rgba(0, 0, 0, 0) 60%
         ),
-        linear-gradient(160deg, rgba(17, 10, 35, 0.9), rgba(7, 3, 18, 0.95));
-    --main-bg: linear-gradient(
-        180deg,
-        rgba(17, 10, 35, 0.96),
-        rgba(7, 3, 18, 0.96)
-    );
+        linear-gradient(160deg, rgba(12, 5, 24, 0.88), rgba(6, 2, 14, 0.94));
+    --main-bg:
+        radial-gradient(
+            1200px 800px at 15% -10%,
+            rgba(255, 61, 240, 0.22),
+            rgba(0, 0, 0, 0) 60%
+        ),
+        radial-gradient(
+            1000px 700px at 105% 25%,
+            rgba(0, 240, 255, 0.18),
+            rgba(0, 0, 0, 0) 60%
+        ),
+        radial-gradient(
+            900px 700px at 50% 120%,
+            rgba(160, 116, 255, 0.14),
+            rgba(0, 0, 0, 0) 65%
+        ),
+        repeating-linear-gradient(
+            180deg,
+            rgba(0, 240, 255, 0.02) 0px,
+            rgba(0, 240, 255, 0.02) 1px,
+            rgba(0, 0, 0, 0) 1px,
+            rgba(0, 0, 0, 0) 10px
+        ),
+        linear-gradient(180deg, rgba(12, 5, 24, 0.98), rgba(6, 2, 14, 0.98));
 }
 
 :root[data-view="quick"][data-theme="retro"],
@@ -754,26 +774,33 @@
 }
 
 :root[data-view="quick"][data-theme="cyberpunk"] {
-    color: #f5f1ff;
+    color: #f6f3ff;
     background-color: transparent;
-    --text: #f5f1ff;
-    --muted: rgba(245, 241, 255, 0.72);
-    --muted-strong: rgba(245, 241, 255, 0.88);
-    --panel: rgba(17, 10, 35, 0.6);
-    --panel-strong: rgba(17, 10, 35, 0.78);
-    --border-alpha: 0.3;
-    --border-strong-alpha: 0.46;
-    --accent: rgba(0, 240, 255, 0.9);
-    --accent-soft: rgba(0, 240, 255, 0.2);
-    --main-bg: linear-gradient(
-        180deg,
-        rgba(17, 10, 35, 0.78),
-        rgba(7, 3, 18, 0.72)
-    );
+    --text: #f6f3ff;
+    --muted: rgba(246, 243, 255, 0.72);
+    --muted-strong: rgba(246, 243, 255, 0.88);
+    --panel: rgba(12, 5, 24, 0.56);
+    --panel-strong: rgba(12, 5, 24, 0.74);
+    --border-alpha: 0.24;
+    --border-strong-alpha: 0.4;
+    --accent: rgba(0, 240, 255, 0.92);
+    --accent-soft: rgba(0, 240, 255, 0.18);
+    --main-bg:
+        radial-gradient(
+            1000px 700px at 12% 0%,
+            rgba(255, 61, 240, 0.2),
+            rgba(0, 0, 0, 0) 60%
+        ),
+        radial-gradient(
+            900px 650px at 92% 18%,
+            rgba(0, 240, 255, 0.16),
+            rgba(0, 0, 0, 0) 60%
+        ),
+        linear-gradient(180deg, rgba(12, 5, 24, 0.76), rgba(6, 2, 14, 0.7));
     --quick-bg:
         radial-gradient(
             900px 700px at 10% 0%,
-            rgba(255, 70, 225, 0.22),
+            rgba(255, 61, 240, 0.22),
             rgba(0, 0, 0, 0) 60%
         ),
         radial-gradient(
@@ -781,7 +808,7 @@
             rgba(0, 240, 255, 0.18),
             rgba(0, 0, 0, 0) 60%
         ),
-        linear-gradient(160deg, rgba(17, 10, 35, 0.76), rgba(7, 3, 18, 0.72));
+        linear-gradient(160deg, rgba(12, 5, 24, 0.74), rgba(6, 2, 14, 0.68));
 }
 
 :root[data-ui-radius="sharp"] {
