@@ -824,9 +824,6 @@ export function SettingsView({
                       </option>
                       <option value="tech">{t("settings.theme.tech")}</option>
                       <option value="calm">{t("settings.theme.calm")}</option>
-                      <option value="vscode">
-                        {t("settings.theme.vscode")}
-                      </option>
                       <option value="cyberpunk">
                         {t("settings.theme.cyberpunk")}
                       </option>
