@@ -816,10 +816,19 @@ export function SettingsView({
                       }
                     >
                       <option value="retro">{t("settings.theme.retro")}</option>
+                      <option value="elegant">
+                        {t("settings.theme.elegant")}
+                      </option>
+                      <option value="web90s">
+                        {t("settings.theme.web90s")}
+                      </option>
                       <option value="tech">{t("settings.theme.tech")}</option>
                       <option value="calm">{t("settings.theme.calm")}</option>
                       <option value="vscode">
                         {t("settings.theme.vscode")}
+                      </option>
+                      <option value="cyberpunk">
+                        {t("settings.theme.cyberpunk")}
                       </option>
                     </select>
                   </div>

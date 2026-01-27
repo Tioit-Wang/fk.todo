@@ -1,6 +1,21 @@
-export type ThemeId = "retro" | "tech" | "calm" | "vscode";
+export type ThemeId =
+  | "retro"
+  | "elegant"
+  | "web90s"
+  | "tech"
+  | "calm"
+  | "vscode"
+  | "cyberpunk";
 
-const knownThemes = new Set<ThemeId>(["retro", "tech", "calm", "vscode"]);
+const knownThemes = new Set<ThemeId>([
+  "retro",
+  "elegant",
+  "web90s",
+  "tech",
+  "calm",
+  "vscode",
+  "cyberpunk",
+]);
 
 export function normalizeTheme(value: string | null | undefined): ThemeId {
   if (!value) return "retro";
