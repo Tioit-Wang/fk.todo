@@ -537,10 +537,26 @@ function App() {
 
           if (snoozePreset) {
             const until = computeSnoozeUntilSeconds(snoozePreset);
-            await snoozeTask(taskId, until);
+            const result = await snoozeTask(taskId, until);
+            if (!result.ok) {
+              toast.notify(result.error ?? t("alert.operationFailed"), {
+                tone: "danger",
+                durationMs: 6000,
+              });
+              await refreshState();
+              return;
+            }
             setNormalQueueIds((prev) => prev.filter((id) => id !== taskId));
           } else if (actionId === NOTIFICATION_ACTION_COMPLETE) {
-            await completeTask(taskId);
+            const result = await completeTask(taskId);
+            if (!result.ok) {
+              toast.notify(result.error ?? t("alert.operationFailed"), {
+                tone: "danger",
+                durationMs: 6000,
+              });
+              await refreshState();
+              return;
+            }
             setNormalQueueIds((prev) => prev.filter((id) => id !== taskId));
           }
         }
@@ -1454,7 +1470,14 @@ function App() {
       return next;
     });
 
-    await snoozeTask(taskId, until);
+    const result = await snoozeTask(taskId, until);
+    if (!result.ok) {
+      toast.notify(result.error ?? t("alert.operationFailed"), {
+        tone: "danger",
+        durationMs: 6000,
+      });
+      await refreshState();
+    }
   }
 
   async function handleReminderDismiss() {
@@ -1470,7 +1493,14 @@ function App() {
       return next;
     });
 
-    await dismissForced(taskId);
+    const result = await dismissForced(taskId);
+    if (!result.ok) {
+      toast.notify(result.error ?? t("alert.operationFailed"), {
+        tone: "danger",
+        durationMs: 6000,
+      });
+      await refreshState();
+    }
   }
 
   async function handleReminderComplete() {
@@ -1486,17 +1516,40 @@ function App() {
       return next;
     });
 
-    await completeTask(taskId);
+    const result = await completeTask(taskId);
+    if (!result.ok) {
+      toast.notify(result.error ?? t("alert.operationFailed"), {
+        tone: "danger",
+        durationMs: 6000,
+      });
+      await refreshState();
+    }
   }
 
   async function handleNormalSnooze(task: Task, preset: SnoozePresetId) {
     const until = computeSnoozeUntilSeconds(preset);
-    await snoozeTask(task.id, until);
+    const result = await snoozeTask(task.id, until);
+    if (!result.ok) {
+      toast.notify(result.error ?? t("alert.operationFailed"), {
+        tone: "danger",
+        durationMs: 6000,
+      });
+      await refreshState();
+      return;
+    }
     setNormalQueueIds((prev) => prev.filter((id) => id !== task.id));
   }
 
   async function handleNormalComplete(task: Task) {
-    await completeTask(task.id);
+    const result = await completeTask(task.id);
+    if (!result.ok) {
+      toast.notify(result.error ?? t("alert.operationFailed"), {
+        tone: "danger",
+        durationMs: 6000,
+      });
+      await refreshState();
+      return;
+    }
     setNormalQueueIds((prev) => prev.filter((id) => id !== task.id));
   }
 

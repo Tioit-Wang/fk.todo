@@ -533,6 +533,10 @@ fn create_task_impl(ctx: &impl CommandCtx, state: &AppState, task: Task) -> Comm
 
 fn update_task_impl(ctx: &impl CommandCtx, state: &AppState, task: Task) -> CommandResult<Task> {
     let mut task = task;
+    if !state.tasks().iter().any(|existing| existing.id == task.id) {
+        log::warn!("cmd=update_task task not found id={}", task.id);
+        return err("task not found");
+    }
     let original_project_id = task.project_id.clone();
     if task.sort_order == 0 {
         task.sort_order = task.created_at * 1000;
@@ -662,11 +666,26 @@ fn complete_task_impl(
     state: &AppState,
     task_id: String,
 ) -> CommandResult<Task> {
-    let completed = match state.complete_task(&task_id) {
+    let existing = match state.tasks().into_iter().find(|task| task.id == task_id) {
         Some(task) => task,
         None => {
             log::warn!("cmd=complete_task task not found id={}", task_id);
             return err("task not found");
+        }
+    };
+    if existing.completed {
+        log::info!(
+            "cmd=complete_task id={} already_completed=true",
+            existing.id
+        );
+        return ok(existing);
+    }
+
+    let completed = match state.complete_task(&task_id) {
+        Some(task) => task,
+        None => {
+            log::warn!("cmd=complete_task task already completed id={}", task_id);
+            return err("task already completed");
         }
     };
 
@@ -713,7 +732,18 @@ fn bulk_complete_tasks_impl(
     let total = task_ids.len();
     let mut completed_count = 0usize;
     let mut repeated_created = 0usize;
+    let mut seen = std::collections::HashSet::<String>::new();
     for task_id in task_ids {
+        if !seen.insert(task_id.clone()) {
+            continue;
+        }
+        let Some(existing) = state.tasks().into_iter().find(|task| task.id == task_id) else {
+            continue;
+        };
+        if existing.completed {
+            continue;
+        }
+
         let completed = match state.complete_task(&task_id) {
             Some(task) => task,
             None => continue,
@@ -2065,6 +2095,13 @@ mod tests {
         assert_eq!(state.tasks()[0].title, "updated");
         assert_ne!(state.tasks()[0].sort_order, 0);
 
+        // update_task returns an explicit error when task id does not exist.
+        let mut missing = make_task("missing", 1000);
+        missing.title = "no-op".into();
+        let res = update_task_impl(&ctx3, &state, missing);
+        assert!(!res.ok);
+        assert_eq!(res.error, Some("task not found".to_string()));
+
         // update_task persist failure path.
         let update_ctx_fail = TestCtx::with_app_data_dir_error("nope");
         let state_update_fail = make_state(vec![state.tasks()[0].clone()]);
@@ -2115,6 +2152,11 @@ mod tests {
         assert!(res.ok);
         assert!(res.data.unwrap().completed);
 
+        // Repeating complete_task on an already completed task should be idempotent.
+        let res = complete_task_impl(&ctx, &state, "a".into());
+        assert!(res.ok);
+        assert!(res.data.unwrap().completed);
+
         // RepeatRule != None creates a new task instance.
         let mut task = make_task("r", 1000);
         task.repeat = RepeatRule::Daily {
@@ -2126,7 +2168,14 @@ mod tests {
         let next = res.data.unwrap();
         assert!(!next.completed);
         assert!(next.id.starts_with("r-"));
-        assert!(state.tasks().len() >= 2);
+        let count_after_first = state.tasks().len();
+        assert!(count_after_first >= 2);
+
+        // Completing the same already-completed repeat task again should not spawn another one.
+        let res = complete_task_impl(&ctx, &state, "r".into());
+        assert!(res.ok);
+        assert!(res.data.unwrap().completed);
+        assert_eq!(state.tasks().len(), count_after_first);
 
         // Persist error path.
         let ctx_fail = TestCtx::new();
@@ -2544,7 +2593,11 @@ mod tests {
         };
 
         let state = make_state(vec![make_task("a", 100), repeating.clone()]);
-        let res = bulk_complete_tasks_impl(&ctx, &state, vec!["a".to_string(), "r".to_string()]);
+        let res = bulk_complete_tasks_impl(
+            &ctx,
+            &state,
+            vec!["a".to_string(), "r".to_string(), "r".to_string()],
+        );
         assert!(res.ok);
 
         let tasks = state.tasks();
@@ -2561,6 +2614,13 @@ mod tests {
             .expect("next repeat task should exist");
         assert!(!r_next.completed);
         assert_eq!(r_next.due_at, expected_next_due);
+        assert_eq!(
+            tasks
+                .iter()
+                .filter(|t| t.id.starts_with("r-") && !t.completed)
+                .count(),
+            1
+        );
 
         // One persist => one state_updated emission.
         assert_eq!(ctx.emitted.lock().unwrap().len(), 1);

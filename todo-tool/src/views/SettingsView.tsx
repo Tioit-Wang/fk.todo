@@ -166,7 +166,14 @@ export function SettingsView({
   }
 
   async function handleCreateBackup() {
-    await createBackup();
+    const res = await createBackup();
+    if (!res.ok) {
+      toast.notify(res.error ?? t("alert.operationFailed"), {
+        tone: "danger",
+        durationMs: 6000,
+      });
+      return;
+    }
     await refreshBackups();
   }
 
@@ -178,7 +185,15 @@ export function SettingsView({
       cancelText: t("common.cancel"),
     });
     if (!ok) return;
-    await restoreBackup(name);
+    const res = await restoreBackup(name);
+    if (!res.ok) {
+      toast.notify(res.error ?? t("alert.operationFailed"), {
+        tone: "danger",
+        durationMs: 6000,
+      });
+      return;
+    }
+    await refreshBackups();
   }
 
   async function handleDeleteBackup(name: string) {
@@ -190,7 +205,14 @@ export function SettingsView({
       tone: "danger",
     });
     if (!ok) return;
-    await deleteBackup(name);
+    const res = await deleteBackup(name);
+    if (!res.ok) {
+      toast.notify(res.error ?? t("alert.operationFailed"), {
+        tone: "danger",
+        durationMs: 6000,
+      });
+      return;
+    }
     await refreshBackups();
   }
 
@@ -209,8 +231,16 @@ export function SettingsView({
         cancelText: t("common.cancel"),
       });
       if (!ok) return;
-      await importBackup(selected);
+      const res = await importBackup(selected);
+      if (!res.ok) {
+        toast.notify(res.error ?? t("alert.operationFailed"), {
+          tone: "danger",
+          durationMs: 6000,
+        });
+        return;
+      }
       setImportPath(selected);
+      await refreshBackups();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       toast.notify(message || t("common.unknownError"), {

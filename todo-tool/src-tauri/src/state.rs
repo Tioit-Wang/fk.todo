@@ -259,6 +259,9 @@ impl AppState {
         let now = Utc::now().timestamp();
         let mut completed_task: Option<Task> = None;
         if let Some(task) = guard.tasks.iter_mut().find(|t| t.id == task_id) {
+            if task.completed {
+                return None;
+            }
             task.completed = true;
             task.completed_at = Some(now);
             task.updated_at = now;
@@ -437,6 +440,7 @@ mod tests {
         assert_eq!(completed.completed_at, Some(completed.updated_at));
         assert_eq!(completed.reminder.snoozed_until, None);
         assert_eq!(completed.reminder.last_fired_at, completed.completed_at);
+        assert!(state.complete_task("a").is_none());
 
         // Not found => None.
         assert!(state.complete_task("missing").is_none());
